@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
+from datetime import datetime, timezone
+import inspect
 from pathlib import Path
 from typing import Any
+import uuid
 
-from simplified_chatbot.agent.types import Message
-from simplified_chatbot.agent.types import RunResult
+from simplified_chatbot.agent.types import Message, RunResult
 from simplified_chatbot.chatbot import SimplifiedChatbot
 from simplified_chatbot.config.loader import load_config
 from simplified_chatbot.runtime.session_store import (
@@ -75,15 +77,41 @@ class LocalAgentRuntime:
         )
 
     def handle_message(self, session_id: str, message: str) -> RunResult:
+        return self.handle_message_with_events(
+            session_id,
+            message,
+            on_event=None,
+        )
+
+    def handle_message_with_events(
+        self,
+        session_id: str,
+        message: str,
+        *,
+        on_event: Callable[[str, dict[str, Any]], None] | None = None,
+    ) -> RunResult:
         if isinstance(self.store, AsyncSessionStore):
             raise RuntimeError(
                 "This runtime is using an AsyncSessionStore. "
                 "Use handle_message_async(...) instead of handle_message(...).",
             )
+        _emit_runtime_event(
+            on_event,
+            "run_started",
+            {"session_id": session_id, "message": message},
+        )
         chatbot = self._get_chatbot_for_session(session_id)
         history = self.store.load_history(session_id)
-        result = chatbot.run(message, history=history)
-        self.store.save_history(session_id, result.messages)
+        result = _invoke_chatbot_method(
+            chatbot.run,
+            message,
+            history=history,
+            on_event=on_event,
+        )
+        self.store.save_history(
+            session_id,
+            _prepare_history_for_persistence(result.messages),
+        )
         return result
 
     def handle_message_stream(
@@ -92,21 +120,52 @@ class LocalAgentRuntime:
         message: str,
         *,
         on_delta: Callable[[str], None] | None = None,
+        on_event: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> RunResult:
         if isinstance(self.store, AsyncSessionStore):
             raise RuntimeError(
                 "This runtime is using an AsyncSessionStore. "
                 "Use handle_message_stream_async(...) instead of handle_message_stream(...).",
             )
+        _emit_runtime_event(
+            on_event,
+            "run_started",
+            {"session_id": session_id, "message": message},
+        )
         chatbot = self._get_chatbot_for_session(session_id)
         history = self.store.load_history(session_id)
-        result = chatbot.run_stream(message, history=history, on_delta=on_delta)
-        self.store.save_history(session_id, result.messages)
+        result = _invoke_chatbot_method(
+            chatbot.run_stream,
+            message,
+            history=history,
+            on_delta=on_delta,
+            on_event=on_event,
+        )
+        self.store.save_history(
+            session_id,
+            _prepare_history_for_persistence(result.messages),
+        )
         return result
 
-    async def handle_message_async(self, session_id: str, message: str) -> RunResult:
+    async def handle_message_async(
+        self,
+        session_id: str,
+        message: str,
+        *,
+        on_event: Callable[[str, dict[str, Any]], None] | None = None,
+    ) -> RunResult:
+        _emit_runtime_event(
+            on_event,
+            "run_started",
+            {"session_id": session_id, "message": message},
+        )
         history = await self._load_history_async(session_id)
-        result = await self._run_chat_async(session_id, message, history=history)
+        result = await self._run_chat_async(
+            session_id,
+            message,
+            history=history,
+            on_event=on_event,
+        )
         await self._save_history_async(session_id, result.messages)
         return result
 
@@ -116,13 +175,20 @@ class LocalAgentRuntime:
         message: str,
         *,
         on_delta: Callable[[str], None] | None = None,
+        on_event: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> RunResult:
+        _emit_runtime_event(
+            on_event,
+            "run_started",
+            {"session_id": session_id, "message": message},
+        )
         history = await self._load_history_async(session_id)
         result = await self._run_chat_stream_async(
             session_id,
             message,
             history=history,
             on_delta=on_delta,
+            on_event=on_event,
         )
         await self._save_history_async(session_id, result.messages)
         return result
@@ -144,6 +210,59 @@ class LocalAgentRuntime:
             )
         return self.store.list_sessions()
 
+    def list_session_summaries(self) -> list[dict[str, object]]:
+        if isinstance(self.store, AsyncSessionStore):
+            raise RuntimeError(
+                "This runtime is using an AsyncSessionStore. "
+                "Use list_session_summaries_async(...) instead of list_session_summaries(...).",
+            )
+        return [
+            self._build_session_summary(
+                session_id,
+                self.store.load_history(session_id),
+                self.store.get_session_metadata(session_id),
+            )
+            for session_id in self.store.list_sessions()
+        ]
+
+    def create_session(
+        self,
+        *,
+        title: str | None = None,
+        session_id: str | None = None,
+    ) -> dict[str, object]:
+        if isinstance(self.store, AsyncSessionStore):
+            raise RuntimeError(
+                "This runtime is using an AsyncSessionStore. "
+                "Use create_session_async(...) instead of create_session(...).",
+            )
+        resolved_session_id = session_id or _generate_session_id()
+        metadata = self.store.create_session(
+            resolved_session_id,
+            {"title": _normalize_session_title(title)},
+        )
+        if self.workspace_manager is not None:
+            self.workspace_manager.ensure_workspace(resolved_session_id)
+        return self._build_session_summary(resolved_session_id, [], metadata)
+
+    def rename_session(self, session_id: str, title: str) -> dict[str, object]:
+        if isinstance(self.store, AsyncSessionStore):
+            raise RuntimeError(
+                "This runtime is using an AsyncSessionStore. "
+                "Use rename_session_async(...) instead of rename_session(...).",
+            )
+        metadata = self.store.update_session_metadata(
+            session_id,
+            {"title": _normalize_session_title(title)},
+        )
+        if metadata is None:
+            raise KeyError(session_id)
+        return self._build_session_summary(
+            session_id,
+            self.store.load_history(session_id),
+            metadata,
+        )
+
     async def reset_session_async(self, session_id: str) -> None:
         if isinstance(self.store, AsyncSessionStore):
             await self.store.delete_session(session_id)
@@ -156,6 +275,61 @@ class LocalAgentRuntime:
             return await self.store.list_sessions()
         return await asyncio.to_thread(self.store.list_sessions)
 
+    async def list_session_summaries_async(self) -> list[dict[str, object]]:
+        session_ids = await self.list_sessions_async()
+        summaries: list[dict[str, object]] = []
+        for session_id in session_ids:
+            history = await self._load_history_async(session_id)
+            metadata = await self._load_session_metadata_async(session_id)
+            summaries.append(self._build_session_summary(session_id, history, metadata))
+        return summaries
+
+    async def get_session_summary_async(self, session_id: str) -> dict[str, object] | None:
+        history = await self._load_history_async(session_id)
+        metadata = await self._load_session_metadata_async(session_id)
+        if not history and metadata is None:
+            return None
+        return self._build_session_summary(session_id, history, metadata)
+
+    async def create_session_async(
+        self,
+        *,
+        title: str | None = None,
+        session_id: str | None = None,
+    ) -> dict[str, object]:
+        resolved_session_id = session_id or _generate_session_id()
+        payload = {"title": _normalize_session_title(title)}
+        create_session = getattr(self.store, "create_session", None)
+        if not callable(create_session):
+            raise RuntimeError("Session store does not support create_session")
+        if isinstance(self.store, AsyncSessionStore):
+            result = create_session(resolved_session_id, payload)
+            metadata = await result if inspect.isawaitable(result) else result
+        else:
+            metadata = await asyncio.to_thread(
+                create_session,
+                resolved_session_id,
+                payload,
+            )
+        if self.workspace_manager is not None:
+            self.workspace_manager.ensure_workspace(resolved_session_id)
+        return self._build_session_summary(resolved_session_id, [], metadata)
+
+    async def rename_session_async(self, session_id: str, title: str) -> dict[str, object]:
+        update_metadata = getattr(self.store, "update_session_metadata", None)
+        if not callable(update_metadata):
+            raise RuntimeError("Session store does not support update_session_metadata")
+        payload = {"title": _normalize_session_title(title)}
+        if isinstance(self.store, AsyncSessionStore):
+            result = update_metadata(session_id, payload)
+            metadata = await result if inspect.isawaitable(result) else result
+        else:
+            metadata = await asyncio.to_thread(update_metadata, session_id, payload)
+        if metadata is None:
+            raise KeyError(session_id)
+        history = await self._load_history_async(session_id)
+        return self._build_session_summary(session_id, history, metadata)
+
     async def load_history_async(self, session_id: str) -> list[Message]:
         return await self._load_history_async(session_id)
 
@@ -165,21 +339,42 @@ class LocalAgentRuntime:
         return await asyncio.to_thread(self.store.load_history, session_id)
 
     async def _save_history_async(self, session_id: str, history: list[Message]) -> None:
+        prepared = _prepare_history_for_persistence(history)
         if isinstance(self.store, AsyncSessionStore):
-            await self.store.save_history(session_id, history)
+            await self.store.save_history(session_id, prepared)
             return
-        await asyncio.to_thread(self.store.save_history, session_id, history)
+        await asyncio.to_thread(self.store.save_history, session_id, prepared)
+
+    async def _load_session_metadata_async(self, session_id: str) -> dict[str, object] | None:
+        get_metadata = getattr(self.store, "get_session_metadata", None)
+        if not callable(get_metadata):
+            return None
+        if isinstance(self.store, AsyncSessionStore):
+            result = get_metadata(session_id)
+            if inspect.isawaitable(result):
+                return await result
+            return result
+        return await asyncio.to_thread(get_metadata, session_id)
 
     async def _run_chat_async(
         self,
         session_id: str,
         message: str,
         history: list[Message],
+        on_event: Callable[[str, dict[str, Any]], None] | None,
     ) -> RunResult:
         chatbot = self._get_chatbot_for_session(session_id)
         run_async = getattr(chatbot, "run_async", None)
         if callable(run_async):
-            return await run_async(message, history=history)
+            result = _invoke_chatbot_method(
+                run_async,
+                message,
+                history=history,
+                on_event=on_event,
+            )
+            if inspect.isawaitable(result):
+                return await result
+            return result
         return await asyncio.to_thread(chatbot.run, message, history=history)
 
     async def _run_chat_stream_async(
@@ -189,15 +384,21 @@ class LocalAgentRuntime:
         *,
         history: list[Message],
         on_delta: Callable[[str], None] | None,
+        on_event: Callable[[str, dict[str, Any]], None] | None,
     ) -> RunResult:
         chatbot = self._get_chatbot_for_session(session_id)
         run_stream_async = getattr(chatbot, "run_stream_async", None)
         if callable(run_stream_async):
-            return await run_stream_async(
+            result = _invoke_chatbot_method(
+                run_stream_async,
                 message,
                 history=history,
                 on_delta=on_delta,
+                on_event=on_event,
             )
+            if inspect.isawaitable(result):
+                return await result
+            return result
         return await asyncio.to_thread(
             chatbot.run_stream,
             message,
@@ -222,6 +423,58 @@ class LocalAgentRuntime:
         self._session_chatbots[session_id] = session_chatbot
         return session_chatbot
 
+    @staticmethod
+    def _build_session_summary(
+        session_id: str,
+        history: list[Message],
+        metadata: dict[str, object] | None,
+    ) -> dict[str, object]:
+        first_user = next(
+            (
+                str(message["content"])
+                for message in history
+                if message.get("role") == "user" and str(message.get("content", "")).strip()
+            ),
+            "",
+        )
+        last_user = next(
+            (
+                str(message["content"])
+                for message in reversed(history)
+                if message.get("role") == "user" and str(message.get("content", "")).strip()
+            ),
+            "",
+        )
+        last_assistant = next(
+            (
+                str(message["content"])
+                for message in reversed(history)
+                if message.get("role") == "assistant" and str(message.get("content", "")).strip()
+            ),
+            "",
+        )
+        session_metadata = metadata or {}
+        created_at = session_metadata.get("created_at")
+        updated_at = session_metadata.get("updated_at")
+        title = session_metadata.get("title")
+        return {
+            "session_id": session_id,
+            "title": (
+                str(title)
+                if isinstance(title, str) and title.strip()
+                else _derive_session_title(first_user, session_id=session_id)
+            ),
+            "created_at": created_at if isinstance(created_at, str) else None,
+            "updated_at": updated_at if isinstance(updated_at, str) else None,
+            "message_count": sum(
+                1
+                for message in history
+                if message.get("role") in {"user", "assistant"}
+            ),
+            "last_user_message": _preview_text(last_user),
+            "last_assistant_preview": _preview_text(last_assistant),
+        }
+
 
 def _resolve_workspace_root_dir(
     *,
@@ -242,3 +495,69 @@ def _resolve_workspace_root_dir(
         else:
             path = Path.cwd() / path
     return path.resolve()
+
+
+def _emit_runtime_event(
+    callback: Callable[[str, dict[str, Any]], None] | None,
+    event: str,
+    data: dict[str, Any],
+) -> None:
+    if callback is not None:
+        callback(event, data)
+
+
+def _invoke_chatbot_method(
+    method: Callable[..., Any],
+    *args: object,
+    history: list[Message],
+    on_delta: Callable[[str], None] | None = None,
+    on_event: Callable[[str, dict[str, Any]], None] | None = None,
+) -> Any:
+    kwargs: dict[str, Any] = {"history": history}
+    signature = inspect.signature(method)
+    if on_delta is not None and "on_delta" in signature.parameters:
+        kwargs["on_delta"] = on_delta
+    if on_event is not None and "on_event" in signature.parameters:
+        kwargs["on_event"] = on_event
+    return method(*args, **kwargs)
+
+
+def _derive_session_title(first_user_message: str, *, session_id: str) -> str:
+    normalized = " ".join(first_user_message.split()).strip()
+    if not normalized:
+        return "New Chat"
+    return normalized[:30]
+
+
+def _preview_text(text: str, *, limit: int = 80) -> str:
+    normalized = " ".join(text.split()).strip()
+    if len(normalized) <= limit:
+        return normalized
+    return normalized[: limit - 3] + "..."
+
+
+def _prepare_history_for_persistence(history: list[Message]) -> list[Message]:
+    prepared: list[Message] = []
+    for raw_message in history:
+        message = dict(raw_message)
+        message.setdefault("id", _generate_message_id())
+        message.setdefault("created_at", _utc_timestamp())
+        prepared.append(message)
+    return prepared
+
+
+def _generate_session_id() -> str:
+    return f"session_{uuid.uuid4().hex}"
+
+
+def _generate_message_id() -> str:
+    return f"msg_{uuid.uuid4().hex}"
+
+
+def _utc_timestamp() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _normalize_session_title(title: str | None) -> str:
+    normalized = " ".join((title or "").split()).strip()
+    return normalized or "New Chat"
