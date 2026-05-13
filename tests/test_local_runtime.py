@@ -151,6 +151,8 @@ def test_local_runtime_uses_existing_history_and_persists_new_turn():
     assert r2.content == "echo:again"
     assert len(bot.calls[1][1]) == 2
     assert store.load_history("s1")[-1]["content"] == "echo:again"
+    assert store.load_history("s1")[-1]["id"].startswith("msg_")
+    assert store.load_history("s1")[-1]["created_at"].endswith("Z")
 
 
 def test_local_runtime_stream_persists_history():
@@ -164,6 +166,8 @@ def test_local_runtime_stream_persists_history():
     assert result.content == "echo:hello"
     assert deltas == ["echo:", "hello"]
     assert store.load_history("s1")[-1]["content"] == "echo:hello"
+    assert store.load_history("s1")[-1]["id"].startswith("msg_")
+    assert store.load_history("s1")[-1]["created_at"].endswith("Z")
 
 
 def test_local_runtime_with_jsonl_store_persists_to_files(tmp_path: Path):
@@ -229,6 +233,31 @@ def test_local_runtime_async_with_sync_store_prefers_async_chatbot():
     assert streamed.content == "async:again"
     assert deltas == ["async:", "again"]
     assert sessions == ["s1"]
+
+
+def test_local_runtime_create_and_rename_session():
+    runtime = LocalAgentRuntime(chatbot=_DummyChatbot(), store=InMemorySessionStore())
+
+    created = runtime.create_session(title="Plan this", session_id="s1")
+    renamed = runtime.rename_session("s1", "Renamed title")
+
+    assert created["session_id"] == "s1"
+    assert created["title"] == "Plan this"
+    assert created["message_count"] == 0
+    assert isinstance(created["created_at"], str)
+    assert isinstance(created["updated_at"], str)
+    assert renamed["title"] == "Renamed title"
+
+
+def test_local_runtime_async_create_and_rename_session():
+    runtime = LocalAgentRuntime(chatbot=_AsyncOnlyChatbot(), store=InMemorySessionStore())
+
+    created = asyncio.run(runtime.create_session_async(title="Async plan", session_id="s1"))
+    renamed = asyncio.run(runtime.rename_session_async("s1", "Async renamed"))
+
+    assert created["session_id"] == "s1"
+    assert created["title"] == "Async plan"
+    assert renamed["title"] == "Async renamed"
 
 
 def test_local_runtime_session_workspaces_are_isolated(tmp_path: Path):

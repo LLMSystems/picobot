@@ -223,6 +223,43 @@ def test_agent_loop_executes_fake_tools_across_multiple_iterations():
     }
 
 
+def test_agent_loop_emits_tool_events():
+    config = ChatbotConfig(model="gpt-4.1-mini", max_iterations=4)
+    loop = AgentLoop(
+        provider=ToolCallingProvider(),
+        config=config,
+        system_prompt="System prompt",
+        tools=build_fake_tool_registry(),
+    )
+    events: list[tuple[str, dict[str, object]]] = []
+
+    result = loop.run(
+        "What is 2+2?",
+        on_event=lambda event, data: events.append((event, data)),
+    )
+
+    assert result.content == "The answer is 4."
+    assert events == [
+        (
+            "tool_call_started",
+            {
+                "id": "call_1",
+                "name": "calculator",
+                "arguments": {"expression": "2+2"},
+            },
+        ),
+        (
+            "tool_call_finished",
+            {
+                "id": "call_1",
+                "name": "calculator",
+                "ok": True,
+                "result": "4",
+            },
+        ),
+    ]
+
+
 class ReadFileToolCallingProvider:
     def __init__(self) -> None:
         self.iteration = 0

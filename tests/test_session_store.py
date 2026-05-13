@@ -37,6 +37,19 @@ def test_inmemory_store_delete():
     assert store.list_sessions() == []
 
 
+def test_inmemory_store_create_and_update_metadata():
+    store = InMemorySessionStore()
+
+    created = store.create_session("s1", {"title": "Draft"})
+    updated = store.update_session_metadata("s1", {"title": "Renamed"})
+
+    assert created["session_id"] == "s1"
+    assert created["title"] == "Draft"
+    assert updated is not None
+    assert updated["title"] == "Renamed"
+    assert store.list_sessions() == ["s1"]
+
+
 def test_jsonl_store_round_trip(tmp_path: Path):
     store = JsonlSessionStore(tmp_path / "sessions")
     store.save_history("chat-1", _sample_history())
@@ -64,6 +77,19 @@ def test_jsonl_store_delete(tmp_path: Path):
 
     assert store.load_history("chat-1") == []
     assert store.list_sessions() == []
+
+
+def test_jsonl_store_create_and_update_metadata(tmp_path: Path):
+    store = JsonlSessionStore(tmp_path / "sessions")
+
+    created = store.create_session("chat-1", {"title": "Draft"})
+    updated = store.update_session_metadata("chat-1", {"title": "Renamed"})
+
+    assert created["session_id"] == "chat-1"
+    assert created["title"] == "Draft"
+    assert updated is not None
+    assert updated["title"] == "Renamed"
+    assert store.list_sessions() == ["chat-1"]
 
 
 def test_sqlite_store_round_trip(tmp_path: Path):
@@ -107,6 +133,22 @@ def test_sqlite_store_list_sessions_sorted(tmp_path: Path):
     assert store.list_sessions() == ["a-session", "b-session"]
 
 
+def test_sqlite_store_create_and_update_metadata(tmp_path: Path):
+    store = SQLiteSessionStore(tmp_path / "sessions.db")
+
+    created = store.create_session("chat-1", {"title": "Draft"})
+    updated = store.update_session_metadata("chat-1", {"title": "Renamed"})
+    metadata = store.get_session_metadata("chat-1")
+
+    assert created["session_id"] == "chat-1"
+    assert created["title"] == "Draft"
+    assert updated is not None
+    assert updated["title"] == "Renamed"
+    assert metadata is not None
+    assert metadata["title"] == "Renamed"
+    assert store.list_sessions() == ["chat-1"]
+
+
 def test_aiosqlite_store_round_trip(tmp_path: Path):
     pytest.importorskip("aiosqlite")
     store = AioSQLiteSessionStore(tmp_path / "sessions_async.db")
@@ -123,3 +165,24 @@ def test_aiosqlite_store_round_trip(tmp_path: Path):
     assert loaded == _sample_history()
     assert sessions == ["chat-1"]
     assert empty == []
+
+
+def test_aiosqlite_store_create_and_update_metadata(tmp_path: Path):
+    pytest.importorskip("aiosqlite")
+    store = AioSQLiteSessionStore(tmp_path / "sessions_async.db")
+
+    async def _run():
+        created = await store.create_session("chat-1", {"title": "Draft"})
+        updated = await store.update_session_metadata("chat-1", {"title": "Renamed"})
+        metadata = await store.get_session_metadata("chat-1")
+        sessions = await store.list_sessions()
+        return created, updated, metadata, sessions
+
+    created, updated, metadata, sessions = asyncio.run(_run())
+    assert created["session_id"] == "chat-1"
+    assert created["title"] == "Draft"
+    assert updated is not None
+    assert updated["title"] == "Renamed"
+    assert metadata is not None
+    assert metadata["title"] == "Renamed"
+    assert sessions == ["chat-1"]
