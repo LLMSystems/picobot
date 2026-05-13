@@ -1,0 +1,131 @@
+export interface ModelInfo {
+  provider: string
+  name: string
+}
+
+export interface ToolCapability {
+  name: string
+  description: string
+  category: string
+  dangerous: boolean
+}
+
+export interface CapabilityFeatures {
+  streaming: boolean
+  session_workspace: boolean
+  file_upload: boolean
+  multimodal: boolean
+}
+
+export interface Capabilities {
+  model: ModelInfo
+  max_iterations: number
+  tools: ToolCapability[]
+  features: CapabilityFeatures
+}
+
+export interface SessionSummary {
+  session_id: string
+  title: string
+  created_at: string
+  updated_at: string
+  message_count: number
+  last_user_message: string
+  last_assistant_preview: string
+}
+
+export type MessageRole = 'user' | 'assistant' | 'tool' | 'system'
+
+export interface ToolCallRef {
+  id: string
+  type?: string
+  function?: { name: string; arguments: string }
+}
+
+export interface SessionMessage {
+  id: string
+  role: MessageRole
+  content: string
+  created_at: string
+  tool_calls?: ToolCallRef[]
+  tool_call_id?: string
+  name?: string
+}
+
+export interface ChatUsage {
+  prompt_tokens: number
+  completion_tokens: number
+  total_tokens: number
+}
+
+export interface ChatTraceEvent<T = unknown> {
+  event: string
+  data: T
+}
+
+export interface ChatResponse {
+  session_id: string
+  content: string
+  usage: ChatUsage
+  tools_used: string[]
+  stop_reason: string
+  events: ChatTraceEvent[]
+}
+
+export interface ApiErrorBody {
+  error: { code: string; message: string; request_id: string }
+}
+
+export interface RunStartedData {
+  session_id: string
+  message: string
+}
+
+export interface ToolCallStartedData {
+  id: string
+  name: string
+  arguments: Record<string, unknown>
+}
+
+export interface ToolCallFinishedData {
+  id: string
+  name: string
+  ok: boolean
+  result: unknown
+}
+
+export interface DoneData {
+  session_id: string
+  content: string
+  usage: ChatUsage
+  tools_used: string[]
+  stop_reason: string
+}
+
+export interface StreamErrorData {
+  code: string
+  message: string
+  request_id: string
+}
+
+export interface DisplayToolCall {
+  id: string
+  name: string
+  arguments: Record<string, unknown>
+  result?: unknown
+  ok?: boolean
+  status: 'running' | 'ok' | 'failed'
+}
+
+export type DisplayMessageStatus = 'complete' | 'streaming' | 'aborted' | 'error'
+
+export interface DisplayMessage {
+  id: string
+  role: 'user' | 'assistant'
+  content: string
+  created_at: string
+  toolCalls: DisplayToolCall[]
+  status: DisplayMessageStatus
+  usage?: ChatUsage
+  toolsUsed?: string[]
+}

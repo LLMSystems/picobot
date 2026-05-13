@@ -115,6 +115,7 @@ function stop() {
         <Button
           v-if="!chat.isStreaming"
           size="icon"
+          variant="outline"
           class="absolute bottom-1 right-1.5 size-9 rounded-xl"
           :disabled="!canSend"
           aria-label="送出"

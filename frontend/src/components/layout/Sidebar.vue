@@ -92,8 +92,8 @@ async function confirmDelete() {
 <template>
   <div class="flex h-full flex-col">
     <div class="flex items-center justify-between gap-2 px-3 py-3">
-      <span class="text-sm font-semibold tracking-tight">picobot</span>
-      <Button size="sm" variant="default" class="gap-1.5" @click="newChat">
+      <span class="text-lg font-semibold tracking-tight">Picobot</span>
+      <Button size="sm" variant="outline" class="gap-1.5" @click="newChat">
         <Plus class="size-4" />
         新對話
       </Button>

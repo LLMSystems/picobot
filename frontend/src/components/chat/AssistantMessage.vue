@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
-import { Bot, Copy, AlertCircle, CircleStop } from 'lucide-vue-next'
+import { Copy, AlertCircle, CircleStop } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import MarkdownView from '@/components/common/MarkdownView.vue'
 import StreamingCursor from './StreamingCursor.vue'
@@ -31,13 +30,8 @@ async function copy() {
 </script>
 
 <template>
-  <div class="group flex gap-3">
-    <Avatar class="size-8 shrink-0">
-      <AvatarFallback class="bg-primary/10 text-primary">
-        <Bot class="size-4" />
-      </AvatarFallback>
-    </Avatar>
-    <div class="flex min-w-0 flex-1 flex-col gap-2 pt-1">
+  <div class="group">
+    <div class="flex min-w-0 flex-col gap-2">
       <ToolCallCard
         v-for="tc in message.toolCalls"
         :key="tc.id"

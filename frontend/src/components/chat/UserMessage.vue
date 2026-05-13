@@ -20,7 +20,7 @@ async function copy() {
   <div class="group flex justify-end">
     <div class="flex max-w-[80%] flex-col items-end gap-1">
       <div
-        class="whitespace-pre-wrap break-words rounded-2xl rounded-br-md bg-primary px-4 py-2 text-sm text-primary-foreground"
+        class="whitespace-pre-wrap break-words rounded-2xl rounded-br-md border bg-muted px-4 py-2 text-sm text-foreground"
       >
         {{ message.content }}
       </div>
