@@ -6,6 +6,7 @@ import asyncio
 from collections.abc import Callable
 import inspect
 import json
+from typing import Any
 
 from simplified_chatbot.agent.types import Message, RunResult
 from simplified_chatbot.config.schema import ChatbotConfig
@@ -13,6 +14,7 @@ from simplified_chatbot.providers.base import ChatProvider
 from simplified_chatbot.tools.registry import ToolRegistry
 
 _TRIM_SAFETY_BUFFER_TOKENS = 1024
+EventCallback = Callable[[str, dict[str, Any]], None]
 
 
 class AgentLoop:
@@ -53,10 +55,12 @@ class AgentLoop:
         self,
         message: str,
         history: list[Message] | None = None,
+        *,
+        on_event: EventCallback | None = None,
     ) -> RunResult:
         """Sync wrapper for run_async()."""
         return self._run_sync(
-            lambda: self.run_async(message, history=history),
+            lambda: self.run_async(message, history=history, on_event=on_event),
             method_name="run",
             async_method_name="run_async",
         )
@@ -67,6 +71,7 @@ class AgentLoop:
         history: list[Message] | None = None,
         *,
         on_delta: Callable[[str], None] | None = None,
+        on_event: EventCallback | None = None,
     ) -> RunResult:
         """Sync wrapper for run_stream_async()."""
         return self._run_sync(
@@ -74,6 +79,7 @@ class AgentLoop:
                 message,
                 history=history,
                 on_delta=on_delta,
+                on_event=on_event,
             ),
             method_name="run_stream",
             async_method_name="run_stream_async",
@@ -83,6 +89,8 @@ class AgentLoop:
         self,
         message: str,
         history: list[Message] | None = None,
+        *,
+        on_event: EventCallback | None = None,
     ) -> RunResult:
         """Execute one user turn and return the updated conversation history."""
         return await self._run_internal_async(
@@ -90,6 +98,7 @@ class AgentLoop:
             history=history,
             stream=False,
             on_delta=None,
+            on_event=on_event,
         )
 
     async def run_stream_async(
@@ -98,6 +107,7 @@ class AgentLoop:
         history: list[Message] | None = None,
         *,
         on_delta: Callable[[str], None] | None = None,
+        on_event: EventCallback | None = None,
     ) -> RunResult:
         """Execute one streamed user turn and return the aggregated result."""
         return await self._run_internal_async(
@@ -105,6 +115,7 @@ class AgentLoop:
             history=history,
             stream=True,
             on_delta=on_delta,
+            on_event=on_event,
         )
 
     async def _run_internal_async(
@@ -114,6 +125,7 @@ class AgentLoop:
         history: list[Message] | None,
         stream: bool,
         on_delta: Callable[[str], None] | None,
+        on_event: EventCallback | None,
     ) -> RunResult:
         text = self._normalize_user_message(message)
         conversation = [
@@ -151,9 +163,41 @@ class AgentLoop:
                 )
                 for tool_call in response.tool_calls:
                     tools_used.append(tool_call.name)
-                    result = await self._execute_tool_async(
-                        tool_call.name,
-                        tool_call.arguments,
+                    self._emit_event(
+                        on_event,
+                        "tool_call_started",
+                        {
+                            "id": tool_call.id,
+                            "name": tool_call.name,
+                            "arguments": tool_call.arguments,
+                        },
+                    )
+                    try:
+                        result = await self._execute_tool_async(
+                            tool_call.name,
+                            tool_call.arguments,
+                        )
+                    except Exception as exc:
+                        self._emit_event(
+                            on_event,
+                            "tool_call_finished",
+                            {
+                                "id": tool_call.id,
+                                "name": tool_call.name,
+                                "ok": False,
+                                "error": str(exc),
+                            },
+                        )
+                        raise
+                    self._emit_event(
+                        on_event,
+                        "tool_call_finished",
+                        {
+                            "id": tool_call.id,
+                            "name": tool_call.name,
+                            "ok": True,
+                            "result": self._serialize_event_result(result),
+                        },
                     )
                     conversation.append(
                         {
@@ -314,6 +358,23 @@ class AgentLoop:
             return json.dumps(result, ensure_ascii=False)
         except TypeError:
             return str(result)
+
+    @staticmethod
+    def _serialize_event_result(result: object) -> Any:
+        try:
+            json.dumps(result, ensure_ascii=False)
+        except TypeError:
+            return str(result)
+        return result
+
+    @staticmethod
+    def _emit_event(
+        callback: EventCallback | None,
+        event: str,
+        data: dict[str, Any],
+    ) -> None:
+        if callback is not None:
+            callback(event, data)
 
     @staticmethod
     def _group_conversation_turns(conversation: list[Message]) -> list[list[Message]]:

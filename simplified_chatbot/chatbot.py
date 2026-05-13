@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 from simplified_chatbot.agent.loop import AgentLoop
 from simplified_chatbot.agent.types import Message, RunResult
@@ -120,17 +121,25 @@ class SimplifiedChatbot:
         self,
         message: str,
         history: list[Message] | None = None,
+        *,
+        on_event: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> RunResult:
         """Run one model turn."""
-        return self._loop.run(message, history=history)
+        return self._loop.run(message, history=history, on_event=on_event)
 
     async def run_async(
         self,
         message: str,
         history: list[Message] | None = None,
+        *,
+        on_event: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> RunResult:
         """Run one model turn asynchronously."""
-        return await self._loop.run_async(message, history=history)
+        return await self._loop.run_async(
+            message,
+            history=history,
+            on_event=on_event,
+        )
 
     def run_stream(
         self,
@@ -138,12 +147,14 @@ class SimplifiedChatbot:
         history: list[Message] | None = None,
         *,
         on_delta: Callable[[str], None] | None = None,
+        on_event: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> RunResult:
         """Run one streamed model turn."""
         return self._loop.run_stream(
             message,
             history=history,
             on_delta=on_delta,
+            on_event=on_event,
         )
 
     async def run_stream_async(
@@ -152,10 +163,12 @@ class SimplifiedChatbot:
         history: list[Message] | None = None,
         *,
         on_delta: Callable[[str], None] | None = None,
+        on_event: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> RunResult:
         """Run one streamed model turn asynchronously."""
         return await self._loop.run_stream_async(
             message,
             history=history,
             on_delta=on_delta,
+            on_event=on_event,
         )
