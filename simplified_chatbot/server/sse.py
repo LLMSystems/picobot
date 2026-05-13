@@ -14,7 +14,7 @@ def encode_sse(*, event: str, data: Any) -> bytes:
         payload = json.dumps(data, ensure_ascii=False)
 
     lines = [f"event: {event}"]
-    for line in payload.splitlines() or [""]:
+    for line in payload.split("\n"):
         lines.append(f"data: {line}")
     lines.append("")
     lines.append("")
