@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from fastapi import Request
+from fastapi.responses import JSONResponse
 
 from simplified_chatbot.runtime.local_runtime import LocalAgentRuntime
+from simplified_chatbot.server.schemas import ErrorDetail, ErrorResponse
 
 
 def get_runtime(request: Request) -> LocalAgentRuntime:
@@ -13,3 +15,32 @@ def get_runtime(request: Request) -> LocalAgentRuntime:
     if not isinstance(runtime, LocalAgentRuntime):
         raise RuntimeError("Application runtime is not initialized")
     return runtime
+
+
+def get_request_id(request: Request) -> str:
+    """Return the request id attached by middleware."""
+    request_id = getattr(request.state, "request_id", None)
+    if isinstance(request_id, str) and request_id:
+        return request_id
+    return "req_unknown"
+
+
+def error_response(
+    request: Request,
+    *,
+    status_code: int,
+    code: str,
+    message: str,
+) -> JSONResponse:
+    """Build a structured error response."""
+    payload = ErrorResponse(
+        error=ErrorDetail(
+            code=code,
+            message=message,
+            request_id=get_request_id(request),
+        ),
+    )
+    return JSONResponse(
+        status_code=status_code,
+        content=payload.model_dump(),
+    )

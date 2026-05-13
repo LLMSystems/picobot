@@ -6,10 +6,16 @@ import asyncio
 from typing import Any
 
 from fastapi import APIRouter, Query, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import StreamingResponse
 
-from simplified_chatbot.server.common import get_runtime
-from simplified_chatbot.server.schemas import ChatRequest, ChatResponse, ChatStreamDone
+from simplified_chatbot.server.common import error_response, get_request_id, get_runtime
+from simplified_chatbot.server.schemas import (
+    ChatRequest,
+    ChatResponse,
+    ChatStreamRequest,
+    ChatStreamDone,
+    ChatTraceEvent,
+)
 from simplified_chatbot.server.sse import encode_sse
 
 router = APIRouter()
@@ -19,20 +25,30 @@ router = APIRouter()
 async def chat(request: Request, payload: ChatRequest) -> ChatResponse:
     """Return one complete assistant response."""
     runtime = get_runtime(request)
+    events: list[ChatTraceEvent] = []
+
+    def on_event(event: str, data: dict[str, Any]) -> None:
+        events.append(ChatTraceEvent(event=event, data=data))
+
     try:
         result = await runtime.handle_message_async(
             payload.session_id,
             payload.message,
+            on_event=on_event,
         )
     except ValueError as exc:
-        return JSONResponse(
+        return error_response(
+            request,
             status_code=400,
-            content={"error": str(exc)},
+            code="MESSAGE_INVALID",
+            message=str(exc),
         )
     except RuntimeError as exc:
-        return JSONResponse(
+        return error_response(
+            request,
             status_code=500,
-            content={"error": str(exc)},
+            code="RUNTIME_ERROR",
+            message=str(exc),
         )
 
     return ChatResponse(
@@ -41,6 +57,7 @@ async def chat(request: Request, payload: ChatRequest) -> ChatResponse:
         usage=result.usage,
         tools_used=result.tools_used,
         stop_reason=result.stop_reason,
+        events=events,
     )
 
 
@@ -51,11 +68,42 @@ async def chat_stream(
     message: str = Query(min_length=1),
 ) -> StreamingResponse:
     """Stream one assistant response using SSE."""
+    return _build_chat_stream_response(
+        request,
+        session_id=session_id,
+        message=message,
+    )
+
+
+@router.post("/chat/stream")
+async def chat_stream_post(
+    request: Request,
+    payload: ChatStreamRequest,
+) -> StreamingResponse:
+    """Stream one assistant response using SSE with a JSON request body."""
+    return _build_chat_stream_response(
+        request,
+        session_id=payload.session_id,
+        message=payload.message,
+    )
+
+
+def _build_chat_stream_response(
+    request: Request,
+    *,
+    session_id: str,
+    message: str,
+) -> StreamingResponse:
+    """Build the shared SSE response for GET/POST stream endpoints."""
     runtime = get_runtime(request)
+    request_id = get_request_id(request)
     queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
 
     def on_delta(delta: str) -> None:
         queue.put_nowait({"event": "delta", "data": delta})
+
+    def on_event(event: str, data: dict[str, Any]) -> None:
+        queue.put_nowait({"event": event, "data": data})
 
     async def produce() -> None:
         try:
@@ -63,6 +111,7 @@ async def chat_stream(
                 session_id,
                 message,
                 on_delta=on_delta,
+                on_event=on_event,
             )
             await queue.put(
                 {
@@ -77,9 +126,27 @@ async def chat_stream(
                 },
             )
         except ValueError as exc:
-            await queue.put({"event": "error", "data": {"error": str(exc)}})
+            await queue.put(
+                {
+                    "event": "error",
+                    "data": {
+                        "code": "MESSAGE_INVALID",
+                        "message": str(exc),
+                        "request_id": request_id,
+                    },
+                },
+            )
         except Exception as exc:
-            await queue.put({"event": "error", "data": {"error": str(exc)}})
+            await queue.put(
+                {
+                    "event": "error",
+                    "data": {
+                        "code": "INTERNAL_ERROR",
+                        "message": str(exc),
+                        "request_id": request_id,
+                    },
+                },
+            )
 
     async def stream() -> Any:
         task = asyncio.create_task(produce())
