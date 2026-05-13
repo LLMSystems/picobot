@@ -1,0 +1,37 @@
+[project]
+name = "simplified-chatbot"
+version = "0.1.0"
+description = "A minimal configurable chatbot core extracted from nanobot."
+readme = "doc/development_direction.md"
+requires-python = ">=3.11"
+dependencies = [
+    "aiosqlite>=0.20.0,<1.0.0",
+    "fastapi>=0.115.0,<1.0.0",
+    "openai>=2.8.0,<3.0.0",
+    "pydantic>=2.12.0,<3.0.0",
+    "uvicorn>=0.30.0,<1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=9.0.0,<10.0.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["simplified_chatbot"]
+
+[tool.hatch.build]
+include = [
+    "simplified_chatbot/**/*.py",
+    "simplified_chatbot/prompts/*.md",
+    "simplified_chatbot/skills/**/*.md",
+    "doc/*.md",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
