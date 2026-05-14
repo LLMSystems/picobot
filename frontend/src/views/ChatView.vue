@@ -5,11 +5,15 @@ import MessageList from '@/components/chat/MessageList.vue'
 import Composer from '@/components/chat/Composer.vue'
 import { useChatStore } from '@/stores/chat'
 import { useSessionsStore } from '@/stores/sessions'
+import { useWorkspaceStore } from '@/stores/workspace'
+import { useCapabilitiesStore } from '@/stores/capabilities'
 
 const props = defineProps<{ id: string }>()
 const chat = useChatStore()
 const sessions = useSessionsStore()
 const router = useRouter()
+const ws = useWorkspaceStore()
+const caps = useCapabilitiesStore()
 
 watch(
   () => props.id,
@@ -20,6 +24,9 @@ watch(
       return
     }
     await chat.switchTo(id)
+    if (caps.data.features.session_workspace) {
+      void ws.bind(id)
+    }
   },
   { immediate: true },
 )

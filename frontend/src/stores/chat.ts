@@ -5,10 +5,12 @@ import { ApiError, isAbortError } from '@/lib/errors'
 import { runStream } from '@/composables/useChatStream'
 import { useSessionsStore } from '@/stores/sessions'
 import { useCapabilitiesStore } from '@/stores/capabilities'
+import { useWorkspaceStore } from '@/stores/workspace'
 import type {
   DisplayMessage,
   DisplayToolCall,
   SessionMessage,
+  WorkspaceChangedData,
 } from '@/lib/types'
 
 let localIdSeq = 0
@@ -81,6 +83,39 @@ export const useChatStore = defineStore('chat', () => {
   const lastError = ref<ApiError | null>(null)
   const loadingHistory = ref(false)
   let abortController: AbortController | null = null
+
+  let wsPendingPaths = new Set<string>()
+  let wsPendingFullInvalidate = false
+  let wsDebounceTimer: number | null = null
+
+  function flushWorkspaceUpdates() {
+    wsDebounceTimer = null
+    const ws = useWorkspaceStore()
+    if (ws.sessionId !== currentSessionId.value) {
+      wsPendingPaths = new Set()
+      wsPendingFullInvalidate = false
+      return
+    }
+    if (wsPendingFullInvalidate) {
+      wsPendingFullInvalidate = false
+      wsPendingPaths = new Set()
+      void ws.refreshExpanded()
+      return
+    }
+    const paths = [...wsPendingPaths]
+    wsPendingPaths = new Set()
+    if (paths.length) void ws.refreshPaths(paths)
+  }
+
+  function scheduleWorkspaceUpdate(d: WorkspaceChangedData) {
+    if (d.paths.length === 0) {
+      wsPendingFullInvalidate = true
+    } else {
+      for (const p of d.paths) wsPendingPaths.add(p)
+    }
+    if (wsDebounceTimer !== null) window.clearTimeout(wsDebounceTimer)
+    wsDebounceTimer = window.setTimeout(flushWorkspaceUpdates, 250)
+  }
 
   function abortIfStreaming(reason: 'switch' | 'manual' = 'manual') {
     if (runStatus.value !== 'streaming') return
@@ -186,6 +221,7 @@ export const useChatStore = defineStore('chat', () => {
               messages.value.push(streamingMessage.value)
               streamingMessage.value = null
             },
+            onWorkspaceChanged: (d) => scheduleWorkspaceUpdate(d),
           },
         )
       } else {
@@ -196,6 +232,11 @@ export const useChatStore = defineStore('chat', () => {
         assistantMsg.toolsUsed = resp.tools_used
         messages.value.push(assistantMsg)
         streamingMessage.value = null
+        for (const ev of resp.events) {
+          if (ev.event === 'workspace_changed') {
+            scheduleWorkspaceUpdate(ev.data as WorkspaceChangedData)
+          }
+        }
       }
 
       sessions.touchAfterSend(sessionId, {

@@ -129,3 +129,34 @@ export interface DisplayMessage {
   usage?: ChatUsage
   toolsUsed?: string[]
 }
+
+export type WorkspaceEntryType = 'file' | 'directory'
+
+export interface WorkspaceEntryDTO {
+  path: string
+  name: string
+  type: WorkspaceEntryType
+  size: number | null
+  updated_at: string
+}
+
+export interface WorkspaceTreeResponse {
+  session_id: string
+  path: string
+  entries: WorkspaceEntryDTO[]
+  truncated: boolean
+}
+
+export interface WorkspaceFileResponse {
+  session_id: string
+  path: string
+  content: string
+  encoding: string
+  truncated: boolean
+  line_count: number
+}
+
+export interface WorkspaceChangedData {
+  session_id: string
+  paths: string[]
+}

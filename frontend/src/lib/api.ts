@@ -4,8 +4,20 @@ import type {
   SessionSummary,
   ApiErrorBody,
   ChatResponse,
+  WorkspaceFileResponse,
+  WorkspaceTreeResponse,
 } from './types'
 import { ApiError } from './errors'
+
+function qs(params: Record<string, string | number | boolean | undefined>): string {
+  const sp = new URLSearchParams()
+  for (const [k, v] of Object.entries(params)) {
+    if (v === undefined) continue
+    sp.set(k, String(v))
+  }
+  const s = sp.toString()
+  return s ? `?${s}` : ''
+}
 
 export const API_BASE = (import.meta.env.VITE_API_BASE ?? '').replace(/\/$/, '')
 
@@ -70,4 +82,20 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(body),
     }),
+
+  listWorkspaceTree: (
+    id: string,
+    params: { path?: string; recursive?: boolean; max_entries?: number } = {},
+  ) =>
+    request<WorkspaceTreeResponse>(
+      `/sessions/${encodeURIComponent(id)}/workspace/tree${qs(params)}`,
+    ),
+
+  readWorkspaceFile: (
+    id: string,
+    params: { path: string; offset?: number; limit?: number },
+  ) =>
+    request<WorkspaceFileResponse>(
+      `/sessions/${encodeURIComponent(id)}/workspace/file${qs(params)}`,
+    ),
 }

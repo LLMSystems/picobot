@@ -1,8 +1,14 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import Sidebar from './Sidebar.vue'
 import TopBar from './TopBar.vue'
 import ConnectionBanner from '@/components/common/ConnectionBanner.vue'
+import WorkspacePanel from '@/components/workspace/WorkspacePanel.vue'
+import { useCapabilitiesStore } from '@/stores/capabilities'
+import { useWorkspaceStore } from '@/stores/workspace'
+
+const caps = useCapabilitiesStore()
+const ws = useWorkspaceStore()
 
 const sidebarOpenMobile = ref(false)
 function toggleSidebar() {
@@ -11,6 +17,10 @@ function toggleSidebar() {
 function closeSidebar() {
   sidebarOpenMobile.value = false
 }
+
+const workspaceVisible = computed(
+  () => caps.data.features.session_workspace && ws.visible,
+)
 </script>
 
 <template>
@@ -30,8 +40,11 @@ function closeSidebar() {
       />
       <div class="flex min-w-0 flex-1 flex-col">
         <TopBar @toggle-sidebar="toggleSidebar" />
-        <main class="relative flex-1 min-h-0 overflow-hidden">
-          <slot />
+        <main class="relative flex flex-1 min-h-0 overflow-hidden">
+          <div class="flex min-w-0 flex-1 flex-col">
+            <slot />
+          </div>
+          <WorkspacePanel v-if="workspaceVisible" class="hidden lg:flex" />
         </main>
       </div>
     </div>

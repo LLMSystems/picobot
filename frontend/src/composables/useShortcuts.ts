@@ -6,6 +6,7 @@ export interface ShortcutHandlers {
   onFocusComposer?: () => void
   onPrev?: () => void
   onNext?: () => void
+  onToggleWorkspace?: () => void
 }
 
 export function useGlobalShortcuts(h: ShortcutHandlers) {
@@ -22,6 +23,11 @@ export function useGlobalShortcuts(h: ShortcutHandlers) {
     if (mod && e.key.toLowerCase() === 'n') {
       e.preventDefault()
       h.onNewChat?.()
+      return
+    }
+    if (mod && e.key.toLowerCase() === 'b') {
+      e.preventDefault()
+      h.onToggleWorkspace?.()
       return
     }
     if (mod && e.key === 'Backspace') {

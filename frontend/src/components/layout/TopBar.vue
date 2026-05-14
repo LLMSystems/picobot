@@ -4,15 +4,17 @@ import { useRoute } from 'vue-router'
 import { useSessionsStore } from '@/stores/sessions'
 import { useCapabilitiesStore } from '@/stores/capabilities'
 import { Button } from '@/components/ui/button'
-import { Menu, Pencil, Moon, Sun } from 'lucide-vue-next'
+import { Menu, Pencil, Moon, Sun, PanelRight } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import { useTheme } from '@/composables/useTheme'
+import { useWorkspaceStore } from '@/stores/workspace'
 
 defineEmits<{ (e: 'toggle-sidebar'): void }>()
 
 const route = useRoute()
 const sessions = useSessionsStore()
 const caps = useCapabilitiesStore()
+const ws = useWorkspaceStore()
 const { theme, toggle: toggleTheme } = useTheme()
 
 const currentId = computed(() =>
@@ -121,6 +123,17 @@ function cancel() {
       >
         <Sun v-if="theme === 'dark'" class="size-4" />
         <Moon v-else class="size-4" />
+      </Button>
+      <Button
+        v-if="caps.data.features.session_workspace"
+        variant="ghost"
+        size="icon"
+        :aria-pressed="ws.visible"
+        aria-label="切換 Workspace"
+        title="切換 Workspace (Cmd/Ctrl+B)"
+        @click="ws.toggleVisible()"
+      >
+        <PanelRight class="size-4" :class="ws.visible ? '' : 'opacity-50'" />
       </Button>
     </div>
   </header>

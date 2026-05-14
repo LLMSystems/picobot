@@ -9,6 +9,7 @@ import { useChatStore } from '@/stores/chat'
 import { useTheme } from '@/composables/useTheme'
 import { useGlobalShortcuts } from '@/composables/useShortcuts'
 import { useComposerBus } from '@/composables/useComposerBus'
+import { useWorkspaceStore } from '@/stores/workspace'
 import { toast } from 'vue-sonner'
 
 const caps = useCapabilitiesStore()
@@ -17,6 +18,7 @@ const chat = useChatStore()
 const router = useRouter()
 const route = useRoute()
 const bus = useComposerBus()
+const ws = useWorkspaceStore()
 
 useTheme()
 
@@ -88,6 +90,7 @@ useGlobalShortcuts({
   onFocusComposer: () => bus.focus(),
   onPrev: () => gotoOffset(-1),
   onNext: () => gotoOffset(1),
+  onToggleWorkspace: () => ws.toggleVisible(),
 })
 </script>
 

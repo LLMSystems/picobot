@@ -8,6 +8,7 @@ import type {
   StreamErrorData,
   ToolCallFinishedData,
   ToolCallStartedData,
+  WorkspaceChangedData,
 } from '@/lib/types'
 
 export interface StreamHandlers {
@@ -16,6 +17,7 @@ export interface StreamHandlers {
   onToolFinish: (tc: { id: string; result: unknown; ok: boolean; status: 'ok' | 'failed' }) => void
   onDelta: (text: string) => void
   onDone: (data: DoneData) => void
+  onWorkspaceChanged?: (data: WorkspaceChangedData) => void
 }
 
 export async function runStream(
@@ -73,6 +75,11 @@ export async function runStream(
           ok: d.ok,
           status: d.ok ? 'ok' : 'failed',
         })
+        break
+      }
+      case 'workspace_changed': {
+        const d = JSON.parse(evt.data) as WorkspaceChangedData
+        h.onWorkspaceChanged?.(d)
         break
       }
       case 'delta':
