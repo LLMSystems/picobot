@@ -7,7 +7,7 @@
 
 
 
-`picobot` 是一個輕量 agent 專案，目標是用清楚、可擴展的方式，實作一個可聊天、可調工具、可操作 workspace、可掛 FastAPI 的 agent。
+`picobot` 是一個輕量 agent 專案，目標是用清楚、可擴展的方式，實作一個可聊天、可調工具、可操作 workspace、可掛 FastAPI 的瀏覽器 agent。
 
 ![web0](assets/web_image0.png)
 
