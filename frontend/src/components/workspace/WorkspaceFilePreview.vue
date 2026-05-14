@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { File as FileIcon, Maximize2 } from 'lucide-vue-next'
+import { File as FileIcon, Maximize2, Copy } from 'lucide-vue-next'
+import { toast } from 'vue-sonner'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { Button } from '@/components/ui/button'
 import {
@@ -13,6 +14,17 @@ import WorkspaceFileBody from './WorkspaceFileBody.vue'
 
 const ws = useWorkspaceStore()
 const showFullscreen = ref(false)
+
+async function copyContent() {
+  const text = ws.fileContent?.content
+  if (text === undefined) return
+  try {
+    await navigator.clipboard.writeText(text)
+    toast.success('已複製檔案內容')
+  } catch {
+    toast.error('複製失敗')
+  }
+}
 </script>
 
 <template>
@@ -29,6 +41,17 @@ const showFullscreen = ref(false)
       >
         {{ ws.fileContent.line_count }} lines
       </span>
+      <Button
+        v-if="ws.fileContent"
+        variant="ghost"
+        size="icon"
+        class="size-6"
+        aria-label="複製檔案內容"
+        title="複製檔案內容"
+        @click="copyContent"
+      >
+        <Copy class="size-3.5" />
+      </Button>
       <Button
         v-if="ws.fileContent || ws.loadingFile || ws.fileError"
         variant="ghost"
@@ -52,12 +75,25 @@ const showFullscreen = ref(false)
           <DialogTitle class="flex items-center gap-2 text-sm font-mono">
             <FileIcon class="size-4 text-muted-foreground" />
             <span class="truncate">{{ ws.selectedPath }}</span>
-            <span
-              v-if="ws.fileContent"
-              class="ml-auto pr-8 text-[11px] font-sans text-muted-foreground"
-            >
-              {{ ws.fileContent.line_count }} lines
-            </span>
+            <div class="ml-auto flex items-center gap-1 pr-8">
+              <span
+                v-if="ws.fileContent"
+                class="text-[11px] font-sans text-muted-foreground"
+              >
+                {{ ws.fileContent.line_count }} lines
+              </span>
+              <Button
+                v-if="ws.fileContent"
+                variant="ghost"
+                size="icon"
+                class="size-7"
+                aria-label="複製檔案內容"
+                title="複製檔案內容"
+                @click="copyContent"
+              >
+                <Copy class="size-3.5" />
+              </Button>
+            </div>
           </DialogTitle>
         </DialogHeader>
         <WorkspaceFileBody class="min-h-0 flex-1" />
