@@ -25,6 +25,9 @@ from simplified_chatbot.runtime.session_workspace import SessionWorkspaceManager
 class LocalAgentRuntime:
     """Session-aware runtime that persists conversation history by session_id."""
 
+    _DEFAULT_WORKSPACE_TREE_MAX = 200
+    _DEFAULT_WORKSPACE_FILE_LIMIT = 2000
+
     def __init__(
         self,
         chatbot: SimplifiedChatbot,
@@ -95,8 +98,9 @@ class LocalAgentRuntime:
                 "This runtime is using an AsyncSessionStore. "
                 "Use handle_message_async(...) instead of handle_message(...).",
             )
+        event_callback = _build_runtime_event_callback(session_id, on_event)
         _emit_runtime_event(
-            on_event,
+            event_callback,
             "run_started",
             {"session_id": session_id, "message": message},
         )
@@ -106,7 +110,7 @@ class LocalAgentRuntime:
             chatbot.run,
             message,
             history=history,
-            on_event=on_event,
+            on_event=event_callback,
         )
         self.store.save_history(
             session_id,
@@ -127,8 +131,9 @@ class LocalAgentRuntime:
                 "This runtime is using an AsyncSessionStore. "
                 "Use handle_message_stream_async(...) instead of handle_message_stream(...).",
             )
+        event_callback = _build_runtime_event_callback(session_id, on_event)
         _emit_runtime_event(
-            on_event,
+            event_callback,
             "run_started",
             {"session_id": session_id, "message": message},
         )
@@ -139,7 +144,7 @@ class LocalAgentRuntime:
             message,
             history=history,
             on_delta=on_delta,
-            on_event=on_event,
+            on_event=event_callback,
         )
         self.store.save_history(
             session_id,
@@ -154,8 +159,9 @@ class LocalAgentRuntime:
         *,
         on_event: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> RunResult:
+        event_callback = _build_runtime_event_callback(session_id, on_event)
         _emit_runtime_event(
-            on_event,
+            event_callback,
             "run_started",
             {"session_id": session_id, "message": message},
         )
@@ -164,7 +170,7 @@ class LocalAgentRuntime:
             session_id,
             message,
             history=history,
-            on_event=on_event,
+            on_event=event_callback,
         )
         await self._save_history_async(session_id, result.messages)
         return result
@@ -177,8 +183,9 @@ class LocalAgentRuntime:
         on_delta: Callable[[str], None] | None = None,
         on_event: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> RunResult:
+        event_callback = _build_runtime_event_callback(session_id, on_event)
         _emit_runtime_event(
-            on_event,
+            event_callback,
             "run_started",
             {"session_id": session_id, "message": message},
         )
@@ -188,7 +195,7 @@ class LocalAgentRuntime:
             message,
             history=history,
             on_delta=on_delta,
-            on_event=on_event,
+            on_event=event_callback,
         )
         await self._save_history_async(session_id, result.messages)
         return result
@@ -290,6 +297,105 @@ class LocalAgentRuntime:
         if not history and metadata is None:
             return None
         return self._build_session_summary(session_id, history, metadata)
+
+    async def get_workspace_root_async(self, session_id: str) -> Path:
+        """Return the resolved workspace root for one existing session."""
+        if self.workspace_manager is None:
+            raise RuntimeError("Workspace API is not available because session workspaces are disabled")
+        summary = await self.get_session_summary_async(session_id)
+        if summary is None:
+            raise KeyError(session_id)
+        return self.workspace_manager.ensure_workspace(session_id)
+
+    async def list_workspace_tree_async(
+        self,
+        session_id: str,
+        *,
+        path: str = ".",
+        recursive: bool = False,
+        max_entries: int | None = None,
+    ) -> dict[str, object]:
+        """List one directory inside the session workspace."""
+        workspace = await self.get_workspace_root_async(session_id)
+        relative_path, target = _resolve_workspace_relative_path(workspace, path)
+        if not target.exists():
+            raise FileNotFoundError(path)
+        if not target.is_dir():
+            raise NotADirectoryError(path)
+
+        limit = max_entries or self._DEFAULT_WORKSPACE_TREE_MAX
+        entries: list[dict[str, object]] = []
+        total = 0
+        iterable = target.rglob("*") if recursive else target.iterdir()
+        for item in sorted(iterable, key=lambda candidate: _relative_posix(candidate, workspace)):
+            total += 1
+            if len(entries) >= limit:
+                continue
+            item_path = _relative_posix(item, workspace)
+            entries.append(
+                {
+                    "path": item_path,
+                    "name": item.name,
+                    "type": "directory" if item.is_dir() else "file",
+                    "size": item.stat().st_size if item.is_file() else None,
+                    "updated_at": _mtime_to_utc(item),
+                },
+            )
+
+        return {
+            "session_id": session_id,
+            "path": relative_path,
+            "entries": entries,
+            "truncated": total > limit,
+        }
+
+    async def read_workspace_file_async(
+        self,
+        session_id: str,
+        *,
+        path: str,
+        offset: int = 1,
+        limit: int | None = None,
+    ) -> dict[str, object]:
+        """Read one UTF-8 text file from the session workspace."""
+        if offset < 1:
+            raise ValueError("offset must be >= 1")
+        effective_limit = limit or self._DEFAULT_WORKSPACE_FILE_LIMIT
+        if effective_limit < 1:
+            raise ValueError("limit must be >= 1")
+
+        workspace = await self.get_workspace_root_async(session_id)
+        relative_path, target = _resolve_workspace_relative_path(workspace, path)
+        if not target.exists():
+            raise FileNotFoundError(path)
+        if not target.is_file():
+            raise IsADirectoryError(path)
+
+        raw = await asyncio.to_thread(target.read_bytes)
+        text = raw.decode("utf-8")
+        normalized = text.replace("\r\n", "\n")
+        lines = normalized.splitlines(keepends=True)
+        line_count = len(lines)
+
+        if line_count == 0:
+            content = ""
+            truncated = False
+        else:
+            if offset > line_count:
+                raise ValueError(f"offset {offset} is beyond end of file ({line_count} lines)")
+            start = offset - 1
+            end = min(start + effective_limit, line_count)
+            content = "".join(lines[start:end])
+            truncated = end < line_count
+
+        return {
+            "session_id": session_id,
+            "path": relative_path,
+            "content": content,
+            "encoding": "utf-8",
+            "truncated": truncated,
+            "line_count": line_count,
+        }
 
     async def create_session_async(
         self,
@@ -497,6 +603,22 @@ def _resolve_workspace_root_dir(
     return path.resolve()
 
 
+def _resolve_workspace_relative_path(workspace: Path, raw_path: str | None) -> tuple[str, Path]:
+    candidate = Path(raw_path or ".")
+    if candidate.is_absolute():
+        raise ValueError("path must be relative to the session workspace")
+    resolved = (workspace / candidate).resolve()
+    try:
+        relative = resolved.relative_to(workspace.resolve())
+    except ValueError as exc:
+        raise ValueError("path is outside the session workspace") from exc
+    return ("." if str(relative) == "." else relative.as_posix()), resolved
+
+
+def _relative_posix(path: Path, root: Path) -> str:
+    return path.relative_to(root).as_posix()
+
+
 def _emit_runtime_event(
     callback: Callable[[str, dict[str, Any]], None] | None,
     event: str,
@@ -504,6 +626,39 @@ def _emit_runtime_event(
 ) -> None:
     if callback is not None:
         callback(event, data)
+
+
+def _build_runtime_event_callback(
+    session_id: str,
+    callback: Callable[[str, dict[str, Any]], None] | None,
+) -> Callable[[str, dict[str, Any]], None] | None:
+    if callback is None:
+        return None
+
+    active_tool_calls: dict[str, dict[str, Any]] = {}
+
+    def wrapped(event: str, data: dict[str, Any]) -> None:
+        if event == "tool_call_started":
+            call_id = data.get("id")
+            if isinstance(call_id, str):
+                active_tool_calls[call_id] = dict(data)
+
+        callback(event, data)
+
+        if event == "tool_call_finished" and data.get("ok") is True:
+            call_id = data.get("id")
+            started = active_tool_calls.pop(call_id, {}) if isinstance(call_id, str) else {}
+            paths = _workspace_change_paths(started)
+            if paths is not None:
+                callback(
+                    "workspace_changed",
+                    {
+                        "session_id": session_id,
+                        "paths": paths,
+                    },
+                )
+
+    return wrapped
 
 
 def _invoke_chatbot_method(
@@ -561,3 +716,27 @@ def _utc_timestamp() -> str:
 def _normalize_session_title(title: str | None) -> str:
     normalized = " ".join((title or "").split()).strip()
     return normalized or "New Chat"
+
+
+def _workspace_change_paths(started_event: dict[str, Any]) -> list[str] | None:
+    name = started_event.get("name")
+    arguments = started_event.get("arguments")
+    if not isinstance(name, str):
+        return None
+    if name == "exec":
+        return []
+    if name not in {"write_file", "edit_file"}:
+        return None
+    if not isinstance(arguments, dict):
+        return []
+    path = arguments.get("path")
+    if isinstance(path, str) and path.strip():
+        return [path]
+    return []
+
+
+def _mtime_to_utc(path: Path) -> str:
+    return datetime.fromtimestamp(
+        path.stat().st_mtime,
+        tz=timezone.utc,
+    ).isoformat().replace("+00:00", "Z")

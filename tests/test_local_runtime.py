@@ -139,6 +139,64 @@ class _ReadWorkspaceProvider:
         raise AssertionError("stream_generate_async should not be called in this test")
 
 
+class _WriteWorkspaceProvider:
+    async def generate_async(
+        self,
+        messages,
+        *,
+        model: str,
+        max_tokens: int,
+        temperature: float,
+        timeout: float,
+        tools=None,
+    ) -> ProviderResponse:
+        if messages[-1]["role"] == "user":
+            return ProviderResponse(
+                content="",
+                tool_calls=[
+                    ToolCallRequest(
+                        id="call_write_1",
+                        name="write_file",
+                        arguments={"path": "doc/design.md", "content": "# Design\n"},
+                    ),
+                ],
+                finish_reason="tool_calls",
+            )
+        return ProviderResponse(content="Wrote the file.", finish_reason="stop")
+
+    async def stream_generate_async(self, *args, **kwargs):
+        raise AssertionError("stream_generate_async should not be called in this test")
+
+
+class _ExecWorkspaceProvider:
+    async def generate_async(
+        self,
+        messages,
+        *,
+        model: str,
+        max_tokens: int,
+        temperature: float,
+        timeout: float,
+        tools=None,
+    ) -> ProviderResponse:
+        if messages[-1]["role"] == "user":
+            return ProviderResponse(
+                content="",
+                tool_calls=[
+                    ToolCallRequest(
+                        id="call_exec_1",
+                        name="exec",
+                        arguments={"command": "echo hello"},
+                    ),
+                ],
+                finish_reason="tool_calls",
+            )
+        return ProviderResponse(content="Ran command.", finish_reason="stop")
+
+    async def stream_generate_async(self, *args, **kwargs):
+        raise AssertionError("stream_generate_async should not be called in this test")
+
+
 def test_local_runtime_uses_existing_history_and_persists_new_turn():
     bot = _DummyChatbot()
     store = InMemorySessionStore()
@@ -258,6 +316,122 @@ def test_local_runtime_async_create_and_rename_session():
     assert created["session_id"] == "s1"
     assert created["title"] == "Async plan"
     assert renamed["title"] == "Async renamed"
+
+
+def test_local_runtime_workspace_helpers_list_and_read_files(tmp_path: Path):
+    runtime = LocalAgentRuntime(
+        chatbot=_DummyChatbot(),
+        store=InMemorySessionStore(),
+        workspace_root_dir=tmp_path / "workspaces",
+    )
+    asyncio.run(runtime.create_session_async(title="Workspace", session_id="s1"))
+    workspace = runtime.workspace_manager.ensure_workspace("s1")  # type: ignore[union-attr]
+    (workspace / "doc").mkdir()
+    (workspace / "doc" / "design.md").write_text("# Design\n\nHello\n", encoding="utf-8")
+    (workspace / "README.md").write_text("root\n", encoding="utf-8")
+
+    tree = asyncio.run(runtime.list_workspace_tree_async("s1", recursive=True))
+    file_payload = asyncio.run(
+        runtime.read_workspace_file_async("s1", path="doc/design.md"),
+    )
+
+    assert tree["session_id"] == "s1"
+    assert tree["path"] == "."
+    paths = {entry["path"] for entry in tree["entries"]}
+    assert "README.md" in paths
+    assert "doc" in paths
+    assert "doc/design.md" in paths
+    for entry in tree["entries"]:
+        assert isinstance(entry["updated_at"], str)
+        assert entry["updated_at"].endswith("Z")
+    assert file_payload == {
+        "session_id": "s1",
+        "path": "doc/design.md",
+        "content": "# Design\n\nHello\n",
+        "encoding": "utf-8",
+        "truncated": False,
+        "line_count": 3,
+    }
+
+
+def test_local_runtime_workspace_helpers_reject_outside_paths(tmp_path: Path):
+    runtime = LocalAgentRuntime(
+        chatbot=_DummyChatbot(),
+        store=InMemorySessionStore(),
+        workspace_root_dir=tmp_path / "workspaces",
+    )
+    asyncio.run(runtime.create_session_async(title="Workspace", session_id="s1"))
+
+    try:
+        asyncio.run(runtime.read_workspace_file_async("s1", path="../secret.txt"))
+    except ValueError as exc:
+        assert "outside the session workspace" in str(exc)
+    else:
+        raise AssertionError("Expected ValueError for path traversal")
+
+
+def test_local_runtime_emits_workspace_changed_for_write_file(tmp_path: Path):
+    config = ChatbotConfig(model="gpt-4.1-mini", max_iterations=3)
+    base_workspace = tmp_path / "base"
+    base_workspace.mkdir()
+    chatbot = SimplifiedChatbot(
+        config=config,
+        provider=_WriteWorkspaceProvider(),
+        system_prompt="System prompt",
+        tools=build_default_tool_registry(workspace=base_workspace),
+        tool_factory=lambda workspace: build_default_tool_registry(workspace=workspace),
+        default_workspace=base_workspace,
+    )
+    runtime = LocalAgentRuntime(
+        chatbot=chatbot,
+        store=InMemorySessionStore(),
+        workspace_root_dir=tmp_path / "workspaces",
+    )
+    events: list[tuple[str, dict[str, object]]] = []
+
+    result = runtime.handle_message_with_events(
+        "s1",
+        "Write the design doc",
+        on_event=lambda event, data: events.append((event, data)),
+    )
+
+    assert result.content == "Wrote the file."
+    assert (
+        "workspace_changed",
+        {"session_id": "s1", "paths": ["doc/design.md"]},
+    ) in events
+
+
+def test_local_runtime_emits_workspace_changed_invalidation_for_exec(tmp_path: Path):
+    config = ChatbotConfig(model="gpt-4.1-mini", max_iterations=3)
+    base_workspace = tmp_path / "base"
+    base_workspace.mkdir()
+    chatbot = SimplifiedChatbot(
+        config=config,
+        provider=_ExecWorkspaceProvider(),
+        system_prompt="System prompt",
+        tools=build_default_tool_registry(workspace=base_workspace),
+        tool_factory=lambda workspace: build_default_tool_registry(workspace=workspace),
+        default_workspace=base_workspace,
+    )
+    runtime = LocalAgentRuntime(
+        chatbot=chatbot,
+        store=InMemorySessionStore(),
+        workspace_root_dir=tmp_path / "workspaces",
+    )
+    events: list[tuple[str, dict[str, object]]] = []
+
+    result = runtime.handle_message_with_events(
+        "s1",
+        "Run a command",
+        on_event=lambda event, data: events.append((event, data)),
+    )
+
+    assert result.content == "Ran command."
+    assert (
+        "workspace_changed",
+        {"session_id": "s1", "paths": []},
+    ) in events
 
 
 def test_local_runtime_session_workspaces_are_isolated(tmp_path: Path):
