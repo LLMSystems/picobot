@@ -70,6 +70,31 @@ class ChatbotConfig(BaseModel):
         default=None,
         validation_alias=AliasChoices("workspace_root_dir", "workspaceRootDir"),
     )
+    max_upload_file_bytes: int = Field(
+        default=10 * 1024 * 1024,
+        gt=0,
+        validation_alias=AliasChoices(
+            "max_upload_file_bytes",
+            "maxUploadFileBytes",
+        ),
+    )
+    max_upload_files_per_request: int = Field(
+        default=20,
+        gt=0,
+        validation_alias=AliasChoices(
+            "max_upload_files_per_request",
+            "maxUploadFilesPerRequest",
+        ),
+    )
+    cors_allowed_origins: list[str] = Field(
+        default_factory=list,
+        validation_alias=AliasChoices(
+            "cors_allowed_origins",
+            "corsAllowedOrigins",
+            "cors_origins",
+            "corsOrigins",
+        ),
+    )
 
     @field_validator("model")
     @classmethod

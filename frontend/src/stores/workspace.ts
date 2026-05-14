@@ -1,10 +1,88 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
+import { toast } from 'vue-sonner'
 import { api } from '@/lib/api'
 import { ApiError } from '@/lib/errors'
-import type { WorkspaceEntryDTO, WorkspaceFileResponse } from '@/lib/types'
+import type {
+  WorkspaceEntryDTO,
+  WorkspaceFileResponse,
+  WorkspaceUploadResponse,
+} from '@/lib/types'
 
 const VISIBLE_STORAGE_KEY = 'picobot:workspace:visible'
+
+export const MAX_UPLOAD_FILE_BYTES = 10 * 1024 * 1024
+export const MAX_UPLOAD_FILES_PER_REQUEST = 20
+
+function formatBytes(n: number): string {
+  if (n >= 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MiB`
+  if (n >= 1024) return `${(n / 1024).toFixed(1)} KiB`
+  return `${n} B`
+}
+
+function describeDeleteError(err: unknown): string {
+  if (err instanceof ApiError) {
+    switch (err.code) {
+      case 'WORKSPACE_NOT_AVAILABLE':
+        return '此 session 沒有啟用 workspace'
+      case 'WORKSPACE_PATH_INVALID':
+        return '路徑不合法'
+      case 'WORKSPACE_FILE_NOT_FOUND':
+        return '檔案已不存在'
+      case 'WORKSPACE_NOT_A_FILE':
+        return '無法刪除資料夾，只能刪除檔案'
+      default:
+        return err.message
+    }
+  }
+  return err instanceof Error ? err.message : '刪除失敗'
+}
+
+function describeMoveError(err: unknown): string {
+  if (err instanceof ApiError) {
+    switch (err.code) {
+      case 'WORKSPACE_MOVE_INTO_SELF':
+        return '不能搬到自己底下'
+      case 'WORKSPACE_MOVE_SAME_PATH':
+        return '來源和目標相同'
+      case 'WORKSPACE_MOVE_DESTINATION_IS_DIRECTORY':
+        return '目標位置已是資料夾，無法合併'
+      case 'WORKSPACE_FILE_NOT_FOUND':
+        return '來源已不存在'
+      case 'WORKSPACE_PATH_INVALID':
+        return '路徑不合法'
+      default:
+        return err.message
+    }
+  }
+  return err instanceof Error ? err.message : '操作失敗'
+}
+
+function describeUploadError(err: unknown): string {
+  if (err instanceof ApiError) {
+    switch (err.code) {
+      case 'WORKSPACE_NOT_AVAILABLE':
+        return '此 session 沒有啟用 workspace'
+      case 'WORKSPACE_PATH_INVALID':
+        return '路徑不合法'
+      case 'WORKSPACE_DIRECTORY_NOT_FOUND':
+        return '目標資料夾不存在'
+      case 'WORKSPACE_NOT_A_DIRECTORY':
+        return '目標路徑不是資料夾'
+      case 'WORKSPACE_UPLOAD_NO_FILES':
+        return '沒有選擇檔案'
+      case 'WORKSPACE_UPLOAD_FILENAME_INVALID':
+        return '檔名含有非法字元'
+      case 'WORKSPACE_UPLOAD_FILE_TOO_LARGE':
+        return '檔案大小超過後端限制'
+      case 'WORKSPACE_UPLOAD_TOO_MANY_FILES':
+        return '檔案數量超過後端限制'
+      default:
+        return err.message
+    }
+  }
+  return err instanceof Error ? err.message : '上傳失敗'
+}
 
 export type SortMode = 'updated' | 'name'
 
@@ -46,6 +124,20 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   const lastSyncedAt = ref(0)
   const sortMode = ref<SortMode>('updated')
   const visible = ref(loadVisible())
+  const draggingPath = ref<string | null>(null)
+  const pendingMoveConflict = ref<{ src: string; dst: string } | null>(null)
+  const uploading = ref(false)
+  const uploadConflict = ref<{
+    files: File[]
+    names: string[]
+    target: string
+  } | null>(null)
+  const pendingRename = ref<{
+    path: string
+    type: 'file' | 'directory'
+    name: string
+  } | null>(null)
+  const pendingDelete = ref<{ path: string; name: string } | null>(null)
 
   function persistVisible() {
     try {
@@ -255,6 +347,296 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     sortMode.value = mode
   }
 
+  function targetUploadDir(): string {
+    const sel = selectedPath.value
+    if (!sel) return '.'
+    const entry = entries.value.get(sel)
+    if (!entry) return '.'
+    if (entry.type === 'directory') return sel
+    const parent = parentOf(sel)
+    return parent === '' ? '.' : parent
+  }
+
+  async function createDirectory(
+    name: string,
+    opts: { parent?: string } = {},
+  ): Promise<{ path: string; created: boolean }> {
+    const id = sessionId.value
+    if (!id) throw new Error('沒有作用中的 session')
+    const trimmed = name.trim().replace(/^\/+|\/+$/g, '')
+    if (!trimmed) throw new Error('資料夾名稱不能為空')
+
+    const parent = opts.parent ?? targetUploadDir()
+    const fullPath =
+      parent === '.' || parent === '' ? trimmed : `${parent}/${trimmed}`
+
+    const resp = await api.createWorkspaceDirectory(id, { path: fullPath })
+    if (sessionId.value !== id) {
+      return { path: resp.path, created: resp.created }
+    }
+
+    const parentKey = parent === '.' ? '' : parent
+    if (parentKey === '' || expanded.value.has(parentKey)) {
+      await refreshTree({ path: parent })
+    }
+    return { path: resp.path, created: resp.created }
+  }
+
+  function basename(path: string): string {
+    const i = path.lastIndexOf('/')
+    return i < 0 ? path : path.slice(i + 1)
+  }
+
+  function isDescendantPath(parent: string, candidate: string): boolean {
+    if (parent === '.' || parent === '') return candidate !== '.'
+    return candidate === parent || candidate.startsWith(`${parent}/`)
+  }
+
+  function planMove(src: string, targetDir: string): string {
+    const dir = targetDir === '' || targetDir === '.' ? '' : targetDir
+    const name = basename(src)
+    return dir === '' ? name : `${dir}/${name}`
+  }
+
+  async function moveEntry(
+    src: string,
+    dst: string,
+    opts: { overwrite?: boolean } = {},
+  ): Promise<void> {
+    const id = sessionId.value
+    if (!id) throw new Error('沒有作用中的 session')
+    if (!src || src === '.') throw new Error('來源路徑不合法')
+    if (!dst || dst === '.') throw new Error('目標路徑不合法')
+    if (src === dst) return
+
+    const srcEntry = entries.value.get(src)
+    if (srcEntry?.type === 'directory' && isDescendantPath(src, dst)) {
+      throw new Error('不能把資料夾搬到自己底下')
+    }
+
+    try {
+      const resp = await api.moveWorkspaceEntry(id, {
+        src,
+        dst,
+        overwrite: opts.overwrite ?? false,
+      })
+      if (sessionId.value !== id) return
+
+      const srcParent = parentOf(src)
+      const dstParent = parentOf(resp.dst)
+      const dirsToRefresh = new Set<string>()
+      if (srcParent === '' || expanded.value.has(srcParent)) {
+        dirsToRefresh.add(srcParent)
+      }
+      if (dstParent === '' || expanded.value.has(dstParent)) {
+        dirsToRefresh.add(dstParent)
+      }
+      await Promise.all(
+        [...dirsToRefresh].map((d) =>
+          refreshTree({ path: d === '' ? '.' : d }),
+        ),
+      )
+
+      if (selectedPath.value === src) {
+        await select(resp.dst)
+      } else if (
+        selectedPath.value &&
+        selectedPath.value.startsWith(`${src}/`)
+      ) {
+        const rest = selectedPath.value.slice(src.length + 1)
+        await select(`${resp.dst}/${rest}`)
+      }
+
+      if (expanded.value.has(src)) {
+        const next = new Set(expanded.value)
+        next.delete(src)
+        if (resp.type === 'directory') next.add(resp.dst)
+        expanded.value = next
+      }
+    } catch (err) {
+      if (
+        err instanceof ApiError &&
+        err.code === 'WORKSPACE_MOVE_DESTINATION_EXISTS'
+      ) {
+        pendingMoveConflict.value = { src, dst }
+      }
+      throw err
+    }
+  }
+
+  function setDraggingPath(path: string | null) {
+    draggingPath.value = path
+  }
+
+  function clearMoveConflict() {
+    pendingMoveConflict.value = null
+  }
+
+  async function deleteFile(path: string): Promise<void> {
+    const id = sessionId.value
+    if (!id) throw new Error('沒有作用中的 session')
+    if (!path || path === '.') throw new Error('路徑不合法')
+
+    try {
+      await api.deleteWorkspaceFile(id, { path })
+      if (sessionId.value !== id) return
+
+      const parent = parentOf(path)
+      if (parent === '' || expanded.value.has(parent)) {
+        await refreshTree({ path: parent === '' ? '.' : parent })
+      }
+      if (selectedPath.value === path) {
+        await select(null)
+      }
+      toast.success('已刪除', { description: path })
+    } catch (err) {
+      toast.error('刪除失敗', { description: describeDeleteError(err) })
+      throw err
+    }
+  }
+
+  async function renameEntry(src: string, newName: string): Promise<void> {
+    const trimmed = newName.trim()
+    if (!trimmed) throw new Error('名稱不能為空')
+    if (trimmed.includes('/'))
+      throw new Error('名稱不能含 "/"，請改用拖拉移動')
+
+    const parent = parentOf(src)
+    const dst = parent === '' ? trimmed : `${parent}/${trimmed}`
+    if (src === dst) return
+
+    try {
+      await moveEntry(src, dst)
+      toast.success('已重新命名', { description: dst })
+    } catch (err) {
+      if (
+        err instanceof ApiError &&
+        err.code === 'WORKSPACE_MOVE_DESTINATION_EXISTS'
+      ) {
+        return
+      }
+      toast.error('重新命名失敗', { description: describeMoveError(err) })
+      throw err
+    }
+  }
+
+  function startRename(path: string) {
+    const entry = entries.value.get(path)
+    if (!entry) return
+    pendingRename.value = {
+      path,
+      type: entry.type,
+      name: entry.name,
+    }
+  }
+
+  function clearRename() {
+    pendingRename.value = null
+  }
+
+  function startDelete(path: string) {
+    const entry = entries.value.get(path)
+    if (!entry) return
+    pendingDelete.value = { path, name: entry.name }
+  }
+
+  function clearDelete() {
+    pendingDelete.value = null
+  }
+
+  async function uploadFiles(
+    files: File[],
+    opts: { path?: string; overwrite?: boolean } = {},
+  ): Promise<WorkspaceUploadResponse> {
+    const id = sessionId.value
+    if (!id) throw new Error('沒有作用中的 session')
+    if (files.length === 0) throw new Error('沒有檔案可上傳')
+
+    const target = opts.path ?? targetUploadDir()
+    const resp = await api.uploadWorkspaceFiles(
+      id,
+      { path: target, overwrite: opts.overwrite ?? false },
+      files,
+    )
+    if (sessionId.value !== id) return resp
+
+    const dirKey = target === '.' ? '' : target
+    if (dirKey === '' || expanded.value.has(dirKey)) {
+      await refreshTree({ path: target })
+    }
+    return resp
+  }
+
+  function validateUploadCandidates(files: File[]): File[] | null {
+    if (files.length === 0) return null
+    if (files.length > MAX_UPLOAD_FILES_PER_REQUEST) {
+      toast.error('檔案數量超過上限', {
+        description: `單次最多上傳 ${MAX_UPLOAD_FILES_PER_REQUEST} 個檔案`,
+      })
+      return null
+    }
+    const tooBig = files.filter((f) => f.size > MAX_UPLOAD_FILE_BYTES)
+    if (tooBig.length > 0) {
+      toast.error('檔案大小超過上限', {
+        description: `單檔上限 ${formatBytes(
+          MAX_UPLOAD_FILE_BYTES,
+        )}，超過的檔案：${tooBig.map((f) => f.name).join('、')}`,
+      })
+      return null
+    }
+    return files
+  }
+
+  async function triggerUpload(
+    files: File[],
+    target: string,
+    opts: { overwrite?: boolean } = {},
+  ): Promise<void> {
+    const ok = opts.overwrite ? files : validateUploadCandidates(files)
+    if (!ok) return
+    uploading.value = true
+    try {
+      const resp = await uploadFiles(ok, {
+        path: target,
+        overwrite: opts.overwrite ?? false,
+      })
+      if (resp.uploaded.length > 0) {
+        const action = opts.overwrite ? '覆寫' : '上傳'
+        const desc = target === '.' ? 'workspace 根目錄' : target
+        toast.success(`${action}成功`, {
+          description: `${resp.uploaded.length} 個檔案 → ${desc}`,
+        })
+      }
+      if (resp.skipped.length > 0) {
+        uploadConflict.value = {
+          files: ok.filter((f) =>
+            resp.skipped.some((s) => s.name === f.name),
+          ),
+          names: resp.skipped.map((s) => s.name),
+          target,
+        }
+      } else {
+        uploadConflict.value = null
+      }
+    } catch (err) {
+      toast.error('上傳失敗', { description: describeUploadError(err) })
+    } finally {
+      uploading.value = false
+    }
+  }
+
+  async function confirmUploadOverwrite(): Promise<void> {
+    const conflict = uploadConflict.value
+    if (!conflict) return
+    const { files, target } = conflict
+    uploadConflict.value = null
+    await triggerUpload(files, target, { overwrite: true })
+  }
+
+  function dismissUploadConflict() {
+    uploadConflict.value = null
+  }
+
   function childrenOf(dir: string): WorkspaceEntryDTO[] {
     const out: WorkspaceEntryDTO[] = []
     for (const e of entries.value.values()) {
@@ -292,6 +674,12 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     lastSyncedAt,
     sortMode,
     visible,
+    draggingPath,
+    pendingMoveConflict,
+    uploading,
+    uploadConflict,
+    pendingRename,
+    pendingDelete,
     rootChildren,
     hasContent,
     bind,
@@ -309,5 +697,22 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     toggleVisible,
     childrenOf,
     getDir,
+    uploadFiles,
+    triggerUpload,
+    confirmUploadOverwrite,
+    dismissUploadConflict,
+    createDirectory,
+    targetUploadDir,
+    moveEntry,
+    planMove,
+    isDescendantPath,
+    setDraggingPath,
+    clearMoveConflict,
+    deleteFile,
+    renameEntry,
+    startRename,
+    clearRename,
+    startDelete,
+    clearDelete,
   }
 })

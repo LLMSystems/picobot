@@ -169,6 +169,72 @@ class WorkspaceFileResponse(BaseModel):
     line_count: int = 0
 
 
+class WorkspaceUploadedFile(BaseModel):
+    """Metadata for one successfully uploaded workspace file."""
+
+    path: str
+    name: str
+    size: int
+    content_type: str | None = None
+    overwritten: bool = False
+
+
+class WorkspaceSkippedFile(BaseModel):
+    """Metadata for one skipped upload item."""
+
+    name: str
+    reason: str
+
+
+class WorkspaceUploadResponse(BaseModel):
+    """Response body for uploading one or more workspace files."""
+
+    session_id: str
+    path: str
+    uploaded: list[WorkspaceUploadedFile] = Field(default_factory=list)
+    skipped: list[WorkspaceSkippedFile] = Field(default_factory=list)
+
+
+class WorkspaceDeleteResponse(BaseModel):
+    """Response body for deleting one workspace file."""
+
+    session_id: str
+    path: str
+    deleted: bool = True
+
+
+class WorkspaceMkdirRequest(BaseModel):
+    """Request body for creating one workspace directory."""
+
+    path: str = Field(min_length=1)
+
+
+class WorkspaceMkdirResponse(BaseModel):
+    """Response body for creating one workspace directory."""
+
+    session_id: str
+    path: str
+    created: bool = True
+
+
+class WorkspaceMoveRequest(BaseModel):
+    """Request body for moving one workspace file or directory."""
+
+    src: str = Field(min_length=1)
+    dst: str = Field(min_length=1)
+    overwrite: bool = False
+
+
+class WorkspaceMoveResponse(BaseModel):
+    """Response body for moving one workspace file or directory."""
+
+    session_id: str
+    src: str
+    dst: str
+    type: str
+    overwritten: bool = False
+
+
 class HealthResponse(BaseModel):
     """Simple health check payload."""
 

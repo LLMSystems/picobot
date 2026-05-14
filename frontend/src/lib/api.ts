@@ -6,6 +6,10 @@ import type {
   ChatResponse,
   WorkspaceFileResponse,
   WorkspaceTreeResponse,
+  WorkspaceUploadResponse,
+  WorkspaceDeleteResponse,
+  WorkspaceMkdirResponse,
+  WorkspaceMoveResponse,
 } from './types'
 import { ApiError } from './errors'
 
@@ -29,6 +33,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       ...(init?.headers ?? {}),
     },
   })
+  return parseResponse<T>(res)
+}
+
+async function requestRaw<T>(path: string, init: RequestInit): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, init)
+  return parseResponse<T>(res)
+}
+
+async function parseResponse<T>(res: Response): Promise<T> {
   const requestId = res.headers.get('X-Request-Id') ?? undefined
   if (!res.ok) {
     let body: ApiErrorBody | undefined
@@ -97,5 +110,39 @@ export const api = {
   ) =>
     request<WorkspaceFileResponse>(
       `/sessions/${encodeURIComponent(id)}/workspace/file${qs(params)}`,
+    ),
+
+  uploadWorkspaceFiles: (
+    id: string,
+    params: { path?: string; overwrite?: boolean },
+    files: File[],
+  ) => {
+    const formData = new FormData()
+    for (const f of files) formData.append('files', f, f.name)
+    return requestRaw<WorkspaceUploadResponse>(
+      `/sessions/${encodeURIComponent(id)}/workspace/upload${qs(params)}`,
+      { method: 'POST', body: formData },
+    )
+  },
+
+  deleteWorkspaceFile: (id: string, params: { path: string }) =>
+    request<WorkspaceDeleteResponse>(
+      `/sessions/${encodeURIComponent(id)}/workspace/file${qs(params)}`,
+      { method: 'DELETE' },
+    ),
+
+  createWorkspaceDirectory: (id: string, body: { path: string }) =>
+    request<WorkspaceMkdirResponse>(
+      `/sessions/${encodeURIComponent(id)}/workspace/mkdir`,
+      { method: 'POST', body: JSON.stringify(body) },
+    ),
+
+  moveWorkspaceEntry: (
+    id: string,
+    body: { src: string; dst: string; overwrite?: boolean },
+  ) =>
+    request<WorkspaceMoveResponse>(
+      `/sessions/${encodeURIComponent(id)}/workspace/move`,
+      { method: 'POST', body: JSON.stringify(body) },
     ),
 }

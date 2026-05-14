@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime, timezone
 import inspect
+import os
 from pathlib import Path
+import tempfile
 from typing import Any
 import uuid
 
@@ -27,12 +30,17 @@ class LocalAgentRuntime:
 
     _DEFAULT_WORKSPACE_TREE_MAX = 200
     _DEFAULT_WORKSPACE_FILE_LIMIT = 2000
+    _DEFAULT_MAX_UPLOAD_FILE_BYTES = 10 * 1024 * 1024
+    _DEFAULT_MAX_UPLOAD_FILES_PER_REQUEST = 20
 
     def __init__(
         self,
         chatbot: SimplifiedChatbot,
         store: SessionStore | AsyncSessionStore | None = None,
         workspace_root_dir: str | Path | None = None,
+        *,
+        max_upload_file_bytes: int = _DEFAULT_MAX_UPLOAD_FILE_BYTES,
+        max_upload_files_per_request: int = _DEFAULT_MAX_UPLOAD_FILES_PER_REQUEST,
     ) -> None:
         self.chatbot = chatbot
         self.store = store or InMemorySessionStore()
@@ -42,6 +50,8 @@ class LocalAgentRuntime:
             else None
         )
         self._session_chatbots: dict[str, Any] = {}
+        self.max_upload_file_bytes = max_upload_file_bytes
+        self.max_upload_files_per_request = max_upload_files_per_request
 
     @classmethod
     def from_config(
@@ -77,6 +87,16 @@ class LocalAgentRuntime:
             chatbot=bot,
             store=store,
             workspace_root_dir=resolved_workspace_root,
+            max_upload_file_bytes=(
+                loaded_config.max_upload_file_bytes
+                if loaded_config is not None
+                else cls._DEFAULT_MAX_UPLOAD_FILE_BYTES
+            ),
+            max_upload_files_per_request=(
+                loaded_config.max_upload_files_per_request
+                if loaded_config is not None
+                else cls._DEFAULT_MAX_UPLOAD_FILES_PER_REQUEST
+            ),
         )
 
     def handle_message(self, session_id: str, message: str) -> RunResult:
@@ -397,6 +417,169 @@ class LocalAgentRuntime:
             "line_count": line_count,
         }
 
+    async def upload_workspace_files_async(
+        self,
+        session_id: str,
+        *,
+        path: str = ".",
+        files: list["UploadFileInput"],
+        overwrite: bool = False,
+    ) -> dict[str, object]:
+        """Upload one or more files into the session workspace."""
+        if not files:
+            raise WorkspaceUploadNoFilesError("no files were provided")
+        if len(files) > self.max_upload_files_per_request:
+            raise WorkspaceUploadTooManyFilesError(
+                f"too many files: {len(files)} > {self.max_upload_files_per_request}",
+            )
+
+        workspace = await self.get_workspace_root_async(session_id)
+        relative_dir, target_dir = _resolve_workspace_relative_path(workspace, path)
+        if not target_dir.exists():
+            raise FileNotFoundError(path)
+        if not target_dir.is_dir():
+            raise NotADirectoryError(path)
+
+        uploaded: list[dict[str, object]] = []
+        skipped: list[dict[str, object]] = []
+        for item in files:
+            _validate_upload_filename(item.name)
+            if len(item.content) > self.max_upload_file_bytes:
+                raise WorkspaceUploadFileTooLargeError(
+                    f"file '{item.name}' exceeds max size {self.max_upload_file_bytes} bytes",
+                )
+
+            target = target_dir / item.name
+            relative_path = _relative_posix(target, workspace)
+            already_exists = target.exists()
+            if already_exists and target.is_dir():
+                raise WorkspaceFilenameInvalidError(
+                    f"target path '{relative_path}' is an existing directory",
+                )
+            if already_exists and not overwrite:
+                skipped.append(
+                    {
+                        "name": item.name,
+                        "reason": "already_exists",
+                    },
+                )
+                continue
+
+            await asyncio.to_thread(_atomic_write_bytes, target, item.content)
+            uploaded.append(
+                {
+                    "path": relative_path,
+                    "name": item.name,
+                    "size": len(item.content),
+                    "content_type": item.content_type,
+                    "overwritten": already_exists,
+                },
+            )
+
+        return {
+            "session_id": session_id,
+            "path": relative_dir,
+            "uploaded": uploaded,
+            "skipped": skipped,
+        }
+
+    async def delete_workspace_file_async(
+        self,
+        session_id: str,
+        *,
+        path: str,
+    ) -> dict[str, object]:
+        """Delete one file from the session workspace."""
+        workspace = await self.get_workspace_root_async(session_id)
+        relative_path, target = _resolve_workspace_relative_path(workspace, path)
+        if not target.exists():
+            raise FileNotFoundError(path)
+        if not target.is_file():
+            raise IsADirectoryError(path)
+
+        await asyncio.to_thread(target.unlink)
+        return {
+            "session_id": session_id,
+            "path": relative_path,
+            "deleted": True,
+        }
+
+    async def create_workspace_directory_async(
+        self,
+        session_id: str,
+        *,
+        path: str,
+    ) -> dict[str, object]:
+        """Create one directory inside the session workspace."""
+        workspace = await self.get_workspace_root_async(session_id)
+        relative_path, target = _resolve_workspace_relative_path(workspace, path)
+        if target.exists():
+            if not target.is_dir():
+                raise NotADirectoryError(path)
+            return {
+                "session_id": session_id,
+                "path": relative_path,
+                "created": False,
+            }
+
+        await asyncio.to_thread(target.mkdir, parents=True, exist_ok=True)
+        return {
+            "session_id": session_id,
+            "path": relative_path,
+            "created": True,
+        }
+
+    async def move_workspace_entry_async(
+        self,
+        session_id: str,
+        *,
+        src: str,
+        dst: str,
+        overwrite: bool = False,
+    ) -> dict[str, object]:
+        """Move or rename one workspace file or directory."""
+        workspace = await self.get_workspace_root_async(session_id)
+        src_relative, src_target = _resolve_workspace_relative_path(workspace, src)
+        dst_relative, dst_target = _resolve_workspace_relative_path(workspace, dst)
+
+        if src_relative == ".":
+            raise WorkspaceMoveRootForbiddenError("src cannot be the workspace root")
+        if dst_relative == ".":
+            raise ValueError("dst must not be the workspace root")
+        if src_relative == dst_relative:
+            raise WorkspaceMoveSamePathError("src and dst must be different")
+        if not src_target.exists():
+            raise FileNotFoundError(src)
+
+        src_type = "directory" if src_target.is_dir() else "file"
+        if src_type == "directory" and _is_under(dst_target, src_target):
+            raise WorkspaceMoveIntoSelfError("dst cannot be inside src")
+
+        dst_parent = dst_target.parent
+        if not dst_parent.exists():
+            raise WorkspaceMoveDestinationParentMissingError(dst)
+        if not dst_parent.is_dir():
+            raise NotADirectoryError(dst)
+
+        overwritten = False
+        if dst_target.exists():
+            if not overwrite:
+                raise WorkspaceMoveDestinationExistsError(dst)
+            if dst_target.is_dir():
+                raise WorkspaceMoveDestinationIsDirectoryError(dst)
+            if src_type == "directory":
+                raise WorkspaceMoveDestinationExistsError(dst)
+            overwritten = True
+
+        await asyncio.to_thread(os.replace, src_target, dst_target)
+        return {
+            "session_id": session_id,
+            "src": src_relative,
+            "dst": dst_relative,
+            "type": src_type,
+            "overwritten": overwritten,
+        }
+
     async def create_session_async(
         self,
         *,
@@ -619,6 +802,71 @@ def _relative_posix(path: Path, root: Path) -> str:
     return path.relative_to(root).as_posix()
 
 
+def _is_under(candidate: Path, root: Path) -> bool:
+    try:
+        candidate.resolve().relative_to(root.resolve())
+        return True
+    except ValueError:
+        return False
+
+
+@dataclass(slots=True)
+class UploadFileInput:
+    """Runtime-friendly uploaded file payload decoupled from FastAPI."""
+
+    name: str
+    content: bytes
+    content_type: str | None = None
+
+
+class WorkspaceUploadError(ValueError):
+    """Base error for workspace upload validation failures."""
+
+
+class WorkspaceUploadNoFilesError(WorkspaceUploadError):
+    """Raised when no files are provided."""
+
+
+class WorkspaceUploadTooManyFilesError(WorkspaceUploadError):
+    """Raised when one request exceeds the file count limit."""
+
+
+class WorkspaceUploadFileTooLargeError(WorkspaceUploadError):
+    """Raised when one uploaded file exceeds the size limit."""
+
+
+class WorkspaceFilenameInvalidError(WorkspaceUploadError):
+    """Raised when an uploaded filename is invalid."""
+
+
+class WorkspaceMoveError(ValueError):
+    """Base error for workspace move validation failures."""
+
+
+class WorkspaceMoveDestinationExistsError(WorkspaceMoveError):
+    """Raised when move destination already exists and overwrite is false."""
+
+
+class WorkspaceMoveDestinationIsDirectoryError(WorkspaceMoveError):
+    """Raised when overwrite targets an existing directory."""
+
+
+class WorkspaceMoveSamePathError(WorkspaceMoveError):
+    """Raised when src and dst resolve to the same path."""
+
+
+class WorkspaceMoveRootForbiddenError(WorkspaceMoveError):
+    """Raised when src is the workspace root."""
+
+
+class WorkspaceMoveIntoSelfError(WorkspaceMoveError):
+    """Raised when moving a directory into itself."""
+
+
+class WorkspaceMoveDestinationParentMissingError(WorkspaceMoveError):
+    """Raised when the destination parent directory does not exist."""
+
+
 def _emit_runtime_event(
     callback: Callable[[str, dict[str, Any]], None] | None,
     event: str,
@@ -740,3 +988,32 @@ def _mtime_to_utc(path: Path) -> str:
         path.stat().st_mtime,
         tz=timezone.utc,
     ).isoformat().replace("+00:00", "Z")
+
+
+def _validate_upload_filename(name: str) -> None:
+    normalized = name.strip()
+    if not normalized:
+        raise WorkspaceFilenameInvalidError("filename must not be empty")
+    if len(normalized) > 255:
+        raise WorkspaceFilenameInvalidError("filename must be <= 255 characters")
+    if normalized in {".", ".."}:
+        raise WorkspaceFilenameInvalidError("filename must not be '.' or '..'")
+    if any(char in normalized for char in ("/", "\\", "\x00")):
+        raise WorkspaceFilenameInvalidError(
+            "filename must not contain '/', '\\', or null bytes",
+        )
+
+
+def _atomic_write_bytes(target: Path, content: bytes) -> None:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp_path = tempfile.mkstemp(dir=str(target.parent), prefix=f".{target.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(content)
+        os.replace(temp_path, target)
+    except Exception:
+        try:
+            os.unlink(temp_path)
+        except OSError:
+            pass
+        raise

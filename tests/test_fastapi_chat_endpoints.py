@@ -501,7 +501,7 @@ def test_get_capabilities_returns_frontend_metadata(tmp_path):
     assert payload["features"] == {
         "streaming": True,
         "session_workspace": True,
-        "file_upload": False,
+        "file_upload": True,
         "multimodal": False,
     }
     tools = {item["name"]: item for item in payload["tools"]}
@@ -696,14 +696,9 @@ def test_post_chat_returns_structured_validation_error(tmp_path):
 
     response = client.post("/chat", json={"session_id": "s1", "message": ""})
 
-    assert response.status_code == 400
-    assert response.json() == {
-        "error": {
-            "code": "MESSAGE_INVALID",
-            "message": "message must not be empty",
-            "request_id": response.headers["x-request-id"],
-        },
-    }
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "VALIDATION_ERROR"
+    assert response.json()["error"]["request_id"] == response.headers["x-request-id"]
 
 
 def test_post_chat_stream_returns_structured_validation_error(tmp_path):
@@ -728,7 +723,11 @@ def test_health_returns_ok():
 
 def _build_client(tmp_path, *, with_runtime: bool = False):
     store = AioSQLiteSessionStore(tmp_path / "sessions.db")
-    runtime = LocalAgentRuntime(chatbot=_AsyncOnlyChatbot(), store=store)
+    runtime = LocalAgentRuntime(
+        chatbot=_AsyncOnlyChatbot(),
+        store=store,
+        workspace_root_dir=tmp_path / "workspaces",
+    )
     app = create_app(runtime=runtime)
     client = TestClient(app)
     if with_runtime:

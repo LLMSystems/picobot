@@ -160,3 +160,43 @@ export interface WorkspaceChangedData {
   session_id: string
   paths: string[]
 }
+
+export interface WorkspaceUploadedFile {
+  path: string
+  name: string
+  size: number
+  content_type: string
+  overwritten: boolean
+}
+
+export interface WorkspaceSkippedFile {
+  name: string
+  reason: 'already_exists'
+}
+
+export interface WorkspaceUploadResponse {
+  session_id: string
+  path: string
+  uploaded: WorkspaceUploadedFile[]
+  skipped: WorkspaceSkippedFile[]
+}
+
+export interface WorkspaceDeleteResponse {
+  session_id: string
+  path: string
+  deleted: boolean
+}
+
+export interface WorkspaceMkdirResponse {
+  session_id: string
+  path: string
+  created: boolean
+}
+
+export interface WorkspaceMoveResponse {
+  session_id: string
+  src: string
+  dst: string
+  type: WorkspaceEntryType
+  overwritten: boolean
+}

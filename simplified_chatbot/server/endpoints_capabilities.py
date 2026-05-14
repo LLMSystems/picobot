@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import importlib.util
+
 from fastapi import APIRouter, Request
 
 from simplified_chatbot.server.common import get_runtime
@@ -17,7 +19,7 @@ router = APIRouter()
 
 _SHELL_TOOLS = frozenset({"exec"})
 _FILESYSTEM_TOOLS = frozenset(
-    {"read_file", "read_skill", "write_file", "edit_file", "list_dir", "glob", "grep"},
+    {"read_file", "write_file", "edit_file", "list_dir", "glob", "grep"},
 )
 _DANGEROUS_TOOLS = frozenset({"exec", "write_file", "edit_file"})
 
@@ -44,7 +46,10 @@ async def get_capabilities(request: Request) -> CapabilitiesResponse:
         features=CapabilitiesFeatures(
             streaming=True,
             session_workspace=runtime.workspace_manager is not None,
-            file_upload=False,
+            file_upload=(
+                runtime.workspace_manager is not None
+                and importlib.util.find_spec("multipart") is not None
+            ),
             multimodal=False,
         ),
     )

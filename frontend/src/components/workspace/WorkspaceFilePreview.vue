@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { File as FileIcon, Maximize2, Copy } from 'lucide-vue-next'
+import { File as FileIcon, Maximize2, Copy, X } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { Button } from '@/components/ui/button'
@@ -62,6 +62,16 @@ async function copyContent() {
         @click="showFullscreen = true"
       >
         <Maximize2 class="size-3.5" />
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon"
+        class="size-6"
+        aria-label="關閉預覽"
+        title="關閉預覽"
+        @click="ws.select(null)"
+      >
+        <X class="size-3.5" />
       </Button>
     </div>
 

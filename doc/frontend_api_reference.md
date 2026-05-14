@@ -13,6 +13,10 @@
 - `GET /sessions/{session_id}/messages`
 - `GET /sessions/{session_id}/workspace/tree`
 - `GET /sessions/{session_id}/workspace/file`
+- `POST /sessions/{session_id}/workspace/upload`
+- `DELETE /sessions/{session_id}/workspace/file`
+- `POST /sessions/{session_id}/workspace/mkdir`
+- `POST /sessions/{session_id}/workspace/move`
 - `GET /capabilities`
 - `DELETE /sessions/{session_id}`
 - `GET /health`
@@ -87,6 +91,15 @@ X-Request-Id: req_xxxxx
 - `WORKSPACE_FILE_NOT_FOUND`
 - `WORKSPACE_NOT_A_FILE`
 - `WORKSPACE_BINARY_FILE_UNSUPPORTED`
+- `WORKSPACE_UPLOAD_NO_FILES`
+- `WORKSPACE_UPLOAD_FILENAME_INVALID`
+- `WORKSPACE_UPLOAD_FILE_TOO_LARGE`
+- `WORKSPACE_UPLOAD_TOO_MANY_FILES`
+- `WORKSPACE_MOVE_DESTINATION_EXISTS`
+- `WORKSPACE_MOVE_DESTINATION_IS_DIRECTORY`
+- `WORKSPACE_MOVE_SAME_PATH`
+- `WORKSPACE_MOVE_ROOT_FORBIDDEN`
+- `WORKSPACE_MOVE_INTO_SELF`
 
 ---
 
@@ -824,6 +837,267 @@ Query 參數：
 
 ---
 
+## 7.3 `POST /sessions/{session_id}/workspace/upload`
+
+用途：
+
+- 上傳一個或多個檔案到 session workspace
+- 適合前端的 file uploader / drag-and-drop
+
+### Request
+
+```http
+POST /sessions/s1/workspace/upload?path=docs&overwrite=false
+Content-Type: multipart/form-data
+```
+
+Query 參數：
+
+- `path`
+  - 目標目錄，相對於 session workspace
+  - 預設為 `.`
+- `overwrite`
+  - 是否允許覆蓋既有檔案
+  - 預設為 `false`
+
+Form 欄位：
+
+- `files`
+  - 可重複出現
+  - 每個 `files` 都是一個上傳檔案
+
+### Response 200
+
+```json
+{
+  "session_id": "s1",
+  "path": "docs",
+  "uploaded": [
+    {
+      "path": "docs/notes.md",
+      "name": "notes.md",
+      "size": 1234,
+      "content_type": "text/markdown",
+      "overwritten": false
+    }
+  ],
+  "skipped": [
+    {
+      "name": "old.md",
+      "reason": "already_exists"
+    }
+  ]
+}
+```
+
+### 範例
+
+`curl`：
+
+```bash
+curl -X POST "http://127.0.0.1:8000/sessions/s1/workspace/upload?path=docs&overwrite=false" \
+  -F "files=@notes.md;type=text/markdown" \
+  -F "files=@diagram.png;type=image/png"
+```
+
+前端 `fetch`：
+
+```javascript
+const formData = new FormData();
+formData.append("files", fileInput.files[0]);
+formData.append("files", fileInput.files[1]);
+
+const response = await fetch(
+  "http://127.0.0.1:8000/sessions/s1/workspace/upload?path=docs&overwrite=false",
+  {
+    method: "POST",
+    body: formData,
+  }
+);
+
+const payload = await response.json();
+console.log(payload);
+```
+
+### 錯誤
+
+目前 upload 的預設限制是：
+
+- 單一檔案大小上限：`10 MiB`
+- 單次 request 檔案數上限：`20`
+
+前端如果要提升體驗，建議在選檔階段先做 client-side 檢查，不要等送到 server 才收到 `413`。
+
+常見錯誤與 HTTP status：
+
+- `404 SESSION_NOT_FOUND`
+- `409 WORKSPACE_NOT_AVAILABLE`
+- `400 WORKSPACE_PATH_INVALID`
+- `404 WORKSPACE_DIRECTORY_NOT_FOUND`
+- `400 WORKSPACE_NOT_A_DIRECTORY`
+- `400 WORKSPACE_UPLOAD_NO_FILES`
+- `400 WORKSPACE_UPLOAD_FILENAME_INVALID`
+- `413 WORKSPACE_UPLOAD_FILE_TOO_LARGE`
+- `413 WORKSPACE_UPLOAD_TOO_MANY_FILES`
+
+---
+
+## 7.4 `DELETE /sessions/{session_id}/workspace/file`
+
+用途：
+
+- 刪除 session workspace 內的單一檔案
+
+### Request
+
+```http
+DELETE /sessions/s1/workspace/file?path=docs/notes.md
+```
+
+### Response 200
+
+```json
+{
+  "session_id": "s1",
+  "path": "docs/notes.md",
+  "deleted": true
+}
+```
+
+### 錯誤
+
+常見錯誤與 HTTP status：
+
+- `404 SESSION_NOT_FOUND`
+- `409 WORKSPACE_NOT_AVAILABLE`
+- `400 WORKSPACE_PATH_INVALID`
+- `404 WORKSPACE_FILE_NOT_FOUND`
+- `400 WORKSPACE_NOT_A_FILE`
+
+如果 `path` 指到的是資料夾而不是檔案，後端會回：
+
+- `400 WORKSPACE_NOT_A_FILE`
+
+---
+
+## 7.5 `POST /sessions/{session_id}/workspace/mkdir`
+
+用途：
+
+- 建立 session workspace 內的資料夾
+
+### Request
+
+```http
+POST /sessions/s1/workspace/mkdir
+Content-Type: application/json
+```
+
+```json
+{
+  "path": "drafts/2026-05"
+}
+```
+
+### Response 200
+
+```json
+{
+  "session_id": "s1",
+  "path": "drafts/2026-05",
+  "created": true
+}
+```
+
+如果目錄已存在，仍會回 `200`，但 `created` 會是 `false`。
+
+### 錯誤
+
+常見錯誤與 HTTP status：
+
+- `404 SESSION_NOT_FOUND`
+- `409 WORKSPACE_NOT_AVAILABLE`
+- `400 WORKSPACE_PATH_INVALID`
+- `400 WORKSPACE_NOT_A_DIRECTORY`
+
+其中 `WORKSPACE_NOT_A_DIRECTORY` 代表同路徑已經存在，但它是一個檔案，不是目錄。
+
+---
+
+## 7.6 `POST /sessions/{session_id}/workspace/move`
+
+用途：
+
+- 在 session workspace 內移動或重新命名單一檔案 / 資料夾
+- 適合前端 file explorer 的 rename / move 行為
+
+### Request
+
+```http
+POST /sessions/s1/workspace/move
+Content-Type: application/json
+```
+
+```json
+{
+  "src": "docs/notes.md",
+  "dst": "archive/2026/notes.md",
+  "overwrite": false
+}
+```
+
+欄位說明：
+
+- `src`
+  - 必填，相對於 session workspace 的來源路徑
+- `dst`
+  - 必填，相對於 session workspace 的目的路徑
+- `overwrite`
+  - 選填，若目的檔案已存在，是否覆蓋
+  - 預設為 `false`
+
+注意事項：
+
+- `src` 不可為 workspace root (`.`)
+- `dst` 不可為 workspace root (`.`)
+- `dst` 的父目錄必須已存在，後端不會自動建立目錄
+- 如果 `src` 是資料夾，`dst` 不可位於 `src` 之下
+
+### Response 200
+
+```json
+{
+  "session_id": "s1",
+  "src": "docs/notes.md",
+  "dst": "archive/2026/notes.md",
+  "type": "file",
+  "overwritten": false
+}
+```
+
+欄位說明：
+
+- `type`
+  - `file` 或 `directory`
+- `overwritten`
+  - 只有在 `overwrite=true` 且目標原本存在檔案時才會是 `true`
+
+### 錯誤
+
+對應 HTTP status：
+- `404 SESSION_NOT_FOUND`
+- `409 WORKSPACE_NOT_AVAILABLE`
+- `400 WORKSPACE_PATH_INVALID`
+- `404 WORKSPACE_FILE_NOT_FOUND`
+- `404 WORKSPACE_DIRECTORY_NOT_FOUND`
+- `409 WORKSPACE_MOVE_DESTINATION_EXISTS`
+- `409 WORKSPACE_MOVE_DESTINATION_IS_DIRECTORY`
+- `400 WORKSPACE_MOVE_SAME_PATH`
+- `400 WORKSPACE_MOVE_ROOT_FORBIDDEN`
+- `400 WORKSPACE_MOVE_INTO_SELF`
+
+---
+
 ## 8. Capabilities API
 
 ## 8.1 `GET /capabilities`
@@ -865,7 +1139,7 @@ GET /capabilities
   "features": {
     "streaming": true,
     "session_workspace": true,
-    "file_upload": false,
+    "file_upload": true,
     "multimodal": false
   }
 }
@@ -884,7 +1158,7 @@ GET /capabilities
 - `features.session_workspace`
   - 是否啟用 per-session workspace
 - `features.file_upload`
-  - 目前固定為 `false`
+  - 當後端啟用 session workspace，且安裝了 `python-multipart` 時為 `true`
 - `features.multimodal`
   - 目前固定為 `false`
 
@@ -1055,6 +1329,7 @@ function openChatStream(sessionId, message, handlers) {
 - session 建立與改名：`POST /sessions` / `PATCH /sessions/{session_id}`
 - message 歷史：`GET /sessions/{session_id}/messages`
 - workspace 瀏覽與檔案預覽：`GET /sessions/{session_id}/workspace/tree` / `GET /sessions/{session_id}/workspace/file`
+- workspace 上傳、刪除、建目錄、移動：`POST /sessions/{session_id}/workspace/upload` / `DELETE /sessions/{session_id}/workspace/file` / `POST /sessions/{session_id}/workspace/mkdir` / `POST /sessions/{session_id}/workspace/move`
 - 能力摘要：`GET /capabilities`
 - session 刪除：`DELETE /sessions/{session_id}`
 - 健康檢查：`GET /health`
