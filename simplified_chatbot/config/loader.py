@@ -36,6 +36,15 @@ def load_config(config_path: str | Path | None = None) -> ChatbotConfig:
     return ChatbotConfig.model_validate(resolved)
 
 
+def load_env_for_config(config_path: str | Path | None = None) -> Path | None:
+    """Load .env values near the given config path into process env."""
+    if config_path is None:
+        return None
+    path = resolve_config_path(config_path)
+    _load_dotenv_for_path(path)
+    return path
+
+
 def save_config(
     config: ChatbotConfig,
     config_path: str | Path | None = None,

@@ -82,6 +82,7 @@ python3 -m pip install -e .
 
 ```env
 OPENAI_API_KEY=your_api_key_here
+CORS_ALLOWED_ORIGINS=web_url_here
 ```
 
 可選：

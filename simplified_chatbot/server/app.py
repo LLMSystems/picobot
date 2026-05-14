@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 import uuid
 
@@ -9,8 +10,10 @@ from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 from fastapi.requests import Request
 from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from simplified_chatbot.config.loader import load_env_for_config
 from simplified_chatbot.runtime.local_runtime import LocalAgentRuntime
 from simplified_chatbot.runtime.session_store import AioSQLiteSessionStore
 from simplified_chatbot.server.common import error_response, get_request_id
@@ -26,9 +29,22 @@ def create_app(
     config_path: str | Path | None = None,
     db_path: str | Path | None = None,
     runtime: LocalAgentRuntime | None = None,
+    cors_allowed_origins: list[str] | None = None,
 ) -> FastAPI:
     """Create a FastAPI app backed by the local async runtime."""
     app = FastAPI(title="picobot", version="0.1.0")
+    resolved_cors_origins = _resolve_cors_allowed_origins(
+        config_path=config_path,
+        override_origins=cors_allowed_origins,
+    )
+    if resolved_cors_origins:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=resolved_cors_origins,
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
 
     @app.middleware("http")
     async def attach_request_id(request: Request, call_next):  # type: ignore[no-untyped-def]
@@ -88,3 +104,17 @@ def create_app(
     app.include_router(workspace_router)
     app.include_router(health_router)
     return app
+
+
+def _resolve_cors_allowed_origins(
+    *,
+    config_path: str | Path | None,
+    override_origins: list[str] | None,
+) -> list[str]:
+    if override_origins is not None:
+        return [origin.strip() for origin in override_origins if origin.strip()]
+    load_env_for_config(config_path)
+    raw = os.environ.get("CORS_ALLOWED_ORIGINS", "").strip()
+    if not raw:
+        return []
+    return [origin.strip() for origin in raw.split(",") if origin.strip()]

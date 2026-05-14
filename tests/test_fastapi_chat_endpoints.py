@@ -248,6 +248,48 @@ def test_post_chat_returns_full_response_and_persists_history(tmp_path):
     assert history[-1]["created_at"].endswith("Z")
 
 
+def test_cors_preflight_returns_expected_headers(tmp_path, monkeypatch):
+    store = AioSQLiteSessionStore(tmp_path / "sessions.db")
+    runtime = LocalAgentRuntime(chatbot=_AsyncOnlyChatbot(), store=store)
+    monkeypatch.setenv("CORS_ALLOWED_ORIGINS", "https://picobot.zeabur.app")
+    app = create_app(runtime=runtime)
+    client = TestClient(app)
+
+    response = client.options(
+        "/capabilities",
+        headers={
+            "Origin": "https://picobot.zeabur.app",
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+
+    assert response.status_code == 200
+    assert (
+        response.headers["access-control-allow-origin"]
+        == "https://picobot.zeabur.app"
+    )
+    assert response.headers["access-control-allow-credentials"] == "true"
+
+
+def test_cors_actual_request_returns_allow_origin_header(tmp_path, monkeypatch):
+    store = AioSQLiteSessionStore(tmp_path / "sessions.db")
+    runtime = LocalAgentRuntime(chatbot=_AsyncOnlyChatbot(), store=store)
+    monkeypatch.setenv("CORS_ALLOWED_ORIGINS", "https://picobot.zeabur.app")
+    app = create_app(runtime=runtime)
+    client = TestClient(app)
+
+    response = client.get(
+        "/health",
+        headers={"Origin": "https://picobot.zeabur.app"},
+    )
+
+    assert response.status_code == 200
+    assert (
+        response.headers["access-control-allow-origin"]
+        == "https://picobot.zeabur.app"
+    )
+
+
 def test_get_chat_stream_returns_sse_events_and_persists_history(tmp_path):
     store = AioSQLiteSessionStore(tmp_path / "sessions.db")
     runtime = LocalAgentRuntime(chatbot=_AsyncOnlyChatbot(), store=store)
