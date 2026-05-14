@@ -25,6 +25,10 @@ fi
 
 cd "$SCRIPT_DIR"
 
+echo "Starting FastAPI server with config: $CONFIG_PATH"
+echo "Using Python interpreter: $RESOLVED_PYTHON"
+echo "script directory: $SCRIPT_DIR"
+
 exec "$RESOLVED_PYTHON" "$SCRIPT_DIR/fastapi_server.py" \
   --config "$CONFIG_PATH" \
   --host "$HOST" \
