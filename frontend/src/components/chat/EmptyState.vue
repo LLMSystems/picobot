@@ -4,10 +4,10 @@ import picoagentLogo from '@/assets/picoagent.png'
 defineEmits<{ (e: 'suggest', text: string): void }>()
 
 const suggestions = [
-  '介紹一下你的功能',
+  '介紹一下你自己',
   '列出目前 workspace 的檔案結構',
   '幫我寫一個簡單的 Python script',
-  '解釋 SSE 是怎麼運作的',
+  '幫我彙整近期台積電新聞',
 ]
 </script>
 
