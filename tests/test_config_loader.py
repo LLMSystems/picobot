@@ -1,6 +1,7 @@
 import json
 
 from simplified_chatbot.config.loader import load_config
+from simplified_chatbot.providers.factory import build_provider
 
 
 def test_load_config_resolves_env_vars_and_aliases(tmp_path, monkeypatch):
@@ -43,3 +44,64 @@ def test_load_config_supports_workspace_root_dir_alias(tmp_path):
     config = load_config(config_path)
 
     assert config.workspace_root_dir == "agent-workspaces"
+
+
+def test_load_config_auto_loads_dotenv_from_parent_directory(tmp_path, monkeypatch):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    configs_dir = project_root / "configs"
+    configs_dir.mkdir()
+    (project_root / ".env").write_text(
+        "OPENAI_API_KEY=dotenv-secret\n",
+        encoding="utf-8",
+    )
+    config_path = configs_dir / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "provider": "openai_compat",
+                "model": "gpt-4.1-mini",
+            },
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+    load_config(config_path)
+
+    assert "OPENAI_API_KEY" in __import__("os").environ
+    assert __import__("os").environ["OPENAI_API_KEY"] == "dotenv-secret"
+
+
+def test_build_provider_uses_env_api_key_when_config_omits_it(monkeypatch):
+    captured: dict[str, str | None] = {}
+
+    class _FakeProvider:
+        def __init__(self, api_key: str | None, api_base: str | None = None) -> None:
+            captured["api_key"] = api_key
+            captured["api_base"] = api_base
+
+    monkeypatch.setenv("OPENAI_API_KEY", "env-secret")
+    monkeypatch.setattr(
+        "simplified_chatbot.providers.factory.OpenAICompatProvider",
+        _FakeProvider,
+    )
+
+    config = load_config_payload(
+        {
+            "provider": "openai_compat",
+            "model": "gpt-4.1-mini",
+        },
+    )
+
+    provider = build_provider(config)
+
+    assert isinstance(provider, _FakeProvider)
+    assert captured["api_key"] == "env-secret"
+    assert captured["api_base"] is None
+
+
+def load_config_payload(payload: dict[str, object]):
+    from simplified_chatbot.config.schema import ChatbotConfig
+
+    return ChatbotConfig.model_validate(payload)
