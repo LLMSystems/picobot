@@ -108,7 +108,7 @@ function cancel() {
           />
         </button>
       </template>
-      <span v-else class="text-sm text-muted-foreground">picobot</span>
+      <span v-else class="text-sm text-muted-foreground">Picobot</span>
     </div>
 
     <div class="flex items-center gap-2 text-xs text-muted-foreground">

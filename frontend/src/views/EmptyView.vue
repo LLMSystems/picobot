@@ -32,7 +32,7 @@ async function createAndGo() {
         class="mx-auto size-50 select-none object-contain"
         draggable="false"
       />
-      <h1 class="text-2xl font-semibold tracking-tight">歡迎使用 picobot</h1>
+      <h1 class="text-2xl font-semibold tracking-tight">歡迎使用 Picobot</h1>
       <p class="text-sm text-muted-foreground">
         從左側選擇一個對話，或建立新的對話開始
       </p>
