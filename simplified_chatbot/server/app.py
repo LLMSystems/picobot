@@ -18,6 +18,7 @@ from simplified_chatbot.server.endpoints_capabilities import router as capabilit
 from simplified_chatbot.server.endpoints_chat import router as chat_router
 from simplified_chatbot.server.endpoints_health import router as health_router
 from simplified_chatbot.server.endpoints_sessions import router as sessions_router
+from simplified_chatbot.server.endpoints_workspace import router as workspace_router
 
 
 def create_app(
@@ -84,5 +85,6 @@ def create_app(
     app.include_router(chat_router)
     app.include_router(capabilities_router)
     app.include_router(sessions_router)
+    app.include_router(workspace_router)
     app.include_router(health_router)
     return app

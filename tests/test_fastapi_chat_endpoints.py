@@ -157,6 +157,63 @@ class _CapabilityChatbot(_AsyncOnlyChatbot):
         self.tools = build_default_tool_registry(workspace=tmp_path)
 
 
+class _WriteEventfulToolChatbot:
+    async def run_async(
+        self,
+        message: str,
+        history: list[Message] | None = None,
+        *,
+        on_event=None,
+    ) -> _DummyResult:
+        if on_event is not None:
+            on_event(
+                "tool_call_started",
+                {
+                    "id": "call_1",
+                    "name": "write_file",
+                    "arguments": {"path": "doc/design.md", "content": "# Design\n"},
+                },
+            )
+            on_event(
+                "tool_call_finished",
+                {
+                    "id": "call_1",
+                    "name": "write_file",
+                    "ok": True,
+                    "result": "Successfully wrote 9 characters to doc/design.md",
+                },
+            )
+        history = history or []
+        content = f"done:{message}"
+        messages: list[Message] = [
+            *history,
+            {"role": "user", "content": message},
+            {"role": "assistant", "content": content},
+        ]
+        result = _DummyResult(messages=messages, content=content)
+        result.tools_used = ["write_file"]
+        return result
+
+    async def run_stream_async(
+        self,
+        message: str,
+        history: list[Message] | None = None,
+        *,
+        on_delta=None,
+        on_event=None,
+    ) -> _DummyResult:
+        if on_delta is not None:
+            on_delta("done:")
+            on_delta(message)
+        return await self.run_async(message, history=history, on_event=on_event)
+
+    def run(self, *args, **kwargs):
+        raise AssertionError("sync run() should not be used")
+
+    def run_stream(self, *args, **kwargs):
+        raise AssertionError("sync run_stream() should not be used")
+
+
 def test_post_chat_returns_full_response_and_persists_history(tmp_path):
     store = AioSQLiteSessionStore(tmp_path / "sessions.db")
     runtime = LocalAgentRuntime(chatbot=_AsyncOnlyChatbot(), store=store)
@@ -412,6 +469,105 @@ def test_get_capabilities_returns_frontend_metadata(tmp_path):
     assert tools["exec"]["dangerous"] is True
 
 
+def test_get_workspace_tree_returns_entries(tmp_path):
+    client, runtime, _store = _build_client(tmp_path, with_runtime=True)
+    client.post("/sessions", json={"title": "Workspace", "session_id": "s1"})
+    workspace = runtime.workspace_manager.ensure_workspace("s1")
+    (workspace / "doc").mkdir()
+    (workspace / "doc" / "design.md").write_text("# Design\n", encoding="utf-8")
+
+    response = client.get("/sessions/s1/workspace/tree", params={"recursive": "true"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["session_id"] == "s1"
+    assert payload["path"] == "."
+    paths = {entry["path"] for entry in payload["entries"]}
+    assert "doc" in paths
+    assert "doc/design.md" in paths
+    for entry in payload["entries"]:
+        assert isinstance(entry["updated_at"], str)
+        assert entry["updated_at"].endswith("Z")
+    assert payload["truncated"] is False
+
+
+def test_get_workspace_file_returns_utf8_content(tmp_path):
+    client, runtime, _store = _build_client(tmp_path, with_runtime=True)
+    client.post("/sessions", json={"title": "Workspace", "session_id": "s1"})
+    workspace = runtime.workspace_manager.ensure_workspace("s1")
+    (workspace / "doc").mkdir()
+    (workspace / "doc" / "design.md").write_text("# Design\n\nHello\n", encoding="utf-8")
+
+    response = client.get(
+        "/sessions/s1/workspace/file",
+        params={"path": "doc/design.md"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "session_id": "s1",
+        "path": "doc/design.md",
+        "content": "# Design\n\nHello\n",
+        "encoding": "utf-8",
+        "truncated": False,
+        "line_count": 3,
+    }
+
+
+def test_get_workspace_file_returns_404_for_unknown_session(tmp_path):
+    client, _store = _build_client(tmp_path)
+
+    response = client.get("/sessions/missing/workspace/file", params={"path": "doc/design.md"})
+
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "SESSION_NOT_FOUND"
+
+
+def test_get_workspace_file_rejects_path_traversal(tmp_path):
+    client, _runtime, _store = _build_client(tmp_path, with_runtime=True)
+    client.post("/sessions", json={"title": "Workspace", "session_id": "s1"})
+
+    response = client.get("/sessions/s1/workspace/file", params={"path": "../secret.txt"})
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "WORKSPACE_PATH_INVALID"
+
+
+def test_post_chat_trace_includes_workspace_changed(tmp_path):
+    store = AioSQLiteSessionStore(tmp_path / "sessions.db")
+    runtime = LocalAgentRuntime(chatbot=_WriteEventfulToolChatbot(), store=store)
+    app = create_app(runtime=runtime)
+    client = TestClient(app)
+
+    response = client.post("/chat", json={"session_id": "s1", "message": "write it"})
+
+    assert response.status_code == 200
+    events = response.json()["events"]
+    assert {
+        "event": "workspace_changed",
+        "data": {"session_id": "s1", "paths": ["doc/design.md"]},
+    } in events
+
+
+def test_stream_emits_workspace_changed_event(tmp_path):
+    store = AioSQLiteSessionStore(tmp_path / "sessions.db")
+    runtime = LocalAgentRuntime(chatbot=_WriteEventfulToolChatbot(), store=store)
+    app = create_app(runtime=runtime)
+    client = TestClient(app)
+
+    with client.stream(
+        "GET",
+        "/chat/stream",
+        params={"session_id": "s1", "message": "write it"},
+    ) as response:
+        body = "".join(response.iter_text())
+
+    assert response.status_code == 200
+    assert "event: workspace_changed" in body
+    assert '"session_id": "s1"' in body
+    assert '"paths": ["doc/design.md"]' in body
+
+
 def test_get_session_messages_returns_history(tmp_path):
     client, _store = _build_client(tmp_path)
 
@@ -528,11 +684,14 @@ def test_health_returns_ok():
     assert response.json() == {"status": "ok"}
 
 
-def _build_client(tmp_path):
+def _build_client(tmp_path, *, with_runtime: bool = False):
     store = AioSQLiteSessionStore(tmp_path / "sessions.db")
     runtime = LocalAgentRuntime(chatbot=_AsyncOnlyChatbot(), store=store)
     app = create_app(runtime=runtime)
-    return TestClient(app), store
+    client = TestClient(app)
+    if with_runtime:
+        return client, runtime, store
+    return client, store
 
 
 def _extract_done_payload(body: str) -> dict[str, object]:

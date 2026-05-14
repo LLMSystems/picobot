@@ -139,6 +139,36 @@ class CapabilitiesResponse(BaseModel):
     features: CapabilitiesFeatures
 
 
+class WorkspaceTreeEntry(BaseModel):
+    """One workspace tree entry."""
+
+    path: str
+    name: str
+    type: str
+    size: int | None = None
+    updated_at: str | None = None
+
+
+class WorkspaceTreeResponse(BaseModel):
+    """Response body for listing one workspace directory."""
+
+    session_id: str
+    path: str
+    entries: list[WorkspaceTreeEntry] = Field(default_factory=list)
+    truncated: bool = False
+
+
+class WorkspaceFileResponse(BaseModel):
+    """Response body for reading one workspace file."""
+
+    session_id: str
+    path: str
+    content: str
+    encoding: str = "utf-8"
+    truncated: bool = False
+    line_count: int = 0
+
+
 class HealthResponse(BaseModel):
     """Simple health check payload."""
 
