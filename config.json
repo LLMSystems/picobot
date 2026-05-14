@@ -1,6 +1,6 @@
 {
   "provider": "openai_compat",
-  "model": "gpt-5-mini",
+  "model": "gpt-4.1-mini",
   "maxTokens": 2000,
   "contextWindowTokens": 32000,
   "maxIterations": 20,

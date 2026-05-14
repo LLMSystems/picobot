@@ -89,15 +89,21 @@ class OpenAICompatProvider(ChatProvider):
         on_delta: Callable[[str], None] | None = None,
         tools: list[dict[str, Any]] | None = None,
     ) -> ProviderResponse:
-        kwargs: dict[str, Any] = {
-            "model": model,
-            "messages": messages,
-            "max_tokens": max_tokens,
-            "temperature": temperature,
-            "timeout": timeout,
-            "stream": True,
-            "stream_options": {"include_usage": True},
-        }
+        if model.startswith("gpt-5"):
+            kwargs: dict[str, Any] = {
+                "model": model,
+                "messages": messages,
+                "max_completion_tokens": max_tokens,
+                "timeout": timeout,
+            }
+        else:
+            kwargs = {
+                "model": model,
+                "messages": messages,
+                "max_tokens": max_tokens,
+                "temperature": temperature,
+                "timeout": timeout,
+            }
         if tools:
             kwargs["tools"] = tools
             kwargs["tool_choice"] = "auto"
