@@ -761,6 +761,7 @@ def build_default_tool_registry(
     from simplified_chatbot.tools.search import GlobTool, GrepTool
     from simplified_chatbot.tools.shell import ExecTool
     from simplified_chatbot.tools.skills import ReadSkillTool
+    from simplified_chatbot.tools.tavily import TavilySearchTool
 
     ws = workspace.resolve() if workspace is not None else Path.cwd().resolve()
     allowed = ws if restrict_to_workspace else None
@@ -773,6 +774,7 @@ def build_default_tool_registry(
             builtin_skills_dir=builtin_skills_dir,
         ),
     )
+    registry.register(TavilySearchTool())
     registry.register(ReadFileTool(workspace=ws, allowed_dir=allowed, file_states=file_states))
     registry.register(WriteFileTool(workspace=ws, allowed_dir=allowed, file_states=file_states))
     registry.register(EditFileTool(workspace=ws, allowed_dir=allowed, file_states=file_states))

@@ -14,6 +14,7 @@ from simplified_chatbot.tools.search import GlobTool, GrepTool
 from simplified_chatbot.tools.registry import ToolRegistry
 from simplified_chatbot.tools.shell import ExecTool
 from simplified_chatbot.tools.skills import ReadSkillTool
+from simplified_chatbot.tools.tavily import TavilySearchTool
 
 __all__ = [
     "build_default_tool_registry",
@@ -28,6 +29,7 @@ __all__ = [
     "build_fake_tool_registry",
     "ReadFileTool",
     "ReadSkillTool",
+    "TavilySearchTool",
     "WriteFileTool",
     "tool_parameters",
 ]

@@ -17,7 +17,7 @@ router = APIRouter()
 
 _SHELL_TOOLS = frozenset({"exec"})
 _FILESYSTEM_TOOLS = frozenset(
-    {"read_file", "write_file", "edit_file", "list_dir", "glob", "grep"},
+    {"read_file", "read_skill", "write_file", "edit_file", "list_dir", "glob", "grep"},
 )
 _DANGEROUS_TOOLS = frozenset({"exec", "write_file", "edit_file"})
 

@@ -30,6 +30,7 @@ def test_default_tool_registry_includes_wave_1a_tools(tmp_path):
     registry = build_default_tool_registry(workspace=tmp_path)
 
     assert "exec" in registry.tool_names
+    assert "tavily_search" in registry.tool_names
     assert "read_skill" in registry.tool_names
     assert "write_file" in registry.tool_names
 

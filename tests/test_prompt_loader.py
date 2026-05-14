@@ -82,4 +82,5 @@ def test_system_prompt_mentions_read_skill_tool_rules():
     prompt = load_system_prompt(config)
 
     assert "`read_skill(name)`" in prompt
+    assert "`tavily_search(query, topic, search_depth, max_results" in prompt
     assert "Do not use `read_file` to access `SKILL.md` files" in prompt
