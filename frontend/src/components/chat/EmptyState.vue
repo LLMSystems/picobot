@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { Sparkles } from 'lucide-vue-next'
+import picoagentLogo from '@/assets/picoagent.png'
 
 defineEmits<{ (e: 'suggest', text: string): void }>()
 
 const suggestions = [
-  '幫我讀 README.md 並總結重點',
+  '介紹一下你的功能',
   '列出目前 workspace 的檔案結構',
   '幫我寫一個簡單的 Python script',
   '解釋 SSE 是怎麼運作的',
@@ -15,9 +15,14 @@ const suggestions = [
   <div
     class="flex h-full flex-col items-center justify-center gap-6 px-6 text-center"
   >
-    <div class="space-y-2">
-      <Sparkles class="mx-auto size-8 text-primary" />
-      <h2 class="text-xl font-semibold">開始一段新對話</h2>
+    <div class="space-y-3">
+      <img
+        :src="picoagentLogo"
+        alt="Picobot"
+        class="mx-auto size-50 select-none object-contain"
+        draggable="false"
+      />
+      <h2 class="text-xl font-semibold">你好，我是 Picobot</h2>
       <p class="text-sm text-muted-foreground">
         試試以下提示，或直接在下方輸入訊息
       </p>
