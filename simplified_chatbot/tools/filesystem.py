@@ -754,16 +754,25 @@ def build_default_tool_registry(
     workspace: Path | None = None,
     *,
     restrict_to_workspace: bool = True,
+    skills_dir: Path | None = None,
+    builtin_skills_dir: Path | None = None,
 ) -> ToolRegistry:
     """Create a default tool registry with V1 filesystem tools."""
     from simplified_chatbot.tools.search import GlobTool, GrepTool
     from simplified_chatbot.tools.shell import ExecTool
+    from simplified_chatbot.tools.skills import ReadSkillTool
 
     ws = workspace.resolve() if workspace is not None else Path.cwd().resolve()
     allowed = ws if restrict_to_workspace else None
     file_states = FileStates()
     registry = ToolRegistry()
     registry.register(ExecTool(workspace=ws, allowed_dir=allowed))
+    registry.register(
+        ReadSkillTool(
+            skills_dir=skills_dir,
+            builtin_skills_dir=builtin_skills_dir,
+        ),
+    )
     registry.register(ReadFileTool(workspace=ws, allowed_dir=allowed, file_states=file_states))
     registry.register(WriteFileTool(workspace=ws, allowed_dir=allowed, file_states=file_states))
     registry.register(EditFileTool(workspace=ws, allowed_dir=allowed, file_states=file_states))

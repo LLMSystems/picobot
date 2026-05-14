@@ -61,6 +61,7 @@ class SimplifiedChatbot:
         config = load_config(resolved_path)
         provider = build_provider(config)
         default_workspace = resolved_path.parent
+        resolved_skills_dir = _resolve_skills_dir(config, resolved_path=resolved_path)
         system_prompt_factory = lambda workspace: load_system_prompt(
             config,
             config_path=resolved_path,
@@ -69,11 +70,15 @@ class SimplifiedChatbot:
         system_prompt = system_prompt_factory(default_workspace)
         resolved_tools = tools or build_default_tool_registry(
             workspace=default_workspace,
+            skills_dir=resolved_skills_dir,
         )
         tool_factory = (
             None
             if tools is not None
-            else lambda workspace: build_default_tool_registry(workspace=workspace)
+            else lambda workspace: build_default_tool_registry(
+                workspace=workspace,
+                skills_dir=resolved_skills_dir,
+            )
         )
         return cls(
             config=config,
@@ -172,3 +177,16 @@ class SimplifiedChatbot:
             on_delta=on_delta,
             on_event=on_event,
         )
+
+
+def _resolve_skills_dir(
+    config: ChatbotConfig,
+    *,
+    resolved_path: Path,
+) -> Path | None:
+    if not config.skills_dir:
+        return None
+    candidate = Path(config.skills_dir).expanduser()
+    if not candidate.is_absolute():
+        candidate = resolved_path.parent / candidate
+    return candidate.resolve()

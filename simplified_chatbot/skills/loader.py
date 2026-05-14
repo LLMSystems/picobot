@@ -75,7 +75,7 @@ class SkillsLoader:
                 continue
             metadata = self.get_skill_metadata(name) or {}
             description = str(metadata.get("description") or name)
-            lines.append(f"- **{name}** - {description}  `{entry['path']}`")
+            lines.append(f"- **{name}** - {description}")
         return "\n".join(lines)
 
     def get_skill_metadata(self, name: str) -> dict[str, object] | None:

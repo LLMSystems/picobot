@@ -45,6 +45,7 @@ def test_system_prompt_includes_active_skill_and_available_summary():
     assert "### Skill: math-tutor" in prompt
     assert "# Available Skills" in prompt
     assert "**tool-use-reminder**" in prompt
+    assert "tool-use-reminder/SKILL.md" not in prompt
 
 
 def test_system_prompt_includes_runtime_context_and_platform_policy(tmp_path):
@@ -73,3 +74,12 @@ def test_system_prompt_uses_explicit_workspace_when_provided(tmp_path):
     )
 
     assert f"Current workspace: `{session_workspace.resolve()}`" in prompt
+
+
+def test_system_prompt_mentions_read_skill_tool_rules():
+    config = ChatbotConfig(model="gpt-4.1-mini")
+
+    prompt = load_system_prompt(config)
+
+    assert "`read_skill(name)`" in prompt
+    assert "Do not use `read_file` to access `SKILL.md` files" in prompt
