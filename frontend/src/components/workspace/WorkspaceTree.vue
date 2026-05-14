@@ -132,9 +132,6 @@ async function onDrop(e: DragEvent) {
     <template v-else-if="ws.loadState === 'error'">
       <WorkspaceEmpty variant="error" />
     </template>
-    <template v-else-if="ws.loadState === 'empty'">
-      <WorkspaceEmpty variant="empty" />
-    </template>
     <template v-else>
       <div
         class="flex-1 overflow-y-auto px-1 py-2 transition-colors"
@@ -148,6 +145,7 @@ async function onDrop(e: DragEvent) {
         @dragleave="onDragLeave"
         @drop="onDrop"
       >
+        <WorkspaceEmpty v-if="ws.loadState === 'empty'" variant="empty" />
         <WorkspaceTreeNode
           v-for="entry in ws.rootChildren"
           :key="entry.path"

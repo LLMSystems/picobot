@@ -8,7 +8,7 @@ defineProps<{ variant: 'empty' | 'unavailable' | 'error' }>()
     <template v-if="variant === 'empty'">
       <FolderOpen class="size-7 opacity-40" />
       <p>Workspace 為空</p>
-      <p class="opacity-70">等 agent 開始建立檔案</p>
+      <p class="opacity-70">拖檔案進來，或等 agent 開始建立檔案</p>
     </template>
     <template v-else-if="variant === 'unavailable'">
       <FolderX class="size-7 opacity-40" />
