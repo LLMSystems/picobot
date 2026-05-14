@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button'
 import { useSessionsStore } from '@/stores/sessions'
 import { MessageSquarePlus } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
+import picoagentLogo from '@/assets/picoagent.png'
 
 const router = useRouter()
 const sessions = useSessionsStore()
@@ -24,13 +25,19 @@ async function createAndGo() {
   <div
     class="flex h-full w-full flex-col items-center justify-center gap-6 px-6 text-center"
   >
-    <div class="space-y-2">
+    <div class="space-y-3">
+      <img
+        :src="picoagentLogo"
+        alt="Picobot"
+        class="mx-auto size-50 select-none object-contain"
+        draggable="false"
+      />
       <h1 class="text-2xl font-semibold tracking-tight">歡迎使用 picobot</h1>
       <p class="text-sm text-muted-foreground">
         從左側選擇一個對話，或建立新的對話開始
       </p>
     </div>
-    <Button class="gap-2" @click="createAndGo">
+    <Button size="sm" variant="outline" class="gap-1.5" @click="createAndGo">
       <MessageSquarePlus class="size-4" />
       開始新對話
     </Button>
