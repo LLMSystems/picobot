@@ -45,7 +45,7 @@ watch(
   <div class="relative h-full min-h-0">
     <div
       ref="containerRef"
-      class="h-full overflow-y-auto"
+      class="h-full overflow-y-auto bg-muted/30"
       role="log"
       aria-live="polite"
     >

@@ -121,7 +121,7 @@ function stop() {
           aria-label="送出"
           @click="send"
         >
-          <Send class="size-4" />
+          <Send class="size-4" :class="canSend ? 'text-brand' : ''" />
         </Button>
         <Button
           v-else

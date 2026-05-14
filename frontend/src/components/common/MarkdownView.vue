@@ -170,7 +170,7 @@ watch(theme, () => {
   display: block;
 }
 .markdown-body a {
-  color: var(--primary);
+  color: var(--brand);
   text-decoration: underline;
   text-underline-offset: 2px;
 }

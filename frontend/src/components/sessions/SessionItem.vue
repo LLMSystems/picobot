@@ -71,14 +71,14 @@ function onClick(e: MouseEvent) {
     class="group relative flex w-full items-start gap-2 rounded-md px-2 py-2 text-left transition-colors"
     :class="
       active
-        ? 'bg-sidebar-accent text-sidebar-accent-foreground'
+        ? 'bg-brand/10 text-foreground'
         : 'hover:bg-sidebar-accent/60 cursor-pointer'
     "
     @click="onClick"
   >
     <span
-      class="absolute left-0 top-2 bottom-2 w-0.5 rounded-r-full transition-colors"
-      :class="active ? 'bg-primary' : 'bg-transparent'"
+      class="absolute left-0 top-2 bottom-2 w-1 rounded-r-full transition-colors"
+      :class="active ? 'bg-brand' : 'bg-transparent'"
     />
 
     <div class="min-w-0 flex-1 pl-1">
