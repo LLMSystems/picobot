@@ -49,13 +49,22 @@ class OpenAICompatProvider(ChatProvider):
         timeout: float,
         tools: list[dict[str, Any]] | None = None,
     ) -> ProviderResponse:
-        kwargs: dict[str, Any] = {
-            "model": model,
-            "messages": messages,
-            "max_tokens": max_tokens,
-            "temperature": temperature,
-            "timeout": timeout,
-        }
+        # max_tokens is not for gpt-5 series, use max_completion_tokens instead
+        if model.startswith("gpt-5"):
+            kwargs: dict[str, Any] = {
+                "model": model,
+                "messages": messages,
+                "max_completion_tokens": max_tokens,
+                "timeout": timeout,
+            }
+        else:
+            kwargs = {
+                "model": model,
+                "messages": messages,
+                "max_tokens": max_tokens,
+                "temperature": temperature,
+                "timeout": timeout,
+            }
         if tools:
             kwargs["tools"] = tools
             kwargs["tool_choice"] = "auto"

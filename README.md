@@ -19,7 +19,8 @@
 
 **後端 / Agent**
 
-- 可配置的聊天與 agent 執行核心
+- 可配置的聊天與 異 agent 執行核心
+- 資料庫以 SQL 為主
 - 可調用工具的多輪互動能力
 - session 與 per-session workspace 管理
 - 可直接掛到 FastAPI 的後端 API
@@ -66,9 +67,62 @@ picobot/
 
 ---
 
-## 3. 快速開始
+## 3. 驗測結果
 
-### 3.1 安裝後端
+目前的評測資料放在 [eval/datasets/agent_core_21.jsonl](eval/datasets/agent_core_21.jsonl)，為自行標註，內容主要包含三種資訊：每題的 `prompt`、預期行為條件（例如 `expected_contains`、`expected_tools`、`expected_files`），以及需要預先建立的 `setup_files`。這讓同一份題庫既能工具調用與 workspace 產物。
+
+可直接用以下指令執行 eval：
+
+```bash
+python3 eval/scripts/run_eval.py example_config.json eval/datasets/agent_core_21.jsonl
+```
+
+目前已用 `gpt-5-mini` 進行一輪本地 eval 驗測。依 [run.json](eval/runs/2026-05-14_212056/run.json) 記錄，`2026-05-14 21:20:56` 這次執行實際跑了 `21` 題，全部成功完成且全部通過 rule-based scoring，`pass_rate = 1.0`。
+
+- `tool_calling`: 8 / 8 通過
+- `workspace`: 13 / 13 通過
+
+這套 eval 的設計方法是用 `JSONL` 題庫描述每一題的 `prompt`、預期工具、預期文字輸出，以及預期產生的 workspace 檔案，再由本地 runner 逐題執行並收集 `content`、`tools_used`、`events`、`workspace_outputs`。評分目前採 rule-based scoring，會檢查 `expected_contains`、`forbidden_contains`、`expected_tools`、`expected_files` 與檔案內容條件。
+
+每一題都會建立自己的 `session_id`，也會分配自己的 session workspace，因此不同 case 之間的對話歷史、工具操作與檔案產物彼此隔離。這讓 `picobot` 可以被測試成一個真正會使用工具、讀寫檔案、操作 workspace 的 agent，而不只是單純比對文字回覆。
+
+每次跑完 eval 後，都會在 `eval/runs/<run_id>/` 生成一份完整結果資料夾(可參考[驗測結果](eval\runs\2026-05-14_212056))，結構大致如下：
+
+```text
+eval/
+└── runs/
+    └── <run_id>/
+        ├── run.json
+        ├── config_snapshot.json
+        ├── dataset_snapshot.jsonl
+        ├── cases/
+        │   └── <case_id>.json
+        ├── sessions/
+        └── workspaces/
+```
+
+閱讀方式可以這樣看：
+
+- `run.json`
+  - 先看整體摘要，例如 `case_count`、`completed`、`failed`、`scored_pass`、`pass_rate`，以及各 category 的統計。
+- `cases/<case_id>.json`
+  - 看單題細節，包含 `content`、`tools_used`、`events`、`workspace_outputs`、`score`，適合追某一題為什麼通過或失敗。
+- `config_snapshot.json`
+  - 記錄這次 run 使用的 config，方便回頭比對模型、溫度、iteration 等設定。
+- `dataset_snapshot.jsonl`
+  - 記錄當次實際跑的題庫內容，避免之後題目改了卻無法重現舊結果。
+- `sessions/`
+  - 保存這次 eval 過程中的 session 歷史資料。
+- `workspaces/`
+  - 保存每一題自己的 session workspace，可直接檢查 agent 產生或修改的檔案結果。
+
+這份結果代表目前 `picobot` 的工具調用與 workspace 讀寫主幹已經可以穩定運作；後續若擴充更多能力，會再持續用 `eval/` 題庫做回歸驗證。
+
+---
+
+## 4. 快速開始
+
+### 4.1 安裝後端
 
 需求：Python 3.11 以上
 
@@ -76,7 +130,7 @@ picobot/
 python3 -m pip install -e .
 ```
 
-### 3.2 設定 API Key
+### 4.2 設定 API Key
 
 請在專案根目錄建立 `.env`：
 
@@ -92,7 +146,7 @@ TAVILY_API_KEY=tvly-your_api_key_here
 OPENAI_BASE_URL=http://localhost:11434/v1
 ```
 
-### 3.3 範例設定檔
+### 4.3 範例設定檔
 
 `example_config.json`：
 
@@ -108,7 +162,7 @@ OPENAI_BASE_URL=http://localhost:11434/v1
 }
 ```
 
-### 3.4 啟動後端 Server
+### 4.4 啟動後端 Server
 
 ```bash
 python3 fastapi_server.py --config example_config.json --host 0.0.0.0 --port 8000
@@ -126,7 +180,7 @@ sh start_fastapi_server.sh
 HOST=0.0.0.0 PORT=8000 sh start_fastapi_server.sh
 ```
 
-### 3.5 啟動前端
+### 4.5 啟動前端
 
 需求：Node.js 18 以上
 
@@ -146,7 +200,7 @@ npm run build
 
 產出靜態檔案在 `frontend/dist/`，可直接由後端或任意靜態伺服器提供服務。
 
-### 3.6 使用 LocalAgentRuntime（純 Python）
+### 4.6 使用 LocalAgentRuntime（純 Python）
 
 ```python
 import asyncio
@@ -174,7 +228,7 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-### 3.7 測試
+### 4.7 測試
 
 ```bash
 python3 -m pytest tests -q
@@ -182,9 +236,9 @@ python3 -m pytest tests -q
 
 ---
 
-## 4. 前端功能說明
+## 5. 前端功能說明
 
-### 4.1 多 Session 管理
+### 5.1 多 Session 管理
 
 左側 Sidebar 列出所有對話，可：
 
@@ -192,7 +246,7 @@ python3 -m pytest tests -q
 - 點擊 session 切換對話
 - 右鍵或點選選單可重新命名、刪除
 
-### 4.2 串流聊天
+### 5.2 串流聊天
 
 訊息送出後透過 SSE 即時顯示 AI 回答，支援：
 
@@ -209,7 +263,7 @@ python3 -m pytest tests -q
 | `Escape` | 停止串流 / 清空輸入框 |
 | `↑`（空白時） | 帶回上一則使用者訊息 |
 
-### 4.3 Markdown 渲染
+### 5.3 Markdown 渲染
 
 AI 回答支援完整 Markdown，包含：
 
@@ -219,11 +273,11 @@ AI 回答支援完整 Markdown，包含：
 - Mermaid 圖表（`flowchart`、`sequenceDiagram` 等）
 - 行內程式碼
 
-### 4.4 工具呼叫視覺化
+### 5.4 工具呼叫視覺化
 
 Agent 每次呼叫工具時，訊息中會顯示 ToolCall 卡片，包含工具名稱、輸入參數、執行結果，可展開查看詳情。
 
-### 4.5 Workspace 面板
+### 5.5 Workspace 面板
 
 當後端 capabilities 回傳 `session_workspace: true` 時，右側會出現 Workspace 面板：
 
@@ -237,7 +291,7 @@ Agent 每次呼叫工具時，訊息中會顯示 ToolCall 卡片，包含工具�
 
 Workspace 會監聽串流中的 `workspace_changed` 事件，AI 操作檔案後自動刷新。
 
-### 4.6 可拖拉版面
+### 5.6 可拖拉版面
 
 三欄式版面均可用滑鼠拖拉調整：
 
@@ -249,13 +303,13 @@ Workspace 會監聽串流中的 `workspace_changed` 事件，AI 操作檔案後�
 
 寬度 / 比例會自動儲存至 `localStorage`。
 
-### 4.7 主題切換
+### 5.7 主題切換
 
 右上角提供深色 / 淺色主題切換，設定儲存至 `localStorage`。
 
 ---
 
-## 5. API 摘要
+## 6. API 摘要
 
 ### Chat
 
@@ -297,7 +351,7 @@ Workspace 會監聽串流中的 `workspace_changed` 事件，AI 操作檔案後�
 
 ---
 
-## 6. 前端技術棧
+## 7. 前端技術棧
 
 | 分類 | 套件 |
 |------|------|
@@ -312,7 +366,7 @@ Workspace 會監聽串流中的 `workspace_changed` 事件，AI 操作檔案後�
 
 ---
 
-## 7. 感謝
+## 8. 感謝
 
 `picobot` 的整體架構設計主要參考了 [nanobot](https://github.com/HKUDS/nanobot)，特別是在以下方向上受到啟發：
 
@@ -326,6 +380,7 @@ Workspace 會監聽串流中的 `workspace_changed` 事件，AI 操作檔案後�
 
 - 更小的開發範圍
   - 主要專注在 agent 最核心的執行框架，更易閱讀、理解
+- 基於異步構建 Agent : 對 web chatbot / agent UI 、多併發整合更友善
 - 有明確的 per-session workspace 路線
   - 對 web chatbot / agent UI 的整合更簡單
 
