@@ -89,20 +89,25 @@ class OpenAICompatProvider(ChatProvider):
         on_delta: Callable[[str], None] | None = None,
         tools: list[dict[str, Any]] | None = None,
     ) -> ProviderResponse:
+        # max_tokens is not for gpt-5 series, use max_completion_tokens instead
         if model.startswith("gpt-5"):
-            kwargs: dict[str, Any] = {
+             kwargs: dict[str, Any] = {
                 "model": model,
                 "messages": messages,
                 "max_completion_tokens": max_tokens,
                 "timeout": timeout,
+                "stream": True,
+                "stream_options": {"include_usage": True},
             }
         else:
-            kwargs = {
+            kwargs: dict[str, Any] = {
                 "model": model,
                 "messages": messages,
                 "max_tokens": max_tokens,
                 "temperature": temperature,
                 "timeout": timeout,
+                "stream": True,
+                "stream_options": {"include_usage": True},
             }
         if tools:
             kwargs["tools"] = tools
