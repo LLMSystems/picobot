@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { Loader2 } from 'lucide-vue-next'
+import hljs from 'highlight.js'
 import { ApiError } from '@/lib/errors'
 import { useWorkspaceStore } from '@/stores/workspace'
 import MarkdownView from '@/components/common/MarkdownView.vue'
@@ -8,11 +9,90 @@ import { Button } from '@/components/ui/button'
 
 const ws = useWorkspaceStore()
 
+const EXT_TO_LANG: Record<string, string> = {
+  py: 'python',
+  js: 'javascript',
+  mjs: 'javascript',
+  cjs: 'javascript',
+  jsx: 'javascript',
+  ts: 'typescript',
+  tsx: 'typescript',
+  vue: 'xml',
+  html: 'xml',
+  htm: 'xml',
+  xml: 'xml',
+  svg: 'xml',
+  css: 'css',
+  scss: 'scss',
+  less: 'less',
+  json: 'json',
+  yaml: 'yaml',
+  yml: 'yaml',
+  toml: 'ini',
+  ini: 'ini',
+  sh: 'bash',
+  bash: 'bash',
+  zsh: 'bash',
+  rs: 'rust',
+  go: 'go',
+  java: 'java',
+  kt: 'kotlin',
+  cpp: 'cpp',
+  cc: 'cpp',
+  cxx: 'cpp',
+  hpp: 'cpp',
+  h: 'c',
+  c: 'c',
+  rb: 'ruby',
+  php: 'php',
+  sql: 'sql',
+  swift: 'swift',
+  dockerfile: 'dockerfile',
+  makefile: 'makefile',
+}
+
 const isMarkdown = computed(() => {
   const p = ws.selectedPath
   if (!p) return false
   const lower = p.toLowerCase()
   return lower.endsWith('.md') || lower.endsWith('.markdown')
+})
+
+function detectLanguage(path: string): string | null {
+  const lower = path.toLowerCase()
+  const base = lower.split('/').pop() ?? lower
+  if (base === 'dockerfile') return 'dockerfile'
+  if (base === 'makefile') return 'makefile'
+  const ext = base.includes('.') ? (base.split('.').pop() ?? '') : ''
+  if (!ext) return null
+  const mapped = EXT_TO_LANG[ext]
+  if (mapped) return mapped
+  return hljs.getLanguage(ext) ? ext : null
+}
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+}
+
+const highlightedHtml = computed(() => {
+  const c = ws.fileContent
+  const p = ws.selectedPath
+  if (!c || !p) return ''
+  const lang = detectLanguage(p)
+  if (lang) {
+    try {
+      return hljs.highlight(c.content, {
+        language: lang,
+        ignoreIllegals: true,
+      }).value
+    } catch {
+      // fall through to plain text
+    }
+  }
+  return escapeHtml(c.content)
 })
 
 const errorMessage = computed(() => {
@@ -64,7 +144,7 @@ const errorMessage = computed(() => {
         <pre
           v-else
           class="m-0 whitespace-pre overflow-auto bg-muted/20 px-4 py-3 font-mono text-xs leading-relaxed"
-        ><code>{{ ws.fileContent.content }}</code></pre>
+        ><code class="hljs" v-html="highlightedHtml" /></pre>
       </template>
     </div>
 
