@@ -5,9 +5,11 @@
   <img src="assets/image0.png" width="500px" style="vertical-align:middle;">
 </p>
 
+
+
 `picobot` 是一個輕量 agent 專案，目標是用清楚、可擴展的方式，實作一個可聊天、可調工具、可操作 workspace、可掛 FastAPI 的 agent。
 
-專案整體設計主要參考 [nanobot](https://github.com/HKUDS/nanobot)，但刻意從更小、更可擴展與落地的核心能力實作，方便後續擴充與整合。
+![web0](assets/web_image0.png)
 
 </div>
 
