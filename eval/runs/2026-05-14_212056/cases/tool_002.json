@@ -1,0 +1,65 @@
+{
+  "id": "tool_002",
+  "category": "tool_calling",
+  "prompt": "請找出目前工作區中所有副檔名為 .md 的檔案。",
+  "session_id": "eval_tool_002",
+  "status": "completed",
+  "content": "我在工作區用 glob 搜尋過所有 *.md 檔案（模式 '**/*.md'），結果沒有找到任何符合的檔案。\n\n要我接著做哪一個？\n- 改為不區分大小寫再搜尋（包含 .MD）  \n- 搜尋其他副檔名（例如 .markdown）  \n- 列出工作區根目錄或全部檔案清單以檢查結構  \n請告訴我你想要的下一步。",
+  "usage": {
+    "prompt_tokens": 2773,
+    "completion_tokens": 373,
+    "total_tokens": 3146
+  },
+  "tools_used": [
+    "glob"
+  ],
+  "stop_reason": "stop",
+  "events": [
+    {
+      "event": "run_started",
+      "data": {
+        "session_id": "eval_tool_002",
+        "message": "請找出目前工作區中所有副檔名為 .md 的檔案。"
+      }
+    },
+    {
+      "event": "tool_call_started",
+      "data": {
+        "id": "call_SakxyWu4tfo6JtYWKSFwxrwq",
+        "name": "glob",
+        "arguments": {
+          "pattern": "**/*.md",
+          "path": "."
+        }
+      }
+    },
+    {
+      "event": "tool_call_finished",
+      "data": {
+        "id": "call_SakxyWu4tfo6JtYWKSFwxrwq",
+        "name": "glob",
+        "ok": true,
+        "result": "No paths matched pattern '**/*.md' in ."
+      }
+    }
+  ],
+  "tags": [
+    "tools",
+    "glob",
+    "search"
+  ],
+  "workspace_outputs": [],
+  "score": {
+    "pass": true,
+    "passed_checks": 1,
+    "failed_checks": 0,
+    "checks": [
+      {
+        "name": "expected_tool",
+        "target": "glob",
+        "passed": true,
+        "message": "tool 'glob' was used"
+      }
+    ]
+  }
+}

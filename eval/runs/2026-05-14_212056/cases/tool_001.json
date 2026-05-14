@@ -1,0 +1,65 @@
+{
+  "id": "tool_001",
+  "category": "tool_calling",
+  "prompt": "請查看目前工作區根目錄有哪些檔案與資料夾，並簡短回報。",
+  "session_id": "eval_tool_001",
+  "status": "completed",
+  "content": "工作區根目錄 (.) 目前是空的，沒有任何檔案或子目錄。要我改為遞迴列出子目錄、或檢查特定路徑/隱藏檔嗎？",
+  "usage": {
+    "prompt_tokens": 2770,
+    "completion_tokens": 255,
+    "total_tokens": 3025
+  },
+  "tools_used": [
+    "list_dir"
+  ],
+  "stop_reason": "stop",
+  "events": [
+    {
+      "event": "run_started",
+      "data": {
+        "session_id": "eval_tool_001",
+        "message": "請查看目前工作區根目錄有哪些檔案與資料夾，並簡短回報。"
+      }
+    },
+    {
+      "event": "tool_call_started",
+      "data": {
+        "id": "call_d8OB8U7IAM17qcTsyTemcdkK",
+        "name": "list_dir",
+        "arguments": {
+          "path": ".",
+          "recursive": false
+        }
+      }
+    },
+    {
+      "event": "tool_call_finished",
+      "data": {
+        "id": "call_d8OB8U7IAM17qcTsyTemcdkK",
+        "name": "list_dir",
+        "ok": true,
+        "result": "Directory . is empty"
+      }
+    }
+  ],
+  "tags": [
+    "tools",
+    "list_dir",
+    "workspace"
+  ],
+  "workspace_outputs": [],
+  "score": {
+    "pass": true,
+    "passed_checks": 1,
+    "failed_checks": 0,
+    "checks": [
+      {
+        "name": "expected_tool",
+        "target": "list_dir",
+        "passed": true,
+        "message": "tool 'list_dir' was used"
+      }
+    ]
+  }
+}

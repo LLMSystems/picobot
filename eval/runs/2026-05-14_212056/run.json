@@ -1,0 +1,155 @@
+{
+  "run_id": "2026-05-14_212056",
+  "dataset": "agent_core_25.jsonl",
+  "config": "example_config.json",
+  "case_count": 21,
+  "completed": 21,
+  "failed": 0,
+  "scored_pass": 21,
+  "scored_fail": 0,
+  "pass_rate": 1.0,
+  "categories": {
+    "tool_calling": {
+      "total": 8,
+      "completed": 8,
+      "failed": 0,
+      "passed": 8,
+      "failed_score": 0
+    },
+    "workspace": {
+      "total": 13,
+      "completed": 13,
+      "failed": 0,
+      "passed": 13,
+      "failed_score": 0
+    }
+  },
+  "cases": [
+    {
+      "id": "tool_001",
+      "status": "completed",
+      "category": "tool_calling",
+      "pass": true
+    },
+    {
+      "id": "tool_002",
+      "status": "completed",
+      "category": "tool_calling",
+      "pass": true
+    },
+    {
+      "id": "tool_003",
+      "status": "completed",
+      "category": "tool_calling",
+      "pass": true
+    },
+    {
+      "id": "tool_004",
+      "status": "completed",
+      "category": "tool_calling",
+      "pass": true
+    },
+    {
+      "id": "tool_005",
+      "status": "completed",
+      "category": "tool_calling",
+      "pass": true
+    },
+    {
+      "id": "tool_006",
+      "status": "completed",
+      "category": "tool_calling",
+      "pass": true
+    },
+    {
+      "id": "tool_007",
+      "status": "completed",
+      "category": "tool_calling",
+      "pass": true
+    },
+    {
+      "id": "tool_008",
+      "status": "completed",
+      "category": "tool_calling",
+      "pass": true
+    },
+    {
+      "id": "workspace_001",
+      "status": "completed",
+      "category": "workspace",
+      "pass": true
+    },
+    {
+      "id": "workspace_002",
+      "status": "completed",
+      "category": "workspace",
+      "pass": true
+    },
+    {
+      "id": "workspace_003",
+      "status": "completed",
+      "category": "workspace",
+      "pass": true
+    },
+    {
+      "id": "workspace_004",
+      "status": "completed",
+      "category": "workspace",
+      "pass": true
+    },
+    {
+      "id": "workspace_005",
+      "status": "completed",
+      "category": "workspace",
+      "pass": true
+    },
+    {
+      "id": "workspace_006",
+      "status": "completed",
+      "category": "workspace",
+      "pass": true
+    },
+    {
+      "id": "workspace_007",
+      "status": "completed",
+      "category": "workspace",
+      "pass": true
+    },
+    {
+      "id": "workspace_008",
+      "status": "completed",
+      "category": "workspace",
+      "pass": true
+    },
+    {
+      "id": "workspace_009",
+      "status": "completed",
+      "category": "workspace",
+      "pass": true
+    },
+    {
+      "id": "workspace_010",
+      "status": "completed",
+      "category": "workspace",
+      "pass": true
+    },
+    {
+      "id": "workspace_011",
+      "status": "completed",
+      "category": "workspace",
+      "pass": true
+    },
+    {
+      "id": "workspace_012",
+      "status": "completed",
+      "category": "workspace",
+      "pass": true
+    },
+    {
+      "id": "workspace_013",
+      "status": "completed",
+      "category": "workspace",
+      "pass": true
+    }
+  ]
+}

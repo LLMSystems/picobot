@@ -1,0 +1,64 @@
+{
+  "id": "tool_008",
+  "category": "tool_calling",
+  "prompt": "請閱讀名稱為 tool-use-reminder 的 skill，並用一句話總結它的重點。",
+  "session_id": "eval_tool_008",
+  "status": "completed",
+  "content": "當可用且能提升答案準確性時應優先使用工具，並在使用後清楚呈現結果而非暴露內部推理。",
+  "usage": {
+    "prompt_tokens": 2845,
+    "completion_tokens": 108,
+    "total_tokens": 2953
+  },
+  "tools_used": [
+    "read_skill"
+  ],
+  "stop_reason": "stop",
+  "events": [
+    {
+      "event": "run_started",
+      "data": {
+        "session_id": "eval_tool_008",
+        "message": "請閱讀名稱為 tool-use-reminder 的 skill，並用一句話總結它的重點。"
+      }
+    },
+    {
+      "event": "tool_call_started",
+      "data": {
+        "id": "call_LRHqcsXrk7uVhhKt3Jmftj7l",
+        "name": "read_skill",
+        "arguments": {
+          "name": "tool-use-reminder"
+        }
+      }
+    },
+    {
+      "event": "tool_call_finished",
+      "data": {
+        "id": "call_LRHqcsXrk7uVhhKt3Jmftj7l",
+        "name": "read_skill",
+        "ok": true,
+        "result": "---\nname: tool-use-reminder\ndescription: Prefer available tools when they make the answer more reliable.\nalways: false\n---\n\nWhen relevant tools are available:\n\n- Prefer tools over mental calculation for arithmetic.\n- Prefer tools over guessing for weather-style lookups.\n- Use tools before answering when the tool can materially improve accuracy.\n- After tool use, explain the result clearly instead of exposing raw internal reasoning.\n"
+      }
+    }
+  ],
+  "tags": [
+    "tools",
+    "read_skill",
+    "skills"
+  ],
+  "workspace_outputs": [],
+  "score": {
+    "pass": true,
+    "passed_checks": 1,
+    "failed_checks": 0,
+    "checks": [
+      {
+        "name": "expected_tool",
+        "target": "read_skill",
+        "passed": true,
+        "message": "tool 'read_skill' was used"
+      }
+    ]
+  }
+}

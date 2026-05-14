@@ -1,0 +1,70 @@
+{
+  "id": "tool_003",
+  "category": "tool_calling",
+  "prompt": "請搜尋目前工作區中是否有出現字串 TODO，並回報結果。",
+  "session_id": "eval_tool_003",
+  "status": "completed",
+  "content": "我在整個工作區搜尋字串 \"TODO\"（固定字串、區分大小寫），未找到任何匹配項目。\n\n如果你要我用不區分大小寫搜尋（例如 todo、Todo 等）或搜尋其他標記（如 FIXME），我可以再幫你跑一次。要我做哪一種？",
+  "usage": {
+    "prompt_tokens": 2796,
+    "completion_tokens": 338,
+    "total_tokens": 3134
+  },
+  "tools_used": [
+    "grep"
+  ],
+  "stop_reason": "stop",
+  "events": [
+    {
+      "event": "run_started",
+      "data": {
+        "session_id": "eval_tool_003",
+        "message": "請搜尋目前工作區中是否有出現字串 TODO，並回報結果。"
+      }
+    },
+    {
+      "event": "tool_call_started",
+      "data": {
+        "id": "call_ZvslO8b0fNvzagUMFt4pbiTn",
+        "name": "grep",
+        "arguments": {
+          "pattern": "TODO",
+          "path": ".",
+          "fixed_strings": true,
+          "output_mode": "content",
+          "context_before": 2,
+          "context_after": 2,
+          "max_matches": 500
+        }
+      }
+    },
+    {
+      "event": "tool_call_finished",
+      "data": {
+        "id": "call_ZvslO8b0fNvzagUMFt4pbiTn",
+        "name": "grep",
+        "ok": true,
+        "result": "No matches found for pattern 'TODO' in ."
+      }
+    }
+  ],
+  "tags": [
+    "tools",
+    "grep",
+    "search"
+  ],
+  "workspace_outputs": [],
+  "score": {
+    "pass": true,
+    "passed_checks": 1,
+    "failed_checks": 0,
+    "checks": [
+      {
+        "name": "expected_tool",
+        "target": "grep",
+        "passed": true,
+        "message": "tool 'grep' was used"
+      }
+    ]
+  }
+}
