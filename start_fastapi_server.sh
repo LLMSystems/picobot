@@ -1,6 +1,16 @@
 #!/usr/bin/env sh
 
 set -eu
+ 
+if ! command -v git >/dev/null 2>&1; then
+  echo "git not found. Installing git..."
+  if command -v apt-get >/dev/null 2>&1; then
+    apt-get update && apt-get install -y git
+  else
+    echo "Error: Package manager apt-get not found. Please install git manually."
+    exit 1
+  fi
+fi
 
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 CONFIG_PATH="${CONFIG_PATH:-$SCRIPT_DIR/config.json}"

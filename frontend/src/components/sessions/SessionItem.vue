@@ -76,10 +76,7 @@ function onClick(e: MouseEvent) {
     "
     @click="onClick"
   >
-    <span
-      class="absolute left-0 top-2 bottom-2 w-1 rounded-r-full transition-colors"
-      :class="active ? 'bg-brand' : 'bg-transparent'"
-    />
+
 
     <div class="min-w-0 flex-1 pl-1">
       <input
