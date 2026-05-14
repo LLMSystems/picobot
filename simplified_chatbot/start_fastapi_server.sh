@@ -5,7 +5,7 @@ set -eu
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 CONFIG_PATH="${CONFIG_PATH:-$SCRIPT_DIR/config.json}"
 HOST="${HOST:-0.0.0.0}"
-PORT="${PORT:-8000}"
+PORT="${PORT:-8080}"
 
 if [ -n "${PYTHON_BIN:-}" ]; then
   RESOLVED_PYTHON="$PYTHON_BIN"
