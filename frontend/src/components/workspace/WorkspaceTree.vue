@@ -134,7 +134,7 @@ async function onDrop(e: DragEvent) {
     </template>
     <template v-else>
       <div
-        class="flex-1 overflow-y-auto px-1 py-2 transition-colors"
+        class="flex flex-1 flex-col overflow-y-auto px-1 py-2 transition-colors"
         :class="
           isRootDropTarget
             ? 'outline-dashed outline-2 outline-brand/50 -outline-offset-4'
