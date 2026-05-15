@@ -758,6 +758,11 @@ def build_default_tool_registry(
     builtin_skills_dir: Path | None = None,
 ) -> ToolRegistry:
     """Create a default tool registry with V1 filesystem tools."""
+    from simplified_chatbot.tools.document_readers import (
+        ReadDocxTool,
+        ReadPdfTool,
+        ReadXlsxTool,
+    )
     from simplified_chatbot.tools.search import GlobTool, GrepTool
     from simplified_chatbot.tools.shell import ExecTool
     from simplified_chatbot.tools.skills import ReadSkillTool
@@ -776,6 +781,9 @@ def build_default_tool_registry(
     )
     registry.register(TavilySearchTool())
     registry.register(ReadFileTool(workspace=ws, allowed_dir=allowed, file_states=file_states))
+    registry.register(ReadPdfTool(workspace=ws, allowed_dir=allowed))
+    registry.register(ReadDocxTool(workspace=ws, allowed_dir=allowed))
+    registry.register(ReadXlsxTool(workspace=ws, allowed_dir=allowed))
     registry.register(WriteFileTool(workspace=ws, allowed_dir=allowed, file_states=file_states))
     registry.register(EditFileTool(workspace=ws, allowed_dir=allowed, file_states=file_states))
     registry.register(ListDirTool(workspace=ws, allowed_dir=allowed))

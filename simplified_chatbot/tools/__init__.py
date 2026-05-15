@@ -1,6 +1,11 @@
 """Tool abstractions and helper factories."""
 
 from simplified_chatbot.tools.base import Tool, tool_parameters
+from simplified_chatbot.tools.document_readers import (
+    ReadDocxTool,
+    ReadPdfTool,
+    ReadXlsxTool,
+)
 from simplified_chatbot.tools.fake_tools import build_fake_tool_registry
 from simplified_chatbot.tools.file_state import FileStates
 from simplified_chatbot.tools.filesystem import (
@@ -24,11 +29,14 @@ __all__ = [
     "GlobTool",
     "GrepTool",
     "ListDirTool",
+    "ReadDocxTool",
     "Tool",
     "ToolRegistry",
     "build_fake_tool_registry",
     "ReadFileTool",
+    "ReadPdfTool",
     "ReadSkillTool",
+    "ReadXlsxTool",
     "TavilySearchTool",
     "WriteFileTool",
     "tool_parameters",
