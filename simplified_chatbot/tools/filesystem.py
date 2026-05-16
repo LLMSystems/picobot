@@ -779,7 +779,7 @@ def build_default_tool_registry(
             builtin_skills_dir=builtin_skills_dir,
         ),
     )
-    registry.register(TavilySearchTool())
+    # registry.register(TavilySearchTool())
     registry.register(ReadFileTool(workspace=ws, allowed_dir=allowed, file_states=file_states))
     registry.register(ReadPdfTool(workspace=ws, allowed_dir=allowed))
     registry.register(ReadDocxTool(workspace=ws, allowed_dir=allowed))

@@ -6,8 +6,19 @@ import { ApiError } from '@/lib/errors'
 import { useWorkspaceStore } from '@/stores/workspace'
 import MarkdownView from '@/components/common/MarkdownView.vue'
 import { Button } from '@/components/ui/button'
+import { api } from '@/lib/api'
+import { detectPreviewKind } from '@/lib/preview'
 
 const ws = useWorkspaceStore()
+
+const previewKind = computed(() => detectPreviewKind(ws.selectedPath))
+
+const rawUrl = computed(() => {
+  const sid = ws.sessionId
+  const p = ws.selectedPath
+  if (!sid || !p) return ''
+  return api.workspaceFileRawUrl(sid, p)
+})
 
 const EXT_TO_LANG: Record<string, string> = {
   py: 'python',
@@ -123,6 +134,22 @@ const errorMessage = computed(() => {
         <div class="flex h-full items-center justify-center px-4 text-center text-xs text-muted-foreground">
           點左側檔案以預覽
         </div>
+      </template>
+      <template v-else-if="previewKind === 'image' || previewKind === 'svg'">
+        <div class="flex h-full items-center justify-center bg-muted/20 p-4">
+          <img
+            :src="rawUrl"
+            :alt="ws.selectedPath ?? ''"
+            class="max-h-full max-w-full object-contain"
+          />
+        </div>
+      </template>
+      <template v-else-if="previewKind === 'pdf'">
+        <iframe
+          :src="rawUrl"
+          :title="ws.selectedPath ?? ''"
+          class="h-full w-full border-0 bg-muted/20"
+        />
       </template>
       <template v-else-if="ws.loadingFile && !ws.fileContent">
         <div class="flex h-full items-center justify-center gap-2 text-xs text-muted-foreground">

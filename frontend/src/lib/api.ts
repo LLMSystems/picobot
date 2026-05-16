@@ -112,6 +112,9 @@ export const api = {
       `/sessions/${encodeURIComponent(id)}/workspace/file${qs(params)}`,
     ),
 
+  workspaceFileRawUrl: (id: string, path: string): string =>
+    `${API_BASE}/sessions/${encodeURIComponent(id)}/workspace/file/raw${qs({ path })}`,
+
   uploadWorkspaceFiles: (
     id: string,
     params: { path?: string; overwrite?: boolean },

@@ -3,6 +3,7 @@ import { defineStore } from 'pinia'
 import { toast } from 'vue-sonner'
 import { api } from '@/lib/api'
 import { ApiError } from '@/lib/errors'
+import { detectPreviewKind } from '@/lib/preview'
 import type {
   WorkspaceEntryDTO,
   WorkspaceFileResponse,
@@ -299,11 +300,10 @@ export const useWorkspaceStore = defineStore('workspace', () => {
 
   async function select(path: string | null) {
     selectedPath.value = path
-    if (!path) {
-      fileContent.value = null
-      fileError.value = null
-      return
-    }
+    fileContent.value = null
+    fileError.value = null
+    if (!path) return
+    if (detectPreviewKind(path) !== 'text') return
     await loadFile(path)
   }
 

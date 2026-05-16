@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import mimetypes
+from urllib.parse import quote
+
 from fastapi import APIRouter, Query, Request
+from fastapi.responses import FileResponse
 
 from simplified_chatbot.server.common import error_response, get_runtime
 from simplified_chatbot.server.schemas import (
@@ -153,6 +157,92 @@ async def get_workspace_file(
             message=f"File '{path}' is not a UTF-8 text file",
         )
     return WorkspaceFileResponse.model_validate(payload)
+
+
+_RAW_MAX_BYTES = 50 * 1024 * 1024
+_RAW_EXT_MIME_OVERRIDES: dict[str, str] = {
+    ".svg": "image/svg+xml",
+    ".webp": "image/webp",
+    ".avif": "image/avif",
+}
+
+
+@router.get("/sessions/{session_id}/workspace/file/raw")
+async def get_workspace_file_raw(
+    request: Request,
+    session_id: str,
+    path: str = Query(min_length=1),
+):
+    """Stream the raw bytes of a workspace file (for image / PDF preview)."""
+    runtime = get_runtime(request)
+    try:
+        relative_path, target = await runtime.resolve_workspace_file_async(
+            session_id,
+            path=path,
+        )
+    except KeyError:
+        return error_response(
+            request,
+            status_code=404,
+            code="SESSION_NOT_FOUND",
+            message=f"Session '{session_id}' not found",
+        )
+    except RuntimeError as exc:
+        return error_response(
+            request,
+            status_code=409,
+            code="WORKSPACE_NOT_AVAILABLE",
+            message=str(exc),
+        )
+    except ValueError as exc:
+        return error_response(
+            request,
+            status_code=400,
+            code="WORKSPACE_PATH_INVALID",
+            message=str(exc),
+        )
+    except FileNotFoundError:
+        return error_response(
+            request,
+            status_code=404,
+            code="WORKSPACE_FILE_NOT_FOUND",
+            message=f"File '{path}' not found",
+        )
+    except IsADirectoryError:
+        return error_response(
+            request,
+            status_code=400,
+            code="WORKSPACE_NOT_A_FILE",
+            message=f"Path '{path}' is not a file",
+        )
+
+    size = target.stat().st_size
+    if size > _RAW_MAX_BYTES:
+        return error_response(
+            request,
+            status_code=413,
+            code="WORKSPACE_FILE_TOO_LARGE",
+            message=f"File '{path}' exceeds raw preview size limit",
+        )
+
+    ext = target.suffix.lower()
+    media_type = _RAW_EXT_MIME_OVERRIDES.get(ext)
+    if media_type is None:
+        guessed, _ = mimetypes.guess_type(target.name)
+        media_type = guessed or "application/octet-stream"
+
+    filename = target.name
+    ascii_fallback = filename.encode("ascii", "replace").decode("ascii").replace('"', "")
+    encoded_filename = quote(filename, safe="")
+    headers = {
+        "Content-Disposition": (
+            f'inline; filename="{ascii_fallback}"; filename*=UTF-8\'\'{encoded_filename}'
+        ),
+        "X-Content-Type-Options": "nosniff",
+        "Cache-Control": "private, max-age=60",
+    }
+    _ = relative_path
+    return FileResponse(target, media_type=media_type, headers=headers)
 
 
 @router.post(

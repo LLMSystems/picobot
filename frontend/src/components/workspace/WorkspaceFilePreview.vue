@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { File as FileIcon, Maximize2, Copy, X } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import { useWorkspaceStore } from '@/stores/workspace'
+import { detectPreviewKind } from '@/lib/preview'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -14,6 +15,16 @@ import WorkspaceFileBody from './WorkspaceFileBody.vue'
 
 const ws = useWorkspaceStore()
 const showFullscreen = ref(false)
+
+const previewKind = computed(() => detectPreviewKind(ws.selectedPath))
+const isBinaryPreview = computed(() => previewKind.value !== 'text')
+const hasAnything = computed(
+  () =>
+    isBinaryPreview.value ||
+    ws.fileContent !== null ||
+    ws.loadingFile ||
+    ws.fileError !== null,
+)
 
 async function copyContent() {
   const text = ws.fileContent?.content
@@ -53,7 +64,7 @@ async function copyContent() {
         <Copy class="size-3.5" />
       </Button>
       <Button
-        v-if="ws.fileContent || ws.loadingFile || ws.fileError"
+        v-if="hasAnything"
         variant="ghost"
         size="icon"
         class="size-6"

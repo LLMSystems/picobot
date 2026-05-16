@@ -417,6 +417,21 @@ class LocalAgentRuntime:
             "line_count": line_count,
         }
 
+    async def resolve_workspace_file_async(
+        self,
+        session_id: str,
+        *,
+        path: str,
+    ) -> tuple[str, Path]:
+        """Resolve a workspace path to an absolute file path, validating it is a regular file."""
+        workspace = await self.get_workspace_root_async(session_id)
+        relative_path, target = _resolve_workspace_relative_path(workspace, path)
+        if not target.exists():
+            raise FileNotFoundError(path)
+        if not target.is_file():
+            raise IsADirectoryError(path)
+        return relative_path, target
+
     async def upload_workspace_files_async(
         self,
         session_id: str,

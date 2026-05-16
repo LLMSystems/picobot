@@ -1,7 +1,38 @@
 #!/usr/bin/env sh
 
 set -eu
- 
+
+echo "[1/4] Installing Node.js and npm..."
+apt-get update
+apt-get install -y nodejs npm
+
+echo "[2/4] Installing Chrome runtime dependencies..."
+apt-get install -y \
+  libnspr4 \
+  libnss3 \
+  libatk-bridge2.0-0 \
+  libatk1.0-0 \
+  libcups2 \
+  libdrm2 \
+  libxkbcommon0 \
+  libxcomposite1 \
+  libxdamage1 \
+  libxfixes3 \
+  libxrandr2 \
+  libgbm1 \
+  libasound2 \
+  libpango-1.0-0 \
+  libcairo2 \
+  libatspi2.0-0 \
+  libgtk-3-0 \
+  ca-certificates
+
+echo "[3/4] Installing agent-browser..."
+npm install -g agent-browser
+
+echo "[4/4] Installing Chrome for agent-browser..."
+agent-browser install
+
 if ! command -v git >/dev/null 2>&1; then
   echo "git not found. Installing git..."
   if command -v apt-get >/dev/null 2>&1; then
