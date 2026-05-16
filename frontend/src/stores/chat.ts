@@ -8,6 +8,7 @@ import { useCapabilitiesStore } from '@/stores/capabilities'
 import { useWorkspaceStore } from '@/stores/workspace'
 import type {
   DisplayMessage,
+  DisplayMessageSegment,
   DisplayToolCall,
   SessionMessage,
   WorkspaceChangedData,
@@ -35,10 +36,15 @@ function hydrateHistory(messages: SessionMessage[]): DisplayMessage[] {
         content: m.content,
         created_at: m.created_at,
         toolCalls: [],
+        segments: [],
         status: 'complete',
       })
     } else if (m.role === 'assistant') {
       const toolCalls: DisplayToolCall[] = []
+      const segments: DisplayMessageSegment[] = []
+      if (m.content) {
+        segments.push({ type: 'text', content: m.content })
+      }
       if (m.tool_calls) {
         for (const tc of m.tool_calls) {
           const result = toolResultById.get(tc.id)
@@ -50,14 +56,16 @@ function hydrateHistory(messages: SessionMessage[]): DisplayMessage[] {
               args = { raw: tc.function.arguments }
             }
           }
-          toolCalls.push({
+          const toolCall: DisplayToolCall = {
             id: tc.id,
             name: tc.function?.name ?? 'tool',
             arguments: args,
             result: result?.content,
             ok: true,
             status: 'ok',
-          })
+          }
+          toolCalls.push(toolCall)
+          segments.push({ type: 'tool', toolCall })
         }
       }
       if (m.content || toolCalls.length > 0) {
@@ -67,6 +75,7 @@ function hydrateHistory(messages: SessionMessage[]): DisplayMessage[] {
           content: m.content ?? '',
           created_at: m.created_at,
           toolCalls,
+          segments,
           status: 'complete',
         })
       }
@@ -172,6 +181,7 @@ export const useChatStore = defineStore('chat', () => {
       content: text,
       created_at: new Date().toISOString(),
       toolCalls: [],
+      segments: [],
       status: 'complete',
     }
     messages.value.push(userMsg)
@@ -182,6 +192,7 @@ export const useChatStore = defineStore('chat', () => {
       content: '',
       created_at: new Date().toISOString(),
       toolCalls: [],
+      segments: [],
       status: 'streaming',
     }
     streamingMessage.value = assistantMsg
@@ -193,7 +204,10 @@ export const useChatStore = defineStore('chat', () => {
           abortController.signal,
           {
             onToolStart: (tc) => {
-              streamingMessage.value?.toolCalls.push(tc)
+              const sm = streamingMessage.value
+              if (!sm) return
+              sm.toolCalls.push(tc)
+              sm.segments.push({ type: 'tool', toolCall: tc })
             },
             onToolFinish: (tc) => {
               const target = streamingMessage.value?.toolCalls.find(
@@ -206,8 +220,14 @@ export const useChatStore = defineStore('chat', () => {
               }
             },
             onDelta: (t) => {
-              if (streamingMessage.value) {
-                streamingMessage.value.content += t
+              const sm = streamingMessage.value
+              if (!sm) return
+              sm.content += t
+              const last = sm.segments[sm.segments.length - 1]
+              if (last && last.type === 'text') {
+                last.content += t
+              } else {
+                sm.segments.push({ type: 'text', content: t })
               }
             },
             onDone: (done) => {
@@ -217,6 +237,12 @@ export const useChatStore = defineStore('chat', () => {
               streamingMessage.value.toolsUsed = done.tools_used
               if (done.content && !streamingMessage.value.content) {
                 streamingMessage.value.content = done.content
+                if (streamingMessage.value.segments.length === 0) {
+                  streamingMessage.value.segments.push({
+                    type: 'text',
+                    content: done.content,
+                  })
+                }
               }
               messages.value.push(streamingMessage.value)
               streamingMessage.value = null
@@ -227,6 +253,9 @@ export const useChatStore = defineStore('chat', () => {
       } else {
         const resp = await api.chat({ session_id: sessionId, message: text })
         assistantMsg.content = resp.content
+        if (resp.content) {
+          assistantMsg.segments.push({ type: 'text', content: resp.content })
+        }
         assistantMsg.status = 'complete'
         assistantMsg.usage = resp.usage
         assistantMsg.toolsUsed = resp.tools_used

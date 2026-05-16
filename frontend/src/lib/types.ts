@@ -119,12 +119,17 @@ export interface DisplayToolCall {
 
 export type DisplayMessageStatus = 'complete' | 'streaming' | 'aborted' | 'error'
 
+export type DisplayMessageSegment =
+  | { type: 'text'; content: string }
+  | { type: 'tool'; toolCall: DisplayToolCall }
+
 export interface DisplayMessage {
   id: string
   role: 'user' | 'assistant'
   content: string
   created_at: string
   toolCalls: DisplayToolCall[]
+  segments: DisplayMessageSegment[]
   status: DisplayMessageStatus
   usage?: ChatUsage
   toolsUsed?: string[]

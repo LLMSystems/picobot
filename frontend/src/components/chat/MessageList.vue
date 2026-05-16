@@ -28,7 +28,7 @@ watch(
   () => maintain(),
 )
 watch(
-  () => chat.streamingMessage?.toolCalls.length,
+  () => chat.streamingMessage?.segments.length,
   () => maintain(),
 )
 watch(

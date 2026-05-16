@@ -13,11 +13,12 @@ const props = defineProps<{ message: DisplayMessage }>()
 const showThinking = computed(
   () =>
     props.message.status === 'streaming' &&
-    !props.message.content &&
-    props.message.toolCalls.length === 0,
+    props.message.segments.length === 0,
 )
 
 const isStreaming = computed(() => props.message.status === 'streaming')
+
+const lastSegmentIndex = computed(() => props.message.segments.length - 1)
 
 async function copy() {
   try {
@@ -32,11 +33,23 @@ async function copy() {
 <template>
   <div class="group">
     <div class="flex min-w-0 flex-col gap-2">
-      <ToolCallCard
-        v-for="tc in message.toolCalls"
-        :key="tc.id"
-        :tool-call="tc"
-      />
+      <template v-for="(seg, idx) in message.segments" :key="idx">
+        <ToolCallCard v-if="seg.type === 'tool'" :tool-call="seg.toolCall" />
+        <div v-else-if="seg.content" class="relative">
+          <MarkdownView :content="seg.content" />
+          <StreamingCursor
+            v-if="isStreaming && idx === lastSegmentIndex"
+          />
+        </div>
+      </template>
+
+      <div
+        v-if="message.status === 'complete' && message.segments.length === 0"
+        class="flex items-center gap-1.5 text-sm italic text-muted-foreground"
+      >
+        <AlertCircle class="size-3.5 shrink-0" />
+        回應內容為空，可能已達 token 上限或工具參數解析失敗
+      </div>
 
       <div v-if="showThinking" class="flex items-center gap-2 text-sm text-muted-foreground">
         <span class="flex gap-1">
@@ -45,11 +58,6 @@ async function copy() {
           <span class="size-1.5 animate-pulse rounded-full bg-current" />
         </span>
         <span>思考中…</span>
-      </div>
-
-      <div v-if="message.content" class="relative">
-        <MarkdownView :content="message.content" />
-        <StreamingCursor v-if="isStreaming" />
       </div>
 
       <div
