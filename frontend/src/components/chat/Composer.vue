@@ -97,10 +97,10 @@ function stop() {
 </script>
 
 <template>
-  <div class="bg-gradient-to-t from-background via-background to-transparent pb-3 pt-6">
+  <div class="bg-muted/30 pb-3 pt-3">
     <div class="mx-auto w-full max-w-3xl px-4">
       <div
-        class="relative rounded-2xl border bg-card px-4 py-3 pr-14 shadow-md transition-shadow focus-within:border-brand/40 focus-within:shadow-lg focus-within:ring-2 focus-within:ring-brand/20"
+        class="relative rounded-2xl border bg-background px-4 py-3 pr-14 shadow-md transition-shadow focus-within:border-brand/40 focus-within:shadow-lg focus-within:ring-2 focus-within:ring-brand/20"
       >
         <textarea
           ref="textareaRef"
