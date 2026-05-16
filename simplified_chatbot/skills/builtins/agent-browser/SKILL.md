@@ -12,6 +12,7 @@ Playwright or Puppeteer dependency. Accessibility-tree snapshots with compact
 parsing raw HTML.
 
 Always pass `--headed false` with every `agent-browser` command in this environment. Do not omit it.
+Whenever a command saves a file, use an absolute output path. Do not save to a relative path.
 
 Most normal web tasks (navigate, read, click, fill, extract, screenshot) are
 covered here. Load a specialized skill when the task falls outside browser
@@ -39,7 +40,7 @@ npm i -g agent-browser && agent-browser --headed false install
 
 # Take a screenshot of a page
 agent-browser --headed false open https://example.com
-agent-browser --headed false screenshot home.png
+agent-browser --headed false screenshot /absolute/path/home.png
 agent-browser --headed false close
 
 # Search, click a result, and capture it
@@ -50,7 +51,7 @@ agent-browser --headed false press Enter
 agent-browser --headed false wait --load networkidle
 agent-browser --headed false snapshot -i                      # refs now reflect results
 agent-browser --headed false click @e5                        # click a result
-agent-browser --headed false screenshot result.png
+agent-browser --headed false screenshot /absolute/path/result.png
 ```
 
 The browser stays running across commands so these feel like a single
@@ -198,10 +199,10 @@ agent-browser --headed false auth login my-app    # fills + clicks, waits for fo
 
 ```bash
 # Log in once, save cookies + localStorage
-agent-browser --headed false state save ./auth.json
+agent-browser --headed false state save /absolute/path/auth.json
 
 # Later runs start already-logged-in
-agent-browser --headed false --state ./auth.json open https://app.example.com
+agent-browser --headed false --state /absolute/path/auth.json open https://app.example.com
 ```
 
 Or use `--session-name` for auto-save/restore:
@@ -215,7 +216,7 @@ AGENT_BROWSER_SESSION_NAME=my-app agent-browser --headed false open https://app.
 
 ```bash
 # Structured snapshot (best for AI reasoning over page content)
-agent-browser --headed false snapshot -i --json > page.json
+agent-browser --headed false snapshot -i --json > /absolute/path/page.json
 
 # Targeted extraction with refs
 agent-browser --headed false snapshot -i
@@ -240,10 +241,9 @@ only for simple expressions.
 ### Screenshot
 
 ```bash
-agent-browser --headed false screenshot                        # temp path, printed on stdout
-agent-browser --headed false screenshot page.png               # specific path
-agent-browser --headed false screenshot --full full.png        # full scroll height
-agent-browser --headed false screenshot --annotate map.png     # numbered labels + legend keyed to snapshot refs
+agent-browser --headed false screenshot /absolute/path/page.png                  # save to a specific absolute path
+agent-browser --headed false screenshot --full /absolute/path/full.png           # full scroll height
+agent-browser --headed false screenshot --annotate /absolute/path/map.png        # numbered labels + legend keyed to snapshot refs
 ```
 
 `--annotate` is designed for multimodal models: each label `[N]` maps to ref `@eN`.
@@ -284,13 +284,13 @@ agent-browser --headed false network route "**/analytics" --abort               
 agent-browser --headed false network requests                                     # inspect what fired
 agent-browser --headed false network har start                                    # record all traffic
 # ... perform actions ...
-agent-browser --headed false network har stop /tmp/trace.har
+agent-browser --headed false network har stop /absolute/path/trace.har
 ```
 
 ### Record a video of the workflow
 
 ```bash
-agent-browser --headed false record start demo.webm
+agent-browser --headed false record start /absolute/path/demo.webm
 agent-browser --headed false open https://example.com
 agent-browser --headed false snapshot -i
 agent-browser --headed false click @e3
