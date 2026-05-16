@@ -18,6 +18,16 @@ import { useHorizontalResize } from '@/composables/useHorizontalResize'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { ApiError } from '@/lib/errors'
 
+const mkdirRequest = computed(() => ws.mkdirRequest)
+const showMkdir = computed(() => mkdirRequest.value !== null)
+const folderName = ref('')
+const creating = ref(false)
+const mkdirInputRef = ref<HTMLInputElement | null>(null)
+const mkdirTargetLabel = computed(() => {
+  const p = mkdirRequest.value?.parent ?? '.'
+  return p === '.' ? '/ (根目錄)' : p
+})
+
 const ws = useWorkspaceStore()
 
 const { containerRef, ratio, onPointerDown: onSplitPointerDown } =
@@ -56,6 +66,51 @@ const renameInputRef = ref<HTMLInputElement | null>(null)
 const deleteTarget = computed(() => ws.pendingDelete)
 const showDelete = computed(() => deleteTarget.value !== null)
 const deleting = ref(false)
+
+watch(mkdirRequest, async (req) => {
+  if (req) {
+    folderName.value = ''
+    await nextTick()
+    mkdirInputRef.value?.focus()
+  }
+})
+
+function describeMkdirError(err: unknown): string {
+  if (err instanceof ApiError) {
+    switch (err.code) {
+      case 'WORKSPACE_NOT_AVAILABLE':
+        return '此 session 沒有啟用 workspace'
+      case 'WORKSPACE_PATH_INVALID':
+        return '路徑不合法'
+      case 'WORKSPACE_NOT_A_DIRECTORY':
+        return '同名項目已存在但不是資料夾'
+      default:
+        return err.message
+    }
+  }
+  return err instanceof Error ? err.message : '建立失敗'
+}
+
+async function submitMkdir() {
+  const name = folderName.value.trim()
+  if (!name || creating.value) return
+  const req = mkdirRequest.value
+  if (!req) return
+  creating.value = true
+  try {
+    const result = await ws.createDirectory(name, { parent: req.parent })
+    ws.closeMkdir()
+    if (result.created) {
+      toast.success('資料夾已建立', { description: result.path })
+    } else {
+      toast.info('資料夾已存在', { description: result.path })
+    }
+  } catch (err) {
+    toast.error('建立資料夾失敗', { description: describeMkdirError(err) })
+  } finally {
+    creating.value = false
+  }
+}
 
 watch(renameTarget, async (target) => {
   if (target) {
@@ -183,6 +238,39 @@ function dismissMoveConflict() {
         :style="previewStyle"
       />
     </div>
+
+    <Dialog
+      :open="showMkdir"
+      @update:open="(v) => !v && ws.closeMkdir()"
+    >
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>新增資料夾</DialogTitle>
+          <DialogDescription>
+            將建立在
+            <span class="font-mono text-foreground">{{ mkdirTargetLabel }}</span>
+            底下。可用 <code>a/b/c</code> 一次建立巢狀資料夾。
+          </DialogDescription>
+        </DialogHeader>
+        <input
+          ref="mkdirInputRef"
+          v-model="folderName"
+          class="w-full rounded-md border bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          placeholder="資料夾名稱"
+          @keydown.enter.prevent="submitMkdir"
+          @keydown.esc.prevent="ws.closeMkdir()"
+        />
+        <DialogFooter>
+          <Button variant="outline" @click="ws.closeMkdir()">取消</Button>
+          <Button
+            :disabled="!folderName.trim() || creating"
+            @click="submitMkdir"
+          >
+            建立
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
 
     <Dialog
       :open="showRename"

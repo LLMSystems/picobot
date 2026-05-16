@@ -21,7 +21,9 @@ const canSend = computed(
 )
 
 const placeholder = computed(() =>
-  chat.currentSessionId ? '輸入訊息...（Enter 送出，Shift+Enter 換行）' : '請先選擇或建立對話',
+  chat.currentSessionId
+    ? '問 Picobot 一個問題，或請它操作 workspace…'
+    : '請先選擇或建立對話',
 )
 
 function autoResize() {
@@ -95,10 +97,10 @@ function stop() {
 </script>
 
 <template>
-  <div class="border-t bg-background">
-    <div class="mx-auto w-full max-w-3xl px-4 py-3">
+  <div class="bg-gradient-to-t from-background via-background to-transparent pb-3 pt-6">
+    <div class="mx-auto w-full max-w-3xl px-4">
       <div
-        class="relative rounded-2xl border bg-background px-3 py-2.5 pr-14 shadow-sm focus-within:ring-2 focus-within:ring-ring/40"
+        class="relative rounded-2xl border bg-card px-4 py-3 pr-14 shadow-md transition-shadow focus-within:border-brand/40 focus-within:shadow-lg focus-within:ring-2 focus-within:ring-brand/20"
       >
         <textarea
           ref="textareaRef"
@@ -106,7 +108,7 @@ function stop() {
           rows="1"
           :placeholder="placeholder"
           :disabled="chat.currentSessionId === null"
-          class="block max-h-60 min-h-[1.5rem] w-full resize-none bg-transparent text-sm leading-6 outline-none placeholder:text-muted-foreground"
+          class="block max-h-60 min-h-[1.75rem] w-full resize-none bg-transparent text-sm leading-7 outline-none placeholder:text-muted-foreground"
           @keydown="onKeydown"
           @compositionstart="isComposing = true"
           @compositionend="isComposing = false"
@@ -115,27 +117,26 @@ function stop() {
         <Button
           v-if="!chat.isStreaming"
           size="icon"
-          variant="outline"
-          class="absolute bottom-1 right-1.5 size-9 rounded-xl"
+          class="absolute bottom-2 right-2 size-9 rounded-full bg-brand text-brand-foreground shadow-sm transition-transform hover:bg-brand/90 hover:scale-105 disabled:bg-muted disabled:text-muted-foreground disabled:shadow-none disabled:hover:scale-100"
           :disabled="!canSend"
           aria-label="送出"
           @click="send"
         >
-          <Send class="size-4" :class="canSend ? 'text-brand' : ''" />
+          <Send class="size-4" />
         </Button>
         <Button
           v-else
           size="icon"
           variant="destructive"
-          class="absolute bottom-1 right-1.5 size-9 rounded-xl"
+          class="absolute bottom-2 right-2 size-9 rounded-full shadow-sm"
           aria-label="停止"
           @click="stop"
         >
           <Square class="size-4" />
         </Button>
       </div>
-      <p class="mt-1.5 text-center text-[11px] text-muted-foreground">
-        AI 可能會產生錯誤資訊。重要資訊請自行驗證。
+      <p class="mt-2 text-center text-[11px] text-muted-foreground/70">
+        Enter 送出・Shift+Enter 換行・AI 可能產生錯誤資訊，重要內容請自行驗證
       </p>
     </div>
   </div>

@@ -68,15 +68,14 @@ function onClick(e: MouseEvent) {
   <div
     role="option"
     :aria-selected="active"
-    class="group relative flex w-full items-start gap-2 rounded-md px-2 py-2 text-left transition-colors"
+    class="group relative flex w-full items-start gap-2 rounded-lg px-2.5 py-2 text-left transition-all"
     :class="
       active
-        ? 'bg-brand/10 text-foreground'
-        : 'hover:bg-sidebar-accent/60 cursor-pointer'
+        ? 'bg-brand/10 text-foreground shadow-sm ring-1 ring-brand/15'
+        : 'cursor-pointer hover:bg-sidebar-accent/60'
     "
     @click="onClick"
   >
-
 
     <div class="min-w-0 flex-1 pl-1">
       <input

@@ -138,6 +138,15 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     name: string
   } | null>(null)
   const pendingDelete = ref<{ path: string; name: string } | null>(null)
+  const mkdirRequest = ref<{ parent: string } | null>(null)
+
+  function openMkdir(parent?: string) {
+    mkdirRequest.value = { parent: parent ?? targetUploadDir() }
+  }
+
+  function closeMkdir() {
+    mkdirRequest.value = null
+  }
 
   function persistVisible() {
     try {
@@ -680,6 +689,9 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     uploadConflict,
     pendingRename,
     pendingDelete,
+    mkdirRequest,
+    openMkdir,
+    closeMkdir,
     rootChildren,
     hasContent,
     bind,
