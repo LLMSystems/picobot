@@ -26,9 +26,9 @@ const commands: Command[] = [
   },
   {
     icon: Code2,
-    title: '產生 Python script',
-    description: '建立一個簡單可執行的程式',
-    prompt: '幫我寫一個簡單的快速排序 Python script，並存成檔案',
+    title: '瀏覽器操作',
+    description: '點擊連結、讀取內容，或執行簡單任務',
+    prompt: '請開啟 https://example.com，讀取頁面標題與第一段文字，並截圖給我看',
   },
   {
     icon: Newspaper,
