@@ -28,7 +28,7 @@ const commands: Command[] = [
     icon: Code2,
     title: '產生 Python script',
     description: '建立一個簡單可執行的程式',
-    prompt: '幫我寫一個簡單的 Python script',
+    prompt: '幫我寫一個簡單的快速排序 Python script，並存成檔案',
   },
   {
     icon: Newspaper,
@@ -41,21 +41,21 @@ const commands: Command[] = [
 
 <template>
   <div
-    class="relative flex h-full flex-col items-center justify-center gap-10 px-6 py-10 text-center"
+    class="relative flex h-full flex-col items-center px-6 pb-20 pt-[7vh] text-center sm:pt-[9vh]"
   >
     <div
       aria-hidden="true"
-      class="pointer-events-none absolute inset-x-0 top-0 -z-10 h-72 bg-gradient-to-b from-brand/10 via-brand/5 to-transparent blur-2xl"
+      class="pointer-events-none absolute inset-x-0 top-0 -z-10 h-80 bg-gradient-to-b from-brand/10 via-brand/5 to-transparent blur-2xl"
     />
 
-    <div class="flex max-w-xl flex-col items-center gap-4">
+    <div class="flex max-w-xl flex-col items-center gap-5">
       <img
         :src="picoagentLogo"
         alt="Picobot"
         class="size-40 select-none object-contain drop-shadow-sm"
         draggable="false"
       />
-      <div class="space-y-2">
+      <div class="space-y-2.5">
         <h1 class="text-3xl font-semibold tracking-tight">
           你好，我是 Picobot
         </h1>
@@ -68,7 +68,7 @@ const commands: Command[] = [
       </div>
     </div>
 
-    <div class="grid w-full max-w-2xl grid-cols-1 gap-3 sm:grid-cols-2">
+    <div class="mt-16 grid w-full max-w-2xl grid-cols-1 gap-3 sm:mt-20 sm:grid-cols-2">
       <button
         v-for="c in commands"
         :key="c.title"
@@ -76,9 +76,9 @@ const commands: Command[] = [
         @click="$emit('suggest', c.prompt)"
       >
         <span
-          class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-brand/10 text-brand transition-colors group-hover:bg-brand/20"
+          class="flex size-10 shrink-0 items-center justify-center rounded-xl bg-indigo-50 text-indigo-500 transition-colors group-hover:bg-indigo-100 dark:bg-brand/15 dark:text-brand dark:group-hover:bg-brand/25"
         >
-          <component :is="c.icon" class="size-4.5" />
+          <component :is="c.icon" class="size-5" />
         </span>
         <span class="min-w-0 flex-1">
           <span class="block text-sm font-medium leading-tight">

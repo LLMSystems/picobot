@@ -61,7 +61,7 @@ watch(
         <template v-else-if="isEmpty">
           <EmptyState
             class="min-h-[60vh]"
-            @suggest="(t) => composerBus.fill(t)"
+            @suggest="(t) => composerBus.fill(t, { submit: true })"
           />
         </template>
         <template v-else>

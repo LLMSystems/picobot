@@ -41,12 +41,16 @@ watch(text, () => {
 watch(
   () => bus.focusToken.value,
   async () => {
-    const fill = bus.consume()
-    if (fill !== null) text.value = fill
+    const { text: filled, submit } = bus.consume()
+    if (filled !== null) text.value = filled
     await nextTick()
     textareaRef.value?.focus()
     autoResize()
+    if (submit && filled !== null && canSend.value) {
+      void send()
+    }
   },
+  { immediate: true },
 )
 
 async function send() {

@@ -152,7 +152,10 @@ export const useChatStore = defineStore('chat', () => {
     try {
       const { messages: history } = await api.getMessages(id)
       if (currentSessionId.value === id) {
-        messages.value = hydrateHistory(history)
+        const hydrated = hydrateHistory(history)
+        if (hydrated.length > 0) {
+          messages.value = hydrated
+        }
       }
     } catch (e) {
       if (e instanceof ApiError) lastError.value = e

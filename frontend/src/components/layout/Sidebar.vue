@@ -105,10 +105,10 @@ async function confirmDelete() {
     <div class="px-3 pb-3">
       <Button
         size="sm"
-        class="w-full gap-1.5 bg-brand text-brand-foreground hover:bg-brand/90"
+        class="h-8 w-full gap-1.5 rounded-xl bg-brand text-sm font-medium text-brand-foreground shadow-none transition-shadow hover:bg-brand/90 hover:shadow-md"
         @click="newChat"
       >
-        <Plus class="size-4" />
+        <Plus class="size-3.5" />
         新對話
       </Button>
     </div>

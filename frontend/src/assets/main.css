@@ -127,4 +127,33 @@
   body {
     @apply bg-background text-foreground;
   }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(203 213 225 / 0.7) transparent;
+  }
+  .dark * {
+    scrollbar-color: rgb(255 255 255 / 0.15) transparent;
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgb(203 213 225 / 0.7);
+    border-radius: 999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgb(148 163 184 / 0.8);
+  }
+  .dark ::-webkit-scrollbar-thumb {
+    background: rgb(255 255 255 / 0.15);
+  }
+  .dark ::-webkit-scrollbar-thumb:hover {
+    background: rgb(255 255 255 / 0.25);
+  }
 }
