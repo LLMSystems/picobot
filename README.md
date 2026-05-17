@@ -21,7 +21,7 @@
 
 - 可配置的聊天與 異 agent 執行核心
 - 資料庫以 SQL 為主
-- 可調用工具的多輪互動能力
+- 可調用工具、瀏覽網頁的多輪互動能力
 - session 與 per-session workspace 管理
 - 可直接掛到 FastAPI 的後端 API
 - 可逐步擴充的 skills、prompt、eval 架構
@@ -69,54 +69,76 @@ picobot/
 
 ## 3. 驗測結果
 
-目前的評測資料放在 [eval/datasets/agent_core_21.jsonl](eval/datasets/agent_core_21.jsonl)，為自行標註，內容主要包含三種資訊：每題的 `prompt`、預期行為條件（例如 `expected_contains`、`expected_tools`、`expected_files`），以及需要預先建立的 `setup_files`。這讓同一份題庫既能工具調用與 workspace 產物。
+目前 `picobot` 的評測分成兩組資料集：
+- core agent 題庫：[agent_core_21.jsonl](eval/datasets/agent_core_21.jsonl)
+- browser 題庫：[browser_core_4.jsonl](eval/datasets/browser_core_4.jsonl)
 
-可直接用以下指令執行 eval：
+對應的執行方式如下：
 
 ```bash
 python3 eval/scripts/run_eval.py example_config.json eval/datasets/agent_core_21.jsonl
+python3 eval/scripts/run_eval.py example_config.json eval/datasets/browser_core_4.jsonl --enable-llm-judge --judge-model gpt-4.1-mini
 ```
 
-目前已用 `gpt-5-mini` 進行一輪本地 eval 驗測。依 [run.json](eval/runs/2026-05-14_212056/run.json) 記錄，`2026-05-14 21:20:56` 這次執行實際跑了 `21` 題，全部成功完成且全部通過 rule-based scoring，`pass_rate = 1.0`。
+目前已用 gpt-5-mini 進行一輪本地 eval 驗測，目前驗測題目共有 25 題，可參考 [runs](eval/runs)：
+- core agent 題 21 題
+- browser 題 4 題
 
-- `tool_calling`: 8 / 8 通過
-- `workspace`: 13 / 13 通過
+這 25 題覆蓋的能力包含：
+- 多輪 agent loop 與工具調用
+- workspace 內的讀寫、搜尋、整理與產物生成
+- 網站瀏覽、點擊與截圖驗證
 
-這套 eval 的設計方法是用 `JSONL` 題庫描述每一題的 `prompt`、預期工具、預期文字輸出，以及預期產生的 workspace 檔案，再由本地 runner 逐題執行並收集 `content`、`tools_used`、`events`、`workspace_outputs`。評分目前採 rule-based scoring，會檢查 `expected_contains`、`forbidden_contains`、`expected_tools`、`expected_files` 與檔案內容條件。
+目前的整體結果可分成兩層理解：
+- 純 rule-based 統計：24 / 25 通過，`pass_rate = 0.96`
+- final 統計：25 / 25 通過，`pass_rate = 1.0`
+- 細項:
+  - `tool_calling` 類題目 `8 / 8` 通過
+  - `workspace` 類題目 `13 / 13` 通過
+  - `browser` 類題目 `4 / 4` 通過
 
-每一題都會建立自己的 `session_id`，也會分配自己的 session workspace，因此不同 case 之間的對話歷史、工具操作與檔案產物彼此隔離。這讓 `picobot` 可以被測試成一個真正會使用工具、讀寫檔案、操作 workspace 的 agent，而不只是單純比對文字回覆。
+差異來自 browser 題型。browser 題的操作流程高度開放，即使是同一任務，也可能出現不同但合理的 CLI 操作序列，因此這類題目不只看固定字串規則，而是同時參考 (使用 llm-as-judge 進行評估)：
+- 題目本身
+- agent 最終回答
+- workspace 產出的文字 artifact
+- 最終 screenshot
+- `agent-browser` skill 規則
 
-每次跑完 eval 後，都會在 `eval/runs/<run_id>/` 生成一份完整結果資料夾(可參考[驗測結果](eval\runs\2026-05-14_212056))，結構大致如下：
+在這個前提下，browser 題會同時產生三種結果：
+- `rule_pass`：只看檔案存在、文字命中、圖片大小等規則
+- `llm_judge_pass`：由支援圖片輸入的 judge model 綜合判斷
+- `final_pass`：browser 題以 `llm_judge_pass` 為最終結果，其他題型則沿用 rule-based 結果
+
+目前的 eval runner 會為每一題建立獨立 `session_id`，並配對自己的 session workspace。也就是說，每題都是在隔離的 agent 執行環境下進行驗證，而不是共用同一份對話歷史或工作目錄。這讓評測更接近實際部署情境，也能避免前一題留下的檔案或上下文污染後一題。
+
+每次執行 `run_eval.py` 後，都會在 [eval/runs](eval/runs) 下產生一個新的 run 目錄，命名類似：
 
 ```text
-eval/
-└── runs/
-    └── <run_id>/
-        ├── run.json
-        ├── config_snapshot.json
-        ├── dataset_snapshot.jsonl
-        ├── cases/
-        │   └── <case_id>.json
-        ├── sessions/
-        └── workspaces/
+eval/runs/2026-05-17_232301/
 ```
 
-閱讀方式可以這樣看：
+典型結構如下：
 
-- `run.json`
-  - 先看整體摘要，例如 `case_count`、`completed`、`failed`、`scored_pass`、`pass_rate`，以及各 category 的統計。
-- `cases/<case_id>.json`
-  - 看單題細節，包含 `content`、`tools_used`、`events`、`workspace_outputs`、`score`，適合追某一題為什麼通過或失敗。
-- `config_snapshot.json`
-  - 記錄這次 run 使用的 config，方便回頭比對模型、溫度、iteration 等設定。
-- `dataset_snapshot.jsonl`
-  - 記錄當次實際跑的題庫內容，避免之後題目改了卻無法重現舊結果。
-- `sessions/`
-  - 保存這次 eval 過程中的 session 歷史資料。
-- `workspaces/`
-  - 保存每一題自己的 session workspace，可直接檢查 agent 產生或修改的檔案結果。
+```text
+eval/runs/<run_id>/
+  config_snapshot.json
+  dataset_snapshot.jsonl
+  run.json
+  cases/
+    <case_id>.json
+  sessions/
+    <session_id>.jsonl
+  workspaces/
+    <session_id>/
+```
 
-這份結果代表目前 `picobot` 的工具調用與 workspace 讀寫主幹已經可以穩定運作；後續若擴充更多能力，會再持續用 `eval/` 題庫做回歸驗證。
+各檔案用途如下：
+- `run.json`：整體 summary，包含完成數、通過率、分類統計與每題摘要。
+- `cases/<case_id>.json`：單題完整結果，包含最終回答、工具使用、events、workspace outputs、rule-based score，以及 browser 題的 `llm_judge` 與 `final_pass`。
+- `config_snapshot.json`：當次 run 使用的設定快照，方便之後重現。
+- `dataset_snapshot.jsonl`：當次 run 實際使用的題庫快照，避免資料集後續變更造成結果不可追溯。
+- `sessions/<session_id>.jsonl`：該題對話歷史。
+- `workspaces/<session_id>/`：該題實際執行後留下的 workspace，可直接檢查 agent 生成的檔案與 artifact。
 
 ---
 

@@ -1,0 +1,9 @@
+{
+  "provider": "openai_compat",
+  "model": "gpt-5-mini",
+  "maxTokens": 4000,
+  "contextWindowTokens": 25000,
+  "maxIterations": 40,
+  "temperature": 0.2,
+  "workspaceRootDir": "workspaces"
+}

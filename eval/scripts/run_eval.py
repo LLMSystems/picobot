@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 from dataclasses import dataclass
 from datetime import datetime
+import hashlib
 import json
+import os
 from pathlib import Path
 import shutil
 import sys
@@ -15,6 +18,10 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from openai import AsyncOpenAI
+
+from eval.scripts.llm_judge import build_judge_evidence, judge_case_async
+from simplified_chatbot.config.loader import load_env_for_config
 from simplified_chatbot.runtime.local_runtime import LocalAgentRuntime
 
 
@@ -71,6 +78,22 @@ def build_parser() -> argparse.ArgumentParser:
         "--run-name",
         default=None,
         help="Optional fixed run name. If omitted, a timestamp-based name is used.",
+    )
+    parser.add_argument(
+        "--enable-llm-judge",
+        action="store_true",
+        help="Enable LLM-as-judge for supported categories such as browser_cli.",
+    )
+    parser.add_argument(
+        "--judge-model",
+        default=None,
+        help="Optional judge model name. Defaults to OPENAI_JUDGE_MODEL or gpt-4.1-mini when LLM judge is enabled.",
+    )
+    parser.add_argument(
+        "--judge-detail",
+        choices=["low", "high", "auto"],
+        default="high",
+        help="Image detail level for LLM judge screenshot inputs.",
     )
     return parser
 
@@ -163,6 +186,9 @@ def run_dataset(
     *,
     output_root: str | Path,
     run_name: str | None = None,
+    enable_llm_judge: bool = False,
+    judge_model: str | None = None,
+    judge_detail: str = "high",
 ) -> Path:
     resolved_config = Path(config_path).expanduser().resolve()
     resolved_dataset = Path(dataset_path).expanduser().resolve()
@@ -177,11 +203,28 @@ def run_dataset(
         store_dir=run_dir / "sessions",
         workspace_root_dir=run_dir / "workspaces",
     )
+    llm_judge_client: AsyncOpenAI | None = None
+    resolved_judge_model = judge_model or os.environ.get("OPENAI_JUDGE_MODEL") or "gpt-4.1-mini"
+    if enable_llm_judge:
+        load_env_for_config(resolved_config)
+        llm_judge_client = AsyncOpenAI()
 
     results: list[dict[str, Any]] = []
     for index, case in enumerate(cases, start=1):
         print(f"[{index}/{len(cases)}] Running {case.id} ...", flush=True)
         result = run_case(runtime, case)
+        if enable_llm_judge and llm_judge_client is not None and _should_run_llm_judge(case, result):
+            evidence = build_judge_evidence(run_dir, result)
+            llm_judge_result = asyncio.run(
+                judge_case_async(
+                    llm_judge_client,
+                    evidence=evidence,
+                    model=resolved_judge_model,
+                    detail=judge_detail,
+                ),
+            )
+            result["llm_judge"] = llm_judge_result
+        result["final_pass"] = _compute_final_pass(case, result)
         results.append(result)
         (run_dir / "cases" / f"{case.id}.json").write_text(
             json.dumps(result, ensure_ascii=False, indent=2) + "\n",
@@ -209,6 +252,9 @@ def main() -> int:
         args.dataset,
         output_root=args.output_root,
         run_name=args.run_name,
+        enable_llm_judge=args.enable_llm_judge,
+        judge_model=args.judge_model,
+        judge_detail=args.judge_detail,
     )
     print(f"Eval completed. Results saved to: {run_dir}")
     return 0
@@ -291,8 +337,11 @@ def _collect_workspace_outputs(
         if resolved.exists():
             payload["is_file"] = resolved.is_file()
             if resolved.is_file():
+                raw = resolved.read_bytes()
+                payload["size"] = len(raw)
+                payload["sha256"] = hashlib.sha256(raw).hexdigest()
                 try:
-                    payload["content"] = resolved.read_text(encoding="utf-8")
+                    payload["content"] = raw.decode("utf-8")
                 except UnicodeDecodeError:
                     payload["content"] = None
                     payload["encoding"] = "binary_or_non_utf8"
@@ -309,8 +358,17 @@ def _build_run_summary(
 ) -> dict[str, Any]:
     completed = sum(1 for item in results if item["status"] == "completed")
     failed = sum(1 for item in results if item["status"] == "failed")
-    scored_pass = sum(1 for item in results if bool(item.get("score", {}).get("pass")))
-    scored_fail = len(results) - scored_pass
+    rule_pass = sum(1 for item in results if bool(item.get("score", {}).get("pass")))
+    rule_fail = len(results) - rule_pass
+    llm_judged_cases = sum(1 for item in results if isinstance(item.get("llm_judge"), dict))
+    llm_judge_pass = sum(
+        1
+        for item in results
+        if bool(item.get("llm_judge", {}).get("verdict", {}).get("pass"))
+    )
+    llm_judge_fail = llm_judged_cases - llm_judge_pass
+    final_pass = sum(1 for item in results if bool(item.get("final_pass")))
+    final_fail = len(results) - final_pass
     category_summary = _build_category_summary(results)
     return {
         "run_id": run_dir.name,
@@ -319,16 +377,31 @@ def _build_run_summary(
         "case_count": len(results),
         "completed": completed,
         "failed": failed,
-        "scored_pass": scored_pass,
-        "scored_fail": scored_fail,
-        "pass_rate": round(scored_pass / len(results), 4) if results else 0.0,
+        "rule_pass": rule_pass,
+        "rule_fail": rule_fail,
+        "rule_pass_rate": round(rule_pass / len(results), 4) if results else 0.0,
+        "llm_judged_cases": llm_judged_cases,
+        "llm_judge_pass": llm_judge_pass,
+        "llm_judge_fail": llm_judge_fail,
+        "llm_judge_pass_rate": (
+            round(llm_judge_pass / llm_judged_cases, 4) if llm_judged_cases else None
+        ),
+        "final_pass": final_pass,
+        "final_fail": final_fail,
+        "final_pass_rate": round(final_pass / len(results), 4) if results else 0.0,
         "categories": category_summary,
         "cases": [
             {
                 "id": item["id"],
                 "status": item["status"],
                 "category": item["category"],
-                "pass": bool(item.get("score", {}).get("pass")),
+                "rule_pass": bool(item.get("score", {}).get("pass")),
+                "llm_judge_pass": (
+                    bool(item.get("llm_judge", {}).get("verdict", {}).get("pass"))
+                    if isinstance(item.get("llm_judge"), dict)
+                    else None
+                ),
+                "final_pass": bool(item.get("final_pass")),
             }
             for item in results
         ],
@@ -423,6 +496,24 @@ def _score_case(case: EvalCase, result: dict[str, Any]) -> dict[str, Any]:
                 },
             )
 
+        min_size_bytes = expected_file.get("min_size_bytes")
+        if isinstance(min_size_bytes, int):
+            actual_size = output.get("size") if isinstance(output, dict) else None
+            passed = isinstance(actual_size, int) and actual_size >= min_size_bytes
+            checks.append(
+                {
+                    "name": "expected_file_min_size_bytes",
+                    "target": raw_path,
+                    "value": min_size_bytes,
+                    "passed": passed,
+                    "message": (
+                        f"file '{raw_path}' size is >= {min_size_bytes} bytes"
+                        if passed
+                        else f"file '{raw_path}' size is below {min_size_bytes} bytes"
+                    ),
+                },
+            )
+
         content_contains = _coerce_list_of_strings(expected_file.get("content_contains"))
         file_content = ""
         if isinstance(output, dict) and isinstance(output.get("content"), str):
@@ -458,7 +549,18 @@ def _build_category_summary(results: list[dict[str, Any]]) -> dict[str, dict[str
         category = str(item.get("category", "uncategorized"))
         bucket = summary.setdefault(
             category,
-            {"total": 0, "completed": 0, "failed": 0, "passed": 0, "failed_score": 0},
+            {
+                "total": 0,
+                "completed": 0,
+                "failed": 0,
+                "rule_pass": 0,
+                "rule_fail": 0,
+                "llm_judged": 0,
+                "llm_judge_pass": 0,
+                "llm_judge_fail": 0,
+                "final_pass": 0,
+                "final_fail": 0,
+            },
         )
         bucket["total"] += 1
         if item.get("status") == "completed":
@@ -466,10 +568,30 @@ def _build_category_summary(results: list[dict[str, Any]]) -> dict[str, dict[str
         else:
             bucket["failed"] += 1
         if bool(item.get("score", {}).get("pass")):
-            bucket["passed"] += 1
+            bucket["rule_pass"] += 1
         else:
-            bucket["failed_score"] += 1
+            bucket["rule_fail"] += 1
+        if isinstance(item.get("llm_judge"), dict):
+            bucket["llm_judged"] += 1
+            if bool(item.get("llm_judge", {}).get("verdict", {}).get("pass")):
+                bucket["llm_judge_pass"] += 1
+            else:
+                bucket["llm_judge_fail"] += 1
+        if bool(item.get("final_pass")):
+            bucket["final_pass"] += 1
+        else:
+            bucket["final_fail"] += 1
     return summary
+
+
+def _should_run_llm_judge(case: EvalCase, result: dict[str, Any]) -> bool:
+    return case.category == "browser_cli" and result.get("status") == "completed"
+
+
+def _compute_final_pass(case: EvalCase, result: dict[str, Any]) -> bool:
+    if case.category == "browser_cli" and isinstance(result.get("llm_judge"), dict):
+        return bool(result.get("llm_judge", {}).get("verdict", {}).get("pass"))
+    return bool(result.get("score", {}).get("pass"))
 
 
 def _coerce_list_of_strings(value: Any) -> list[str]:
