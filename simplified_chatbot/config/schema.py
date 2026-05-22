@@ -95,6 +95,19 @@ class ChatbotConfig(BaseModel):
             "corsOrigins",
         ),
     )
+    
+    # Browser tool config
+    """
+    "browser": {
+        "chromeDebuggingPort": null
+    }
+    """
+    browser: dict | None = Field(
+        default=None,
+        validation_alias=AliasChoices("browser"),
+    )
+    
+    
 
     @field_validator("model")
     @classmethod

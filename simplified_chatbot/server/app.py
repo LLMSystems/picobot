@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 import uuid
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
@@ -13,7 +14,7 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from simplified_chatbot.config.loader import load_env_for_config
+from simplified_chatbot.config.loader import load_env_for_config, load_config
 from simplified_chatbot.runtime.local_runtime import LocalAgentRuntime
 from simplified_chatbot.runtime.session_store import AioSQLiteSessionStore
 from simplified_chatbot.server.common import error_response, get_request_id
@@ -22,6 +23,8 @@ from simplified_chatbot.server.endpoints_chat import router as chat_router
 from simplified_chatbot.server.endpoints_health import router as health_router
 from simplified_chatbot.server.endpoints_sessions import router as sessions_router
 from simplified_chatbot.server.endpoints_workspace import router as workspace_router
+from simplified_chatbot.server.endpoints_screencast import router as screencast_router
+from simplified_chatbot.server.browser.chrome_process import ChromeProcess
 
 
 def create_app(
@@ -32,7 +35,22 @@ def create_app(
     cors_allowed_origins: list[str] | None = None,
 ) -> FastAPI:
     """Create a FastAPI app backed by the local async runtime."""
-    app = FastAPI(title="picobot", version="0.1.0")
+    
+    config = load_config(config_path) if config_path is not None else None
+    chrome = ChromeProcess(
+        port=config.browser.get("chromeDebuggingPort") if config and config.browser else None,
+        host=config.browser.get("host") if config and config.browser else None,
+    )
+    
+    @asynccontextmanager
+    async def lifespan(_: FastAPI):
+        await chrome.start()
+        try:
+            yield
+        finally:
+            chrome.stop()
+    
+    app = FastAPI(title="picobot", version="0.1.0", lifespan=lifespan)
     resolved_cors_origins = _resolve_cors_allowed_origins(
         config_path=config_path,
         override_origins=cors_allowed_origins,
@@ -98,11 +116,14 @@ def create_app(
         )
 
     app.state.runtime = runtime
+    app.state.chrome = chrome
+    app.state.config = config
     app.include_router(chat_router)
     app.include_router(capabilities_router)
     app.include_router(sessions_router)
     app.include_router(workspace_router)
     app.include_router(health_router)
+    app.include_router(screencast_router)
     return app
 
 

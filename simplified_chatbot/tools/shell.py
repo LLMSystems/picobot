@@ -13,6 +13,10 @@ from typing import Any
 from simplified_chatbot.tools.base import Tool, tool_parameters
 
 _IS_WINDOWS = sys.platform == "win32"
+_AGENT_BROWSER_TOKEN_PATTERN = re.compile(
+    r"^(?P<exe>agent-browser(?:\.(?:cmd|bat|exe))?)(?=\s|$)",
+    re.IGNORECASE,
+)
 _WORKSPACE_BOUNDARY_NOTE = (
     "\n\nNote: this is a hard policy boundary, not a transient failure. "
     "Do not retry with shell tricks or alternative tools."
@@ -69,7 +73,11 @@ class ExecTool(Tool):
         self._workspace = workspace.resolve() if workspace is not None else Path.cwd().resolve()
         self._allowed_dir = allowed_dir.resolve() if allowed_dir is not None else None
         self._timeout = timeout
-
+        self._chrome_port = None
+        
+    def bind_chrome_debugging_port(self, port: int) -> None:
+        self._chrome_port = port
+        
     @property
     def name(self) -> str:
         return "exec"
@@ -89,6 +97,12 @@ class ExecTool(Tool):
         timeout: int | None = None,
         **kwargs: Any,
     ) -> str:
+        
+        try:
+            command = self._maybe_inject_cdp_port(command)
+        except ValueError as exc:
+            return f"Error: {exc}"
+        
         cwd = await self._resolve_working_dir(working_dir)
         if isinstance(cwd, str):
             return cwd
@@ -219,7 +233,25 @@ class ExecTool(Tool):
             + result[-half:]
         )
 
-
+    def _maybe_inject_cdp_port(self, command: str) -> str:
+        """Rewrite `agent-browser ...` to `agent-browser --cdp <port> ...`."""
+        if self._chrome_port is None:
+            return command
+        stripped = command.strip()
+        match = _AGENT_BROWSER_TOKEN_PATTERN.match(stripped)
+        if not match:
+            return command
+        if re.search(r"(?:^|\s)--cdp(?:\s|=)", command):
+            return command
+        
+        # Insert "--cdp <port>" right after the agent-browser executable token.
+        leading_ws_len = len(command) - len(stripped)
+        leading_ws = command[:leading_ws_len]
+        exe_token = match.group("exe")
+        remainder = stripped[len(exe_token):]
+        
+        return f"{leading_ws}{exe_token} --cdp {self._chrome_port}{remainder}".rstrip()
+        
 def _is_under(path: Path, directory: Path) -> bool:
     try:
         path.relative_to(directory.resolve())

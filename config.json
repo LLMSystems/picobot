@@ -5,5 +5,9 @@
   "contextWindowTokens": 32000,
   "maxIterations": 20,
   "temperature": 0.2,
-  "workspaceRootDir": "workspaces"
+  "workspaceRootDir": "workspaces",
+  "browser": {
+    "chromeDebuggingPort": 9222,
+    "host": "0.0.0.0"
+  }
 }

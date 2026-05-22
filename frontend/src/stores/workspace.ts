@@ -11,6 +11,19 @@ import type {
 } from '@/lib/types'
 
 const VISIBLE_STORAGE_KEY = 'picobot:workspace:visible'
+const TAB_STORAGE_KEY = 'picobot:workspace:tab'
+
+export type WorkspaceTab = 'files' | 'browser'
+
+function loadTab(): WorkspaceTab {
+  try {
+    const v = localStorage.getItem(TAB_STORAGE_KEY)
+    if (v === 'files' || v === 'browser') return v
+  } catch {
+    // ignore
+  }
+  return 'files'
+}
 
 export const MAX_UPLOAD_FILE_BYTES = 10 * 1024 * 1024
 export const MAX_UPLOAD_FILES_PER_REQUEST = 20
@@ -125,6 +138,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   const lastSyncedAt = ref(0)
   const sortMode = ref<SortMode>('updated')
   const visible = ref(loadVisible())
+  const activeTab = ref<WorkspaceTab>(loadTab())
   const draggingPath = ref<string | null>(null)
   const pendingMoveConflict = ref<{ src: string; dst: string } | null>(null)
   const uploading = ref(false)
@@ -164,6 +178,20 @@ export const useWorkspaceStore = defineStore('workspace', () => {
 
   function toggleVisible() {
     setVisible(!visible.value)
+  }
+
+  function setActiveTab(tab: WorkspaceTab) {
+    activeTab.value = tab
+    try {
+      localStorage.setItem(TAB_STORAGE_KEY, tab)
+    } catch {
+      // ignore
+    }
+  }
+
+  function focusBrowser() {
+    setActiveTab('browser')
+    if (!visible.value) setVisible(true)
   }
 
   function parentOf(path: string): string {
@@ -683,6 +711,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     lastSyncedAt,
     sortMode,
     visible,
+    activeTab,
     draggingPath,
     pendingMoveConflict,
     uploading,
@@ -707,6 +736,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     setSortMode,
     setVisible,
     toggleVisible,
+    setActiveTab,
+    focusBrowser,
     childrenOf,
     getDir,
     uploadFiles,

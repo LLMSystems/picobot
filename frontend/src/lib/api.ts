@@ -63,6 +63,9 @@ async function parseResponse<T>(res: Response): Promise<T> {
 export const api = {
   health: () => request<{ status: string }>('/health'),
 
+  chromeHealth: () =>
+    request<{ chrome_alive: boolean; cdp_port: number }>('/health/chrome'),
+
   capabilities: () => request<Capabilities>('/capabilities'),
 
   listSessions: () => request<{ sessions: SessionSummary[] }>('/sessions'),

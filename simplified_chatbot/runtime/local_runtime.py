@@ -23,7 +23,7 @@ from simplified_chatbot.runtime.session_store import (
     SessionStore,
 )
 from simplified_chatbot.runtime.session_workspace import SessionWorkspaceManager
-
+from simplified_chatbot.tools.shell import ExecTool
 
 class LocalAgentRuntime:
     """Session-aware runtime that persists conversation history by session_id."""
@@ -41,6 +41,7 @@ class LocalAgentRuntime:
         *,
         max_upload_file_bytes: int = _DEFAULT_MAX_UPLOAD_FILE_BYTES,
         max_upload_files_per_request: int = _DEFAULT_MAX_UPLOAD_FILES_PER_REQUEST,
+        chrome_debugging_port: int | None = None,
     ) -> None:
         self.chatbot = chatbot
         self.store = store or InMemorySessionStore()
@@ -52,7 +53,7 @@ class LocalAgentRuntime:
         self._session_chatbots: dict[str, Any] = {}
         self.max_upload_file_bytes = max_upload_file_bytes
         self.max_upload_files_per_request = max_upload_files_per_request
-
+        self.chrome_debugging_port = chrome_debugging_port
     @classmethod
     def from_config(
         cls,
@@ -83,6 +84,7 @@ class LocalAgentRuntime:
             ),
             override_workspace_root=workspace_root_dir,
         )
+        chrome_port = getattr(loaded_config, "browser", {}).get("chromeDebuggingPort")
         return cls(
             chatbot=bot,
             store=store,
@@ -97,6 +99,7 @@ class LocalAgentRuntime:
                 if loaded_config is not None
                 else cls._DEFAULT_MAX_UPLOAD_FILES_PER_REQUEST
             ),
+            chrome_debugging_port=chrome_port,
         )
 
     def handle_message(self, session_id: str, message: str) -> RunResult:
@@ -724,6 +727,7 @@ class LocalAgentRuntime:
 
         workspace = self.workspace_manager.ensure_workspace(session_id)
         session_chatbot = self.chatbot.for_workspace(workspace)
+        self._bind_chrome_port(session_chatbot)
         self._session_chatbots[session_id] = session_chatbot
         return session_chatbot
 
@@ -778,7 +782,16 @@ class LocalAgentRuntime:
             "last_user_message": _preview_text(last_user),
             "last_assistant_preview": _preview_text(last_assistant),
         }
-
+        
+    def _bind_chrome_port(self, session_chatbot: Any) -> None:
+        if self.chrome_debugging_port is None:
+            return
+        tools = getattr(session_chatbot, "tools", None)
+        if tools is None:
+            return
+        exec_tool = tools.get("exec") if hasattr(tools, "get") else None
+        if isinstance(exec_tool, ExecTool):
+            exec_tool.bind_chrome_debugging_port(self.chrome_debugging_port)
 
 def _resolve_workspace_root_dir(
     *,

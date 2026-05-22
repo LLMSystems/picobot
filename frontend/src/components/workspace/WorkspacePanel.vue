@@ -4,6 +4,7 @@ import { toast } from 'vue-sonner'
 import WorkspaceHeader from './WorkspaceHeader.vue'
 import WorkspaceTree from './WorkspaceTree.vue'
 import WorkspaceFilePreview from './WorkspaceFilePreview.vue'
+import BrowserScreencast from './BrowserScreencast.vue'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -216,8 +217,16 @@ function dismissMoveConflict() {
       />
     </div>
 
-    <WorkspaceHeader @upload="onHeaderUpload" />
-    <div ref="containerRef" class="flex min-h-0 flex-1 flex-col">
+    <WorkspaceHeader
+      :tab="ws.activeTab"
+      @update:tab="ws.setActiveTab"
+      @upload="onHeaderUpload"
+    />
+    <div
+      v-show="ws.activeTab === 'files'"
+      ref="containerRef"
+      class="flex min-h-0 flex-1 flex-col"
+    >
       <WorkspaceTree
         class="min-h-0 overflow-hidden"
         :style="treeStyle"
@@ -238,6 +247,10 @@ function dismissMoveConflict() {
         :style="previewStyle"
       />
     </div>
+    <BrowserScreencast
+      v-if="ws.activeTab === 'browser'"
+      class="min-h-0 flex-1"
+    />
 
     <Dialog
       :open="showMkdir"

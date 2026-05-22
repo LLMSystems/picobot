@@ -126,6 +126,21 @@ export const useChatStore = defineStore('chat', () => {
     wsDebounceTimer = window.setTimeout(flushWorkspaceUpdates, 250)
   }
 
+  function isAgentBrowserCommand(name: string, args: Record<string, unknown>): boolean {
+    if (name !== 'exec' && name !== 'shell') return false
+    const cmd = args?.command
+    if (typeof cmd !== 'string') return false
+    return /(^|[\s/])agent-browser(\s|$)/.test(cmd.trim())
+  }
+
+  function maybeFocusBrowserForTool(name: string, args: Record<string, unknown>) {
+    if (!isAgentBrowserCommand(name, args)) return
+    const caps = useCapabilitiesStore()
+    if (!caps.data.features.session_workspace) return
+    const ws = useWorkspaceStore()
+    ws.focusBrowser()
+  }
+
   function abortIfStreaming(reason: 'switch' | 'manual' = 'manual') {
     if (runStatus.value !== 'streaming') return
     abortController?.abort()
@@ -211,6 +226,7 @@ export const useChatStore = defineStore('chat', () => {
               if (!sm) return
               sm.toolCalls.push(tc)
               sm.segments.push({ type: 'tool', toolCall: tc })
+              maybeFocusBrowserForTool(tc.name, tc.arguments)
             },
             onToolFinish: (tc) => {
               const target = streamingMessage.value?.toolCalls.find(
@@ -267,6 +283,9 @@ export const useChatStore = defineStore('chat', () => {
         for (const ev of resp.events) {
           if (ev.event === 'workspace_changed') {
             scheduleWorkspaceUpdate(ev.data as WorkspaceChangedData)
+          } else if (ev.event === 'tool_call_started') {
+            const d = ev.data as { name: string; arguments?: Record<string, unknown> }
+            maybeFocusBrowserForTool(d.name, d.arguments ?? {})
           }
         }
       }

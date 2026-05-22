@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
+import type { WorkspaceTab } from '@/stores/workspace'
 import {
   RefreshCw,
   X,
@@ -7,6 +8,8 @@ import {
   Clock,
   Upload,
   FolderPlus,
+  Folder,
+  Globe,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import {
@@ -18,7 +21,11 @@ import {
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useCapabilitiesStore } from '@/stores/capabilities'
 
-const emit = defineEmits<{ (e: 'upload', files: File[]): void }>()
+const props = defineProps<{ tab: WorkspaceTab }>()
+const emit = defineEmits<{
+  (e: 'upload', files: File[]): void
+  (e: 'update:tab', value: WorkspaceTab): void
+}>()
 
 const ws = useWorkspaceStore()
 const caps = useCapabilitiesStore()
@@ -34,105 +41,139 @@ function onFilesChosen(e: Event) {
   if (list.length > 0) emit('upload', list)
   input.value = ''
 }
+
+function tabBtnClass(t: WorkspaceTab): string {
+  const base =
+    'inline-flex items-center gap-1 rounded px-2 py-1 text-xs transition-colors'
+  return props.tab === t
+    ? `${base} bg-background text-foreground shadow-sm`
+    : `${base} text-muted-foreground hover:text-foreground`
+}
 </script>
 
 <template>
   <header
     class="flex h-12 shrink-0 items-center gap-2 border-b bg-background px-3"
   >
-    <span class="text-sm font-medium">Workspace</span>
+    <div
+      class="flex items-center gap-0.5 rounded-md border bg-muted/40 p-0.5"
+      role="tablist"
+    >
+      <button
+        type="button"
+        role="tab"
+        :aria-selected="tab === 'files'"
+        :class="tabBtnClass('files')"
+        @click="emit('update:tab', 'files')"
+      >
+        <Folder class="size-3.5" />
+        檔案
+      </button>
+      <button
+        type="button"
+        role="tab"
+        :aria-selected="tab === 'browser'"
+        :class="tabBtnClass('browser')"
+        @click="emit('update:tab', 'browser')"
+      >
+        <Globe class="size-3.5" />
+        瀏覽器
+      </button>
+    </div>
     <TooltipProvider :delay-duration="200">
       <div class="ml-auto flex items-center gap-1">
-        <Tooltip v-if="caps.data.features.file_upload">
-          <TooltipTrigger as-child>
-            <Button
-              variant="ghost"
-              size="icon"
-              class="size-7"
-              aria-label="上傳檔案"
-              @click="openPicker"
-            >
-              <Upload class="size-4" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>上傳檔案</TooltipContent>
-        </Tooltip>
-        <Tooltip v-if="caps.data.features.session_workspace">
-          <TooltipTrigger as-child>
-            <Button
-              variant="ghost"
-              size="icon"
-              class="size-7"
-              aria-label="新增資料夾"
-              @click="ws.openMkdir()"
-            >
-              <FolderPlus class="size-4" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>新增資料夾</TooltipContent>
-        </Tooltip>
-        <input
-          ref="fileInputRef"
-          type="file"
-          multiple
-          class="hidden"
-          @change="onFilesChosen"
-        />
+        <template v-if="tab === 'files'">
+          <Tooltip v-if="caps.data.features.file_upload">
+            <TooltipTrigger as-child>
+              <Button
+                variant="ghost"
+                size="icon"
+                class="size-7"
+                aria-label="上傳檔案"
+                @click="openPicker"
+              >
+                <Upload class="size-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>上傳檔案</TooltipContent>
+          </Tooltip>
+          <Tooltip v-if="caps.data.features.session_workspace">
+            <TooltipTrigger as-child>
+              <Button
+                variant="ghost"
+                size="icon"
+                class="size-7"
+                aria-label="新增資料夾"
+                @click="ws.openMkdir()"
+              >
+                <FolderPlus class="size-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>新增資料夾</TooltipContent>
+          </Tooltip>
+          <input
+            ref="fileInputRef"
+            type="file"
+            multiple
+            class="hidden"
+            @change="onFilesChosen"
+          />
+          <Tooltip>
+            <TooltipTrigger as-child>
+              <Button
+                v-if="ws.sortMode === 'updated'"
+                variant="ghost"
+                size="icon"
+                class="size-7"
+                aria-label="改用名稱排序"
+                @click="ws.setSortMode('name')"
+              >
+                <Clock class="size-4" />
+              </Button>
+              <Button
+                v-else
+                variant="ghost"
+                size="icon"
+                class="size-7"
+                aria-label="改用修改時間排序"
+                @click="ws.setSortMode('updated')"
+              >
+                <ArrowDownAZ class="size-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              {{ ws.sortMode === 'updated' ? '目前：依修改時間' : '目前：依名稱' }}
+            </TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger as-child>
+              <Button
+                variant="ghost"
+                size="icon"
+                class="size-7"
+                aria-label="重新整理"
+                @click="ws.refreshExpanded()"
+              >
+                <RefreshCw class="size-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>重新整理</TooltipContent>
+          </Tooltip>
+          <span class="mx-1 h-5 w-px bg-border" aria-hidden="true" />
+        </template>
         <Tooltip>
           <TooltipTrigger as-child>
             <Button
-              v-if="ws.sortMode === 'updated'"
               variant="ghost"
               size="icon"
               class="size-7"
-              aria-label="改用名稱排序"
-              @click="ws.setSortMode('name')"
-            >
-              <Clock class="size-4" />
-            </Button>
-            <Button
-              v-else
-              variant="ghost"
-              size="icon"
-              class="size-7"
-              aria-label="改用修改時間排序"
-              @click="ws.setSortMode('updated')"
-            >
-              <ArrowDownAZ class="size-4" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>
-            {{ ws.sortMode === 'updated' ? '目前：依修改時間' : '目前：依名稱' }}
-          </TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger as-child>
-            <Button
-              variant="ghost"
-              size="icon"
-              class="size-7"
-              aria-label="重新整理"
-              @click="ws.refreshExpanded()"
-            >
-              <RefreshCw class="size-4" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>重新整理</TooltipContent>
-        </Tooltip>
-        <span class="mx-1 h-5 w-px bg-border" aria-hidden="true" />
-        <Tooltip>
-          <TooltipTrigger as-child>
-            <Button
-              variant="ghost"
-              size="icon"
-              class="size-7"
-              aria-label="關閉 workspace"
+              aria-label="關閉面板"
               @click="ws.setVisible(false)"
             >
               <X class="size-4" />
             </Button>
           </TooltipTrigger>
-          <TooltipContent>關閉 workspace</TooltipContent>
+          <TooltipContent>關閉面板</TooltipContent>
         </Tooltip>
       </div>
     </TooltipProvider>

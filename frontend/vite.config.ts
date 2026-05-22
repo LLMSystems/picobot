@@ -21,6 +21,7 @@ export default defineConfig({
       '/sessions': { target: BACKEND, changeOrigin: true },
       '/capabilities': { target: BACKEND, changeOrigin: true },
       '/health': { target: BACKEND, changeOrigin: true },
+      '/ws': { target: BACKEND, changeOrigin: true, ws: true },
     },
   },
 })
