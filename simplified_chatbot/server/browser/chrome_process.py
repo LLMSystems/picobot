@@ -36,21 +36,39 @@ class ChromeProcess:
         self.user_data_dir: str | None = None
         self._pgid: int | None = None
 
+    def _pids_on_port(self) -> list[int]:
+        """Return PIDs listening on self.port by reading /proc/net/tcp."""
+        hex_port = f"{self.port:04X}"
+        pids: list[int] = []
+        try:
+            with open("/proc/net/tcp") as f:
+                inodes = {
+                    line.split()[9]
+                    for line in f.read().splitlines()[1:]
+                    if line.split()[1].endswith(f":{hex_port}") and line.split()[3] == "0A"
+                }
+        except OSError:
+            return pids
+        for proc_dir in Path("/proc").iterdir():
+            if not proc_dir.name.isdigit():
+                continue
+            fd_dir = proc_dir / "fd"
+            try:
+                for fd in fd_dir.iterdir():
+                    target = os.readlink(fd)
+                    # socket:[inode]
+                    if target.startswith("socket:[") and target[8:-1] in inodes:
+                        pids.append(int(proc_dir.name))
+                        break
+            except (OSError, PermissionError):
+                pass
+        return pids
+
     def _kill_port_squatters(self) -> None:
-        result = subprocess.run(
-            ["ss", "-tlnpH", f"sport = :{self.port}"],
-            capture_output=True, text=True,
-        )
-        for line in result.stdout.splitlines():
-            for part in line.split(","):
-                if part.startswith("pid="):
-                    try:
-                        pid = int(part.split("=")[1])
-                        logger.warning("killing stale process on port %s: pid=%s", self.port, pid)
-                        with contextlib.suppress(ProcessLookupError, PermissionError):
-                            os.kill(pid, signal.SIGKILL)
-                    except ValueError:
-                        pass
+        for pid in self._pids_on_port():
+            logger.warning("killing stale process on port %s: pid=%s", self.port, pid)
+            with contextlib.suppress(ProcessLookupError, PermissionError):
+                os.kill(pid, signal.SIGKILL)
 
     async def start(self) -> None:
         self._kill_port_squatters()
