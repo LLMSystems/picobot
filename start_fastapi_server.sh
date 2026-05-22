@@ -33,6 +33,10 @@ npm install -g agent-browser
 echo "[4/4] Installing Chrome for agent-browser..."
 agent-browser install
 
+apt-get update && apt-get install -y xvfb
+Xvfb :99 -screen 0 1280x800x24 -nolisten tcp &
+export DISPLAY=:99
+
 if ! command -v git >/dev/null 2>&1; then
   echo "git not found. Installing git..."
   if command -v apt-get >/dev/null 2>&1; then
