@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from simplified_chatbot.agent.loop import AgentLoop
-from simplified_chatbot.agent.types import Message, RunResult
+from simplified_chatbot.agent.types import Message, MessageContent, RunResult
 from simplified_chatbot.config.loader import load_config, resolve_config_path
 from simplified_chatbot.config.schema import ChatbotConfig
 from simplified_chatbot.prompts.loader import load_system_prompt
@@ -116,7 +116,7 @@ class SimplifiedChatbot:
 
     def build_messages(
         self,
-        message: str,
+        message: MessageContent,
         history: list[Message] | None = None,
     ) -> list[Message]:
         """Build request messages without calling the provider."""
@@ -124,7 +124,7 @@ class SimplifiedChatbot:
 
     def run(
         self,
-        message: str,
+        message: MessageContent,
         history: list[Message] | None = None,
         *,
         on_event: Callable[[str, dict[str, Any]], None] | None = None,
@@ -134,7 +134,7 @@ class SimplifiedChatbot:
 
     async def run_async(
         self,
-        message: str,
+        message: MessageContent,
         history: list[Message] | None = None,
         *,
         on_event: Callable[[str, dict[str, Any]], None] | None = None,
@@ -148,7 +148,7 @@ class SimplifiedChatbot:
 
     def run_stream(
         self,
-        message: str,
+        message: MessageContent,
         history: list[Message] | None = None,
         *,
         on_delta: Callable[[str], None] | None = None,
@@ -164,7 +164,7 @@ class SimplifiedChatbot:
 
     async def run_stream_async(
         self,
-        message: str,
+        message: MessageContent,
         history: list[Message] | None = None,
         *,
         on_delta: Callable[[str], None] | None = None,

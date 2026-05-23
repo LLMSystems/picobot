@@ -23,8 +23,12 @@ from simplified_chatbot.server.endpoints_chat import router as chat_router
 from simplified_chatbot.server.endpoints_health import router as health_router
 from simplified_chatbot.server.endpoints_sessions import router as sessions_router
 from simplified_chatbot.server.endpoints_workspace import router as workspace_router
-from simplified_chatbot.server.endpoints_screencast import router as screencast_router
 from simplified_chatbot.server.browser.chrome_process import ChromeProcess
+
+try:
+    from simplified_chatbot.server.endpoints_screencast import router as screencast_router
+except Exception:  # pragma: no cover - optional dependency path
+    screencast_router = None
 
 
 def create_app(
@@ -123,7 +127,8 @@ def create_app(
     app.include_router(sessions_router)
     app.include_router(workspace_router)
     app.include_router(health_router)
-    app.include_router(screencast_router)
+    if screencast_router is not None:
+        app.include_router(screencast_router)
     return app
 
 

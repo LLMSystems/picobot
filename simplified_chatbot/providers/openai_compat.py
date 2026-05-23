@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import base64
 from collections.abc import Callable
 from ipaddress import ip_address
 import json
+from mimetypes import guess_type
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from simplified_chatbot.agent.types import Message
+from simplified_chatbot.agent.types import ContentBlock, Message, MessageContent
 from simplified_chatbot.providers.base import (
     ChatProvider,
     ProviderResponse,
@@ -49,25 +52,25 @@ class OpenAICompatProvider(ChatProvider):
         timeout: float,
         tools: list[dict[str, Any]] | None = None,
     ) -> ProviderResponse:
+        payload_messages = _serialize_messages(messages)
         # max_tokens is not for gpt-5 series, use max_completion_tokens instead
         if model.startswith("gpt-5"):
             kwargs: dict[str, Any] = {
                 "model": model,
-                "messages": messages,
+                "messages": payload_messages,
                 "max_completion_tokens": max_tokens,
                 "timeout": timeout,
             }
         else:
             kwargs = {
                 "model": model,
-                "messages": messages,
+                "messages": payload_messages,
                 "max_tokens": max_tokens,
                 "temperature": temperature,
                 "timeout": timeout,
             }
         if tools:
             kwargs["tools"] = tools
-            kwargs["tool_choice"] = "auto"
 
         response = await self._async_client.chat.completions.create(**kwargs)
         return ProviderResponse(
@@ -89,11 +92,12 @@ class OpenAICompatProvider(ChatProvider):
         on_delta: Callable[[str], None] | None = None,
         tools: list[dict[str, Any]] | None = None,
     ) -> ProviderResponse:
+        payload_messages = _serialize_messages(messages)
         # max_tokens is not for gpt-5 series, use max_completion_tokens instead
         if model.startswith("gpt-5"):
              kwargs: dict[str, Any] = {
                 "model": model,
-                "messages": messages,
+                "messages": payload_messages,
                 "max_completion_tokens": max_tokens,
                 "timeout": timeout,
                 "stream": True,
@@ -102,7 +106,7 @@ class OpenAICompatProvider(ChatProvider):
         else:
             kwargs: dict[str, Any] = {
                 "model": model,
-                "messages": messages,
+                "messages": payload_messages,
                 "max_tokens": max_tokens,
                 "temperature": temperature,
                 "timeout": timeout,
@@ -111,7 +115,6 @@ class OpenAICompatProvider(ChatProvider):
             }
         if tools:
             kwargs["tools"] = tools
-            kwargs["tool_choice"] = "auto"
 
         stream = await self._async_client.chat.completions.create(**kwargs)
 
@@ -143,6 +146,79 @@ class OpenAICompatProvider(ChatProvider):
             usage=usage,
             raw_response=chunks,
         )
+
+
+def _serialize_messages(messages: list[Message]) -> list[dict[str, Any]]:
+    return [_serialize_message(message) for message in messages]
+
+
+def _serialize_message(message: Message) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "role": message["role"],
+        "content": _serialize_message_content(message["content"]),
+    }
+    tool_calls = message.get("tool_calls")
+    if isinstance(tool_calls, list):
+        payload["tool_calls"] = tool_calls
+    tool_call_id = message.get("tool_call_id")
+    if isinstance(tool_call_id, str):
+        payload["tool_call_id"] = tool_call_id
+    name = message.get("name")
+    if isinstance(name, str):
+        payload["name"] = name
+    return payload
+
+
+def _serialize_message_content(content: MessageContent) -> str | list[dict[str, Any]]:
+    if isinstance(content, str):
+        return content
+    return [_serialize_content_block(block) for block in content]
+
+
+def _serialize_content_block(block: ContentBlock) -> dict[str, Any]:
+    block_type = block.get("type")
+    if block_type == "text":
+        text = block.get("text")
+        if not isinstance(text, str):
+            raise TypeError("text content blocks must include a string text field")
+        return {"type": "text", "text": text}
+
+    if block_type == "image":
+        detail = block.get("detail")
+        resolved_detail = detail if detail in {"auto", "low", "high"} else "auto"
+        image_url = _resolve_image_block_url(block)
+        return {
+            "type": "image_url",
+            "image_url": {
+                "url": image_url,
+                "detail": resolved_detail,
+            },
+        }
+
+    raise ValueError("Unsupported content block type")
+
+
+def _resolve_image_block_url(block: ContentBlock) -> str:
+    url = block.get("url")
+    if isinstance(url, str) and url:
+        return url
+
+    path_value = block.get("path")
+    if not isinstance(path_value, str) or not path_value:
+        raise ValueError("image content blocks must include url or path")
+
+    file_path = Path(path_value).expanduser()
+    raw = file_path.read_bytes()
+    mime_type = block.get("mime_type")
+    if not isinstance(mime_type, str) or not mime_type:
+        mime_type = guess_type(file_path.name)[0]
+    if not mime_type:
+        raise ValueError(
+            f"Could not infer mime type for image path '{file_path}'. "
+            "Provide mime_type explicitly.",
+        )
+    encoded = base64.b64encode(raw).decode("ascii")
+    return f"data:{mime_type};base64,{encoded}"
 
 
 def _extract_content(response: Any) -> str:

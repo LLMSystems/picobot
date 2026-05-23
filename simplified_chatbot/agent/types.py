@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Literal, NotRequired, TypedDict
+from typing import Literal, NotRequired, TypeAlias, TypedDict
 
 Role = Literal["system", "user", "assistant", "tool"]
 HistoryRole = Literal["user", "assistant", "tool"]
@@ -24,11 +24,32 @@ class ToolCallPayload(TypedDict):
     function: ToolFunctionCall
 
 
+class TextContentBlock(TypedDict):
+    """Normalized text content block for multimodal user input."""
+
+    type: Literal["text"]
+    text: str
+
+
+class ImageContentBlock(TypedDict, total=False):
+    """Normalized image content block for multimodal user input."""
+
+    type: Literal["image"]
+    url: str
+    path: str
+    mime_type: str
+    detail: Literal["auto", "low", "high"]
+
+
+ContentBlock: TypeAlias = TextContentBlock | ImageContentBlock
+MessageContent: TypeAlias = str | list[ContentBlock]
+
+
 class Message(TypedDict):
     """Minimal chat message structure."""
 
     role: Role
-    content: str
+    content: MessageContent
     tool_calls: NotRequired[list[ToolCallPayload]]
     tool_call_id: NotRequired[str]
     name: NotRequired[str]

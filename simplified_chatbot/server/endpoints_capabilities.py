@@ -50,7 +50,7 @@ async def get_capabilities(request: Request) -> CapabilitiesResponse:
                 runtime.workspace_manager is not None
                 and importlib.util.find_spec("multipart") is not None
             ),
-            multimodal=False,
+            multimodal=True,
         ),
     )
 

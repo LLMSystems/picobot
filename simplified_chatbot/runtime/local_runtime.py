@@ -13,7 +13,7 @@ import tempfile
 from typing import Any
 import uuid
 
-from simplified_chatbot.agent.types import Message, RunResult
+from simplified_chatbot.agent.types import Message, MessageContent, RunResult
 from simplified_chatbot.chatbot import SimplifiedChatbot
 from simplified_chatbot.config.loader import load_config
 from simplified_chatbot.runtime.session_store import (
@@ -84,7 +84,12 @@ class LocalAgentRuntime:
             ),
             override_workspace_root=workspace_root_dir,
         )
-        chrome_port = getattr(loaded_config, "browser", {}).get("chromeDebuggingPort")
+        browser_config = getattr(loaded_config, "browser", None) if loaded_config is not None else None
+        chrome_port = (
+            browser_config.get("chromeDebuggingPort")
+            if isinstance(browser_config, dict)
+            else None
+        )
         return cls(
             chatbot=bot,
             store=store,
@@ -103,9 +108,20 @@ class LocalAgentRuntime:
         )
 
     def handle_message(self, session_id: str, message: str) -> RunResult:
-        return self.handle_message_with_events(
+        return self.handle_input_with_events(
             session_id,
             message,
+            on_event=None,
+        )
+
+    def handle_input(
+        self,
+        session_id: str,
+        content: MessageContent,
+    ) -> RunResult:
+        return self.handle_input_with_events(
+            session_id,
+            content,
             on_event=None,
         )
 
@@ -116,22 +132,36 @@ class LocalAgentRuntime:
         *,
         on_event: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> RunResult:
+        return self.handle_input_with_events(
+            session_id,
+            message,
+            on_event=on_event,
+        )
+
+    def handle_input_with_events(
+        self,
+        session_id: str,
+        content: MessageContent,
+        *,
+        on_event: Callable[[str, dict[str, Any]], None] | None = None,
+    ) -> RunResult:
         if isinstance(self.store, AsyncSessionStore):
             raise RuntimeError(
                 "This runtime is using an AsyncSessionStore. "
-                "Use handle_message_async(...) instead of handle_message(...).",
+                "Use handle_input_async(...) or handle_message_async(...) instead of "
+                "handle_input(...)/handle_message(...).",
             )
         event_callback = _build_runtime_event_callback(session_id, on_event)
         _emit_runtime_event(
             event_callback,
             "run_started",
-            {"session_id": session_id, "message": message},
+            _build_run_started_payload(session_id, content),
         )
         chatbot = self._get_chatbot_for_session(session_id)
         history = self.store.load_history(session_id)
         result = _invoke_chatbot_method(
             chatbot.run,
-            message,
+            content,
             history=history,
             on_event=event_callback,
         )
@@ -149,22 +179,38 @@ class LocalAgentRuntime:
         on_delta: Callable[[str], None] | None = None,
         on_event: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> RunResult:
+        return self.handle_input_stream(
+            session_id,
+            message,
+            on_delta=on_delta,
+            on_event=on_event,
+        )
+
+    def handle_input_stream(
+        self,
+        session_id: str,
+        content: MessageContent,
+        *,
+        on_delta: Callable[[str], None] | None = None,
+        on_event: Callable[[str, dict[str, Any]], None] | None = None,
+    ) -> RunResult:
         if isinstance(self.store, AsyncSessionStore):
             raise RuntimeError(
                 "This runtime is using an AsyncSessionStore. "
-                "Use handle_message_stream_async(...) instead of handle_message_stream(...).",
+                "Use handle_input_stream_async(...) or handle_message_stream_async(...) "
+                "instead of handle_input_stream(...)/handle_message_stream(...).",
             )
         event_callback = _build_runtime_event_callback(session_id, on_event)
         _emit_runtime_event(
             event_callback,
             "run_started",
-            {"session_id": session_id, "message": message},
+            _build_run_started_payload(session_id, content),
         )
         chatbot = self._get_chatbot_for_session(session_id)
         history = self.store.load_history(session_id)
         result = _invoke_chatbot_method(
             chatbot.run_stream,
-            message,
+            content,
             history=history,
             on_delta=on_delta,
             on_event=event_callback,
@@ -182,16 +228,29 @@ class LocalAgentRuntime:
         *,
         on_event: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> RunResult:
+        return await self.handle_input_async(
+            session_id,
+            message,
+            on_event=on_event,
+        )
+
+    async def handle_input_async(
+        self,
+        session_id: str,
+        content: MessageContent,
+        *,
+        on_event: Callable[[str, dict[str, Any]], None] | None = None,
+    ) -> RunResult:
         event_callback = _build_runtime_event_callback(session_id, on_event)
         _emit_runtime_event(
             event_callback,
             "run_started",
-            {"session_id": session_id, "message": message},
+            _build_run_started_payload(session_id, content),
         )
         history = await self._load_history_async(session_id)
         result = await self._run_chat_async(
             session_id,
-            message,
+            content,
             history=history,
             on_event=event_callback,
         )
@@ -206,16 +265,31 @@ class LocalAgentRuntime:
         on_delta: Callable[[str], None] | None = None,
         on_event: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> RunResult:
+        return await self.handle_input_stream_async(
+            session_id,
+            message,
+            on_delta=on_delta,
+            on_event=on_event,
+        )
+
+    async def handle_input_stream_async(
+        self,
+        session_id: str,
+        content: MessageContent,
+        *,
+        on_delta: Callable[[str], None] | None = None,
+        on_event: Callable[[str, dict[str, Any]], None] | None = None,
+    ) -> RunResult:
         event_callback = _build_runtime_event_callback(session_id, on_event)
         _emit_runtime_event(
             event_callback,
             "run_started",
-            {"session_id": session_id, "message": message},
+            _build_run_started_payload(session_id, content),
         )
         history = await self._load_history_async(session_id)
         result = await self._run_chat_stream_async(
             session_id,
-            message,
+            content,
             history=history,
             on_delta=on_delta,
             on_event=event_callback,
@@ -666,7 +740,7 @@ class LocalAgentRuntime:
     async def _run_chat_async(
         self,
         session_id: str,
-        message: str,
+        message: MessageContent,
         history: list[Message],
         on_event: Callable[[str, dict[str, Any]], None] | None,
     ) -> RunResult:
@@ -687,7 +761,7 @@ class LocalAgentRuntime:
     async def _run_chat_stream_async(
         self,
         session_id: str,
-        message: str,
+        message: MessageContent,
         *,
         history: list[Message],
         on_delta: Callable[[str], None] | None,
@@ -739,25 +813,28 @@ class LocalAgentRuntime:
     ) -> dict[str, object]:
         first_user = next(
             (
-                str(message["content"])
+                _content_to_preview_text(message["content"])
                 for message in history
-                if message.get("role") == "user" and str(message.get("content", "")).strip()
+                if message.get("role") == "user"
+                and _content_to_preview_text(message.get("content", "")).strip()
             ),
             "",
         )
         last_user = next(
             (
-                str(message["content"])
+                _content_to_preview_text(message["content"])
                 for message in reversed(history)
-                if message.get("role") == "user" and str(message.get("content", "")).strip()
+                if message.get("role") == "user"
+                and _content_to_preview_text(message.get("content", "")).strip()
             ),
             "",
         )
         last_assistant = next(
             (
-                str(message["content"])
+                _content_to_preview_text(message["content"])
                 for message in reversed(history)
-                if message.get("role") == "assistant" and str(message.get("content", "")).strip()
+                if message.get("role") == "assistant"
+                and _content_to_preview_text(message.get("content", "")).strip()
             ),
             "",
         )
@@ -951,6 +1028,44 @@ def _invoke_chatbot_method(
     if on_event is not None and "on_event" in signature.parameters:
         kwargs["on_event"] = on_event
     return method(*args, **kwargs)
+
+
+def _build_run_started_payload(
+    session_id: str,
+    content: MessageContent,
+) -> dict[str, Any]:
+    preview = _content_to_preview_text(content)
+    if isinstance(content, str):
+        return {"session_id": session_id, "message": preview}
+    return {
+        "session_id": session_id,
+        "message": preview,
+        "content": content,
+    }
+
+
+def _content_to_preview_text(content: object) -> str:
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return str(content)
+
+    parts: list[str] = []
+    for block in content:
+        if not isinstance(block, dict):
+            parts.append(str(block))
+            continue
+        block_type = block.get("type")
+        if block_type == "text":
+            text = block.get("text")
+            if isinstance(text, str):
+                parts.append(text)
+                continue
+        elif block_type == "image":
+            parts.append("[image]")
+            continue
+        parts.append(str(block))
+    return "\n".join(parts)
 
 
 def _derive_session_title(first_user_message: str, *, session_id: str) -> str:

@@ -1,5 +1,6 @@
 import type {
   Capabilities,
+  ChatImageInput,
   SessionMessage,
   SessionSummary,
   ApiErrorBody,
@@ -93,7 +94,11 @@ export const api = {
       `/sessions/${encodeURIComponent(id)}/messages`,
     ),
 
-  chat: (body: { session_id: string; message: string }) =>
+  chat: (body: {
+    session_id: string
+    message: string
+    images?: ChatImageInput[]
+  }) =>
     request<ChatResponse>('/chat', {
       method: 'POST',
       body: JSON.stringify(body),

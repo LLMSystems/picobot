@@ -8,7 +8,7 @@ import inspect
 import json
 from typing import Any
 
-from simplified_chatbot.agent.types import Message, RunResult
+from simplified_chatbot.agent.types import ContentBlock, Message, MessageContent, RunResult
 from simplified_chatbot.config.schema import ChatbotConfig
 from simplified_chatbot.providers.base import ChatProvider
 from simplified_chatbot.tools.registry import ToolRegistry
@@ -39,7 +39,7 @@ class AgentLoop:
 
     def build_messages(
         self,
-        message: str,
+        message: MessageContent,
         history: list[Message] | None = None,
     ) -> list[Message]:
         """Build the provider request messages for a single user turn."""
@@ -53,7 +53,7 @@ class AgentLoop:
 
     def run(
         self,
-        message: str,
+        message: MessageContent,
         history: list[Message] | None = None,
         *,
         on_event: EventCallback | None = None,
@@ -67,7 +67,7 @@ class AgentLoop:
 
     def run_stream(
         self,
-        message: str,
+        message: MessageContent,
         history: list[Message] | None = None,
         *,
         on_delta: Callable[[str], None] | None = None,
@@ -87,7 +87,7 @@ class AgentLoop:
 
     async def run_async(
         self,
-        message: str,
+        message: MessageContent,
         history: list[Message] | None = None,
         *,
         on_event: EventCallback | None = None,
@@ -103,7 +103,7 @@ class AgentLoop:
 
     async def run_stream_async(
         self,
-        message: str,
+        message: MessageContent,
         history: list[Message] | None = None,
         *,
         on_delta: Callable[[str], None] | None = None,
@@ -120,7 +120,7 @@ class AgentLoop:
 
     async def _run_internal_async(
         self,
-        message: str,
+        message: MessageContent,
         *,
         history: list[Message] | None,
         stream: bool,
@@ -403,7 +403,7 @@ class AgentLoop:
         """Estimate prompt size with a lightweight chars-to-tokens heuristic."""
         parts = [system_prompt]
         for message in conversation:
-            parts.append(message.get("content", ""))
+            parts.append(AgentLoop._stringify_message_content(message.get("content", "")))
             if isinstance(message.get("tool_calls"), list):
                 parts.append(json.dumps(message["tool_calls"], ensure_ascii=False))
             tool_call_id = message.get("tool_call_id")
@@ -416,12 +416,15 @@ class AgentLoop:
         return max(1, len(text) // 4)
 
     @staticmethod
-    def _normalize_user_message(message: str) -> str:
-        if not isinstance(message, str):
-            raise TypeError("message must be a string")
-        if not message.strip():
-            raise ValueError("message must not be empty")
-        return message
+    def _normalize_user_message(message: MessageContent) -> MessageContent:
+        if isinstance(message, str):
+            if not message.strip():
+                raise ValueError("message must not be empty")
+            return message
+
+        if not isinstance(message, list):
+            raise TypeError("message must be a string or a list of content blocks")
+        return AgentLoop._normalize_multimodal_content(message, field_name="message")
 
     @staticmethod
     def _normalize_history(history: list[Message] | None) -> list[Message]:
@@ -441,9 +444,23 @@ class AgentLoop:
                 raise ValueError(
                     "history messages may only use 'user', 'assistant', or 'tool' roles",
                 )
-            if not isinstance(content, str):
-                raise TypeError(f"history[{index}].content must be a string")
-            message: Message = {"role": role, "content": content}
+            if role == "user":
+                if isinstance(content, str):
+                    normalized_content: MessageContent = content
+                elif isinstance(content, list):
+                    normalized_content = AgentLoop._normalize_multimodal_content(
+                        content,
+                        field_name=f"history[{index}].content",
+                    )
+                else:
+                    raise TypeError(
+                        f"history[{index}].content must be a string or content block list",
+                    )
+            else:
+                if not isinstance(content, str):
+                    raise TypeError(f"history[{index}].content must be a string")
+                normalized_content = content
+            message: Message = {"role": role, "content": normalized_content}
             if role == "assistant" and isinstance(item.get("tool_calls"), list):
                 message["tool_calls"] = item["tool_calls"]
             if role == "tool":
@@ -457,3 +474,94 @@ class AgentLoop:
                 message["name"] = name
             normalized.append(message)
         return normalized
+
+    @staticmethod
+    def _normalize_multimodal_content(
+        content: list[ContentBlock],
+        *,
+        field_name: str,
+    ) -> list[ContentBlock]:
+        if not content:
+            raise ValueError(f"{field_name} must not be empty")
+
+        normalized: list[ContentBlock] = []
+        has_meaningful_content = False
+        for index, block in enumerate(content):
+            if not isinstance(block, dict):
+                raise TypeError(f"{field_name}[{index}] must be a dictionary")
+
+            block_type = block.get("type")
+            if block_type == "text":
+                text = block.get("text")
+                if not isinstance(text, str):
+                    raise TypeError(f"{field_name}[{index}].text must be a string")
+                normalized_block: ContentBlock = {"type": "text", "text": text}
+                if text.strip():
+                    has_meaningful_content = True
+                normalized.append(normalized_block)
+                continue
+
+            if block_type == "image":
+                url = block.get("url")
+                path = block.get("path")
+                mime_type = block.get("mime_type")
+                detail = block.get("detail")
+
+                if url is not None and not isinstance(url, str):
+                    raise TypeError(f"{field_name}[{index}].url must be a string")
+                if path is not None and not isinstance(path, str):
+                    raise TypeError(f"{field_name}[{index}].path must be a string")
+                if not url and not path:
+                    raise ValueError(f"{field_name}[{index}] must include url or path")
+                if url and path:
+                    raise ValueError(f"{field_name}[{index}] cannot include both url and path")
+                if mime_type is not None and not isinstance(mime_type, str):
+                    raise TypeError(f"{field_name}[{index}].mime_type must be a string")
+                if detail is not None and detail not in {"auto", "low", "high"}:
+                    raise ValueError(
+                        f"{field_name}[{index}].detail must be one of auto, low, or high",
+                    )
+
+                normalized_block = {"type": "image"}  # type: ignore[assignment]
+                if url:
+                    normalized_block["url"] = url
+                if path:
+                    normalized_block["path"] = path
+                if mime_type:
+                    normalized_block["mime_type"] = mime_type
+                if detail:
+                    normalized_block["detail"] = detail
+                normalized.append(normalized_block)
+                has_meaningful_content = True
+                continue
+
+            raise ValueError(
+                f"{field_name}[{index}].type must be 'text' or 'image'",
+            )
+
+        if not has_meaningful_content:
+            raise ValueError(f"{field_name} must contain text or image input")
+        return normalized
+
+    @staticmethod
+    def _stringify_message_content(content: object) -> str:
+        if isinstance(content, str):
+            return content
+        if not isinstance(content, list):
+            return str(content)
+
+        parts: list[str] = []
+        for block in content:
+            if not isinstance(block, dict):
+                parts.append(str(block))
+                continue
+            if block.get("type") == "text":
+                text = block.get("text")
+                if isinstance(text, str):
+                    parts.append(text)
+                    continue
+            if block.get("type") == "image":
+                parts.append("[image]")
+                continue
+            parts.append(str(block))
+        return "\n".join(parts)

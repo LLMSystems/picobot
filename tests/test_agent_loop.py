@@ -93,6 +93,30 @@ def test_agent_loop_builds_messages_and_updates_history():
     assert result.usage["total_tokens"] == 15
 
 
+def test_agent_loop_build_messages_accepts_multimodal_user_content():
+    config = ChatbotConfig(model="gpt-4.1-mini")
+    provider = DummyProvider(content="Nice to meet you")
+    loop = AgentLoop(provider=provider, config=config, system_prompt="System prompt")
+
+    messages = loop.build_messages(
+        [
+            {"type": "text", "text": "Describe this image"},
+            {"type": "image", "url": "https://example.com/cat.png", "detail": "high"},
+        ],
+        history=[{"role": "assistant", "content": "Previous reply"}],
+    )
+
+    assert messages[0] == {"role": "system", "content": "System prompt"}
+    assert messages[1] == {"role": "assistant", "content": "Previous reply"}
+    assert messages[2] == {
+        "role": "user",
+        "content": [
+            {"type": "text", "text": "Describe this image"},
+            {"type": "image", "url": "https://example.com/cat.png", "detail": "high"},
+        ],
+    }
+
+
 def test_agent_loop_rejects_system_messages_in_history():
     config = ChatbotConfig(model="gpt-4.1-mini")
     provider = DummyProvider()
@@ -102,6 +126,17 @@ def test_agent_loop_rejects_system_messages_in_history():
         loop.run(
             "Hello",
             history=[{"role": "system", "content": "Not allowed"}],
+        )
+
+
+def test_agent_loop_rejects_invalid_multimodal_user_content():
+    config = ChatbotConfig(model="gpt-4.1-mini")
+    provider = DummyProvider()
+    loop = AgentLoop(provider=provider, config=config, system_prompt="System prompt")
+
+    with pytest.raises(ValueError, match="must include url or path"):
+        loop.build_messages(
+            [{"type": "image"}],
         )
 
 

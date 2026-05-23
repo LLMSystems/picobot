@@ -3,6 +3,7 @@ import { ApiError } from '@/lib/errors'
 import { API_BASE } from '@/lib/api'
 import type {
   ApiErrorBody,
+  ChatImageInput,
   DisplayToolCall,
   DoneData,
   StreamErrorData,
@@ -21,7 +22,12 @@ export interface StreamHandlers {
 }
 
 export async function runStream(
-  body: { session_id: string; message: string; client_request_id?: string },
+  body: {
+    session_id: string
+    message: string
+    client_request_id?: string
+    images?: ChatImageInput[]
+  },
   signal: AbortSignal,
   h: StreamHandlers,
 ): Promise<void> {

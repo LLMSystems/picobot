@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class ErrorDetail(BaseModel):
@@ -26,11 +26,28 @@ class ChatTraceEvent(BaseModel):
     data: dict[str, object] = Field(default_factory=dict)
 
 
+class ChatImageInput(BaseModel):
+    """One optional image attachment for a chat turn."""
+
+    path: str | None = Field(default=None, min_length=1)
+    url: str | None = Field(default=None, min_length=1)
+    detail: str = Field(default="auto")
+
+    @model_validator(mode="after")
+    def _validate_source(self) -> "ChatImageInput":
+        if bool(self.path) == bool(self.url):
+            raise ValueError("Exactly one of path or url must be provided")
+        if self.detail not in {"auto", "low", "high"}:
+            raise ValueError("detail must be one of auto, low, or high")
+        return self
+
+
 class ChatRequest(BaseModel):
     """Request body for one chat turn."""
 
     session_id: str = Field(min_length=1)
     message: str = Field(min_length=1)
+    images: list[ChatImageInput] = Field(default_factory=list)
 
 
 class ChatStreamRequest(ChatRequest):

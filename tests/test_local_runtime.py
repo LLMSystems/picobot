@@ -2,7 +2,7 @@ import asyncio
 import json
 from pathlib import Path
 
-from simplified_chatbot.agent.types import Message
+from simplified_chatbot.agent.types import Message, MessageContent
 from simplified_chatbot.chatbot import SimplifiedChatbot
 from simplified_chatbot.config.schema import ChatbotConfig
 from simplified_chatbot.providers.base import ProviderResponse, ToolCallRequest
@@ -60,6 +60,49 @@ class _DummyResult:
         self.usage = {}
         self.tools_used = []
         self.stop_reason = "stop"
+
+
+class _MultimodalEchoChatbot:
+    def __init__(self) -> None:
+        self.calls: list[MessageContent] = []
+        self.events: list[tuple[str, dict[str, object]]] = []
+
+    async def run_async(
+        self,
+        message: MessageContent,
+        history: list[Message] | None = None,
+        *,
+        on_event=None,
+    ):
+        history = history or []
+        self.calls.append(message)
+        if on_event is not None:
+            on_event("custom", {"kind": "multimodal"})
+        messages: list[Message] = [
+            *history,
+            {"role": "user", "content": message},
+            {"role": "assistant", "content": "multimodal-ok"},
+        ]
+        return _DummyResult(messages=messages, content="multimodal-ok")
+
+    async def run_stream_async(
+        self,
+        message: MessageContent,
+        history: list[Message] | None = None,
+        *,
+        on_delta=None,
+        on_event=None,
+    ):
+        if on_delta is not None:
+            on_delta("multimodal-")
+            on_delta("ok")
+        return await self.run_async(message, history=history, on_event=on_event)
+
+    def run(self, *args, **kwargs):
+        raise AssertionError("sync run() should not be called")
+
+    def run_stream(self, *args, **kwargs):
+        raise AssertionError("sync run_stream() should not be called")
 
 
 class _AsyncOnlyChatbot:
@@ -293,6 +336,63 @@ def test_local_runtime_async_with_sync_store_prefers_async_chatbot():
     assert sessions == ["s1"]
 
 
+def test_local_runtime_handle_input_async_accepts_multimodal_content():
+    bot = _MultimodalEchoChatbot()
+    store = InMemorySessionStore()
+    runtime = LocalAgentRuntime(chatbot=bot, store=store)
+    content: MessageContent = [
+        {"type": "text", "text": "Describe this image"},
+        {"type": "image", "url": "https://example.com/cat.png", "detail": "high"},
+    ]
+    events: list[tuple[str, dict[str, object]]] = []
+
+    result = asyncio.run(
+        runtime.handle_input_async(
+            "s1",
+            content,
+            on_event=lambda event, data: events.append((event, data)),
+        ),
+    )
+
+    assert result.content == "multimodal-ok"
+    assert bot.calls == [content]
+    assert events[0] == (
+        "run_started",
+        {
+            "session_id": "s1",
+            "message": "Describe this image\n[image]",
+            "content": content,
+        },
+    )
+    assert events[1] == ("custom", {"kind": "multimodal"})
+    history = store.load_history("s1")
+    assert history[0]["content"] == content
+    assert history[1]["content"] == "multimodal-ok"
+
+
+def test_local_runtime_handle_input_stream_async_accepts_multimodal_content():
+    bot = _MultimodalEchoChatbot()
+    store = InMemorySessionStore()
+    runtime = LocalAgentRuntime(chatbot=bot, store=store)
+    content: MessageContent = [
+        {"type": "text", "text": "What is in this image?"},
+        {"type": "image", "url": "https://example.com/dog.png"},
+    ]
+    deltas: list[str] = []
+
+    result = asyncio.run(
+        runtime.handle_input_stream_async(
+            "s1",
+            content,
+            on_delta=deltas.append,
+        ),
+    )
+
+    assert result.content == "multimodal-ok"
+    assert bot.calls == [content]
+    assert deltas == ["multimodal-", "ok"]
+
+
 def test_local_runtime_create_and_rename_session():
     runtime = LocalAgentRuntime(chatbot=_DummyChatbot(), store=InMemorySessionStore())
 
@@ -305,6 +405,26 @@ def test_local_runtime_create_and_rename_session():
     assert isinstance(created["created_at"], str)
     assert isinstance(created["updated_at"], str)
     assert renamed["title"] == "Renamed title"
+
+
+def test_local_runtime_session_summary_uses_multimodal_preview():
+    runtime = LocalAgentRuntime(chatbot=_DummyChatbot(), store=InMemorySessionStore())
+    history: list[Message] = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "Review this screenshot"},
+                {"type": "image", "url": "https://example.com/s1.png"},
+            ],
+        },
+        {"role": "assistant", "content": "Looks good"},
+    ]
+
+    summary = runtime._build_session_summary("s1", history, metadata=None)
+
+    assert summary["title"] == "Review this screenshot [image]"
+    assert summary["last_user_message"] == "Review this screenshot [image]"
+    assert summary["last_assistant_preview"] == "Looks good"
 
 
 def test_local_runtime_async_create_and_rename_session():

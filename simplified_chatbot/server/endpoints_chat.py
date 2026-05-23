@@ -8,8 +8,10 @@ from typing import Any
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import StreamingResponse
 
+from simplified_chatbot.agent.types import ContentBlock, MessageContent
 from simplified_chatbot.server.common import error_response, get_request_id, get_runtime
 from simplified_chatbot.server.schemas import (
+    ChatImageInput,
     ChatRequest,
     ChatResponse,
     ChatStreamRequest,
@@ -31,10 +33,37 @@ async def chat(request: Request, payload: ChatRequest) -> ChatResponse:
         events.append(ChatTraceEvent(event=event, data=data))
 
     try:
-        result = await runtime.handle_message_async(
+        content = await _build_chat_content(
+            runtime,
+            session_id=payload.session_id,
+            message=payload.message,
+            images=payload.images,
+        )
+        result = await runtime.handle_input_async(
             payload.session_id,
-            payload.message,
+            content,
             on_event=on_event,
+        )
+    except KeyError:
+        return error_response(
+            request,
+            status_code=404,
+            code="SESSION_NOT_FOUND",
+            message=f"Session '{payload.session_id}' not found",
+        )
+    except FileNotFoundError as exc:
+        return error_response(
+            request,
+            status_code=404,
+            code="WORKSPACE_FILE_NOT_FOUND",
+            message=str(exc),
+        )
+    except IsADirectoryError as exc:
+        return error_response(
+            request,
+            status_code=400,
+            code="WORKSPACE_NOT_A_FILE",
+            message=str(exc),
         )
     except ValueError as exc:
         return error_response(
@@ -81,10 +110,46 @@ async def chat_stream_post(
     payload: ChatStreamRequest,
 ) -> StreamingResponse:
     """Stream one assistant response using SSE with a JSON request body."""
+    runtime = get_runtime(request)
+    try:
+        content = await _build_chat_content(
+            runtime,
+            session_id=payload.session_id,
+            message=payload.message,
+            images=payload.images,
+        )
+    except KeyError:
+        return error_response(
+            request,
+            status_code=404,
+            code="SESSION_NOT_FOUND",
+            message=f"Session '{payload.session_id}' not found",
+        )
+    except FileNotFoundError as exc:
+        return error_response(
+            request,
+            status_code=404,
+            code="WORKSPACE_FILE_NOT_FOUND",
+            message=str(exc),
+        )
+    except IsADirectoryError as exc:
+        return error_response(
+            request,
+            status_code=400,
+            code="WORKSPACE_NOT_A_FILE",
+            message=str(exc),
+        )
+    except ValueError as exc:
+        return error_response(
+            request,
+            status_code=400,
+            code="MESSAGE_INVALID",
+            message=str(exc),
+        )
     return _build_chat_stream_response(
         request,
         session_id=payload.session_id,
-        message=payload.message,
+        message=content,
     )
 
 
@@ -92,7 +157,7 @@ def _build_chat_stream_response(
     request: Request,
     *,
     session_id: str,
-    message: str,
+    message: MessageContent,
 ) -> StreamingResponse:
     """Build the shared SSE response for GET/POST stream endpoints."""
     runtime = get_runtime(request)
@@ -107,7 +172,7 @@ def _build_chat_stream_response(
 
     async def produce() -> None:
         try:
-            result = await runtime.handle_message_stream_async(
+            result = await runtime.handle_input_stream_async(
                 session_id,
                 message,
                 on_delta=on_delta,
@@ -172,3 +237,41 @@ def _build_chat_stream_response(
             "Connection": "keep-alive",
         },
     )
+
+
+async def _build_chat_content(
+    runtime,
+    *,
+    session_id: str,
+    message: str,
+    images: list[ChatImageInput],
+) -> MessageContent:
+    if not images:
+        return message
+
+    blocks: list[ContentBlock] = [{"type": "text", "text": message}]
+    for image in images:
+        if image.url is not None:
+            blocks.append(
+                {
+                    "type": "image",
+                    "url": image.url,
+                    "detail": image.detail,
+                },
+            )
+            continue
+
+        if image.path is None:
+            raise ValueError("Each image must include path or url")
+        _relative_path, target = await runtime.resolve_workspace_file_async(
+            session_id,
+            path=image.path,
+        )
+        blocks.append(
+            {
+                "type": "image",
+                "path": str(target),
+                "detail": image.detail,
+            },
+        )
+    return blocks

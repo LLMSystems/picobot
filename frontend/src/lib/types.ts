@@ -42,14 +42,45 @@ export interface ToolCallRef {
   function?: { name: string; arguments: string }
 }
 
+export type ImageDetail = 'auto' | 'low' | 'high'
+
+export interface ChatImageInput {
+  path?: string | null
+  url?: string | null
+  detail?: ImageDetail
+}
+
+export interface SessionMessageImage {
+  path?: string | null
+  url?: string | null
+  detail?: ImageDetail
+}
+
+export interface SessionMessageContentTextBlock {
+  type: 'text'
+  text: string
+}
+
+export interface SessionMessageContentImageBlock {
+  type: 'image'
+  path?: string | null
+  url?: string | null
+  detail?: ImageDetail
+}
+
+export type SessionMessageContentBlock =
+  | SessionMessageContentTextBlock
+  | SessionMessageContentImageBlock
+
 export interface SessionMessage {
   id: string
   role: MessageRole
-  content: string
+  content: string | SessionMessageContentBlock[]
   created_at: string
   tool_calls?: ToolCallRef[]
   tool_call_id?: string
   name?: string
+  images?: SessionMessageImage[]
 }
 
 export interface ChatUsage {
@@ -123,6 +154,12 @@ export type DisplayMessageSegment =
   | { type: 'text'; content: string }
   | { type: 'tool'; toolCall: DisplayToolCall }
 
+export interface DisplayMessageImage {
+  path?: string | null
+  url?: string | null
+  detail?: ImageDetail
+}
+
 export interface DisplayMessage {
   id: string
   role: 'user' | 'assistant'
@@ -133,6 +170,7 @@ export interface DisplayMessage {
   status: DisplayMessageStatus
   usage?: ChatUsage
   toolsUsed?: string[]
+  images?: DisplayMessageImage[]
 }
 
 export type WorkspaceEntryType = 'file' | 'directory'

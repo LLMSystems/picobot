@@ -7,7 +7,9 @@ import { useSessionsStore } from '@/stores/sessions'
 import { useCapabilitiesStore } from '@/stores/capabilities'
 import { useWorkspaceStore } from '@/stores/workspace'
 import type {
+  ChatImageInput,
   DisplayMessage,
+  DisplayMessageImage,
   DisplayMessageSegment,
   DisplayToolCall,
   SessionMessage,
@@ -20,7 +22,44 @@ function localId(prefix: string): string {
   return `${prefix}-${Date.now()}-${localIdSeq}`
 }
 
-function hydrateHistory(messages: SessionMessage[]): DisplayMessage[] {
+function toRelativeWorkspacePath(rawPath: string, sessionId: string): string {
+  const marker = `/${sessionId}/`
+  const idx = rawPath.indexOf(marker)
+  if (idx >= 0) return rawPath.slice(idx + marker.length)
+  return rawPath
+}
+
+function parseUserContent(
+  raw: SessionMessage['content'],
+  sessionId: string,
+): { text: string; images: DisplayMessageImage[] } {
+  if (typeof raw === 'string') return { text: raw, images: [] }
+  if (!Array.isArray(raw)) return { text: '', images: [] }
+  const texts: string[] = []
+  const images: DisplayMessageImage[] = []
+  for (const block of raw) {
+    if (!block || typeof block !== 'object') continue
+    if (block.type === 'text' && typeof block.text === 'string') {
+      texts.push(block.text)
+    } else if (block.type === 'image') {
+      const rawPath = typeof block.path === 'string' ? block.path : null
+      const url = typeof block.url === 'string' ? block.url : null
+      if (rawPath || url) {
+        images.push({
+          path: rawPath ? toRelativeWorkspacePath(rawPath, sessionId) : null,
+          url,
+          detail: block.detail,
+        })
+      }
+    }
+  }
+  return { text: texts.join('\n'), images }
+}
+
+function hydrateHistory(
+  messages: SessionMessage[],
+  sessionId: string,
+): DisplayMessage[] {
   const out: DisplayMessage[] = []
   const toolResultById = new Map<string, SessionMessage>()
   for (const m of messages) {
@@ -30,20 +69,33 @@ function hydrateHistory(messages: SessionMessage[]): DisplayMessage[] {
   }
   for (const m of messages) {
     if (m.role === 'user') {
+      const parsed = parseUserContent(m.content, sessionId)
+      const fallbackImages: DisplayMessageImage[] | undefined = m.images?.length
+        ? m.images.map((img) => ({
+            path: img.path ? toRelativeWorkspacePath(img.path, sessionId) : null,
+            url: img.url ?? null,
+            detail: img.detail,
+          }))
+        : undefined
+      const images =
+        parsed.images.length > 0 ? parsed.images : fallbackImages
       out.push({
         id: m.id,
         role: 'user',
-        content: m.content,
+        content: parsed.text,
         created_at: m.created_at,
         toolCalls: [],
         segments: [],
         status: 'complete',
+        images,
       })
     } else if (m.role === 'assistant') {
       const toolCalls: DisplayToolCall[] = []
       const segments: DisplayMessageSegment[] = []
-      if (m.content) {
-        segments.push({ type: 'text', content: m.content })
+      const assistantText =
+        typeof m.content === 'string' ? m.content : ''
+      if (assistantText) {
+        segments.push({ type: 'text', content: assistantText })
       }
       if (m.tool_calls) {
         for (const tc of m.tool_calls) {
@@ -68,11 +120,11 @@ function hydrateHistory(messages: SessionMessage[]): DisplayMessage[] {
           segments.push({ type: 'tool', toolCall })
         }
       }
-      if (m.content || toolCalls.length > 0) {
+      if (assistantText || toolCalls.length > 0) {
         out.push({
           id: m.id,
           role: 'assistant',
-          content: m.content ?? '',
+          content: assistantText,
           created_at: m.created_at,
           toolCalls,
           segments,
@@ -167,7 +219,7 @@ export const useChatStore = defineStore('chat', () => {
     try {
       const { messages: history } = await api.getMessages(id)
       if (currentSessionId.value === id) {
-        const hydrated = hydrateHistory(history)
+        const hydrated = hydrateHistory(history, id)
         if (hydrated.length > 0) {
           messages.value = hydrated
         }
@@ -179,12 +231,15 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  async function send(text: string): Promise<void> {
+  async function send(
+    text: string,
+    images: ChatImageInput[] = [],
+  ): Promise<void> {
     const sessionId = currentSessionId.value
     if (!sessionId) return
     if (runStatus.value === 'streaming') return
     const trimmed = text.trim()
-    if (!trimmed) return
+    if (!trimmed && images.length === 0) return
 
     const caps = useCapabilitiesStore()
     const sessions = useSessionsStore()
@@ -192,6 +247,14 @@ export const useChatStore = defineStore('chat', () => {
     runStatus.value = 'streaming'
     lastError.value = null
     abortController = new AbortController()
+
+    const displayImages: DisplayMessageImage[] | undefined = images.length
+      ? images.map((img) => ({
+          path: img.path ?? null,
+          url: img.url ?? null,
+          detail: img.detail,
+        }))
+      : undefined
 
     const userMsg: DisplayMessage = {
       id: localId('user'),
@@ -201,6 +264,7 @@ export const useChatStore = defineStore('chat', () => {
       toolCalls: [],
       segments: [],
       status: 'complete',
+      images: displayImages,
     }
     messages.value.push(userMsg)
 
@@ -218,7 +282,11 @@ export const useChatStore = defineStore('chat', () => {
     try {
       if (caps.streamingEnabled) {
         await runStream(
-          { session_id: sessionId, message: text },
+          {
+            session_id: sessionId,
+            message: text,
+            ...(images.length ? { images } : {}),
+          },
           abortController.signal,
           {
             onToolStart: (tc) => {
@@ -270,7 +338,11 @@ export const useChatStore = defineStore('chat', () => {
           },
         )
       } else {
-        const resp = await api.chat({ session_id: sessionId, message: text })
+        const resp = await api.chat({
+          session_id: sessionId,
+          message: text,
+          ...(images.length ? { images } : {}),
+        })
         assistantMsg.content = resp.content
         if (resp.content) {
           assistantMsg.segments.push({ type: 'text', content: resp.content })
