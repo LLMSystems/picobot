@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class ChatbotConfig(BaseModel):
@@ -17,6 +17,10 @@ class ChatbotConfig(BaseModel):
 
     provider: Literal["openai_compat"] = "openai_compat"
     model: str = Field(min_length=1)
+    available_models: list[str] = Field(
+        default_factory=list,
+        validation_alias=AliasChoices("available_models", "availableModels"),
+    )
     api_key: str | None = Field(
         default=None,
         validation_alias=AliasChoices("api_key", "apiKey"),
@@ -116,3 +120,26 @@ class ChatbotConfig(BaseModel):
         if not stripped:
             raise ValueError("model must not be empty")
         return stripped
+
+    @field_validator("available_models")
+    @classmethod
+    def _normalize_available_models(cls, value: list[str]) -> list[str]:
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for index, item in enumerate(value):
+            if not isinstance(item, str):
+                raise TypeError(f"available_models[{index}] must be a string")
+            stripped = item.strip()
+            if not stripped:
+                raise ValueError(f"available_models[{index}] must not be empty")
+            if stripped in seen:
+                continue
+            seen.add(stripped)
+            normalized.append(stripped)
+        return normalized
+
+    @model_validator(mode="after")
+    def _validate_model_membership(self) -> "ChatbotConfig":
+        if self.available_models and self.model not in self.available_models:
+            raise ValueError("model must be included in available_models when provided")
+        return self

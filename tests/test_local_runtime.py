@@ -62,6 +62,53 @@ class _DummyResult:
         self.stop_reason = "stop"
 
 
+class _ModelAwareChatbot:
+    def __init__(self) -> None:
+        self.model_overrides: list[str | None] = []
+        self.config = ChatbotConfig(
+            model="gpt-4.1-mini",
+            available_models=["gpt-4.1-mini", "gpt-5-mini"],
+        )
+
+    async def run_async(
+        self,
+        message: MessageContent,
+        history: list[Message] | None = None,
+        *,
+        model_override: str | None = None,
+        on_event=None,
+    ):
+        self.model_overrides.append(model_override)
+        history = history or []
+        messages: list[Message] = [
+            *history,
+            {"role": "user", "content": message},
+            {"role": "assistant", "content": "model-aware"},
+        ]
+        result = _DummyResult(messages=messages, content="model-aware")
+        result.model = model_override or self.config.model
+        return result
+
+    async def run_stream_async(
+        self,
+        message: MessageContent,
+        history: list[Message] | None = None,
+        *,
+        on_delta=None,
+        model_override: str | None = None,
+        on_event=None,
+    ):
+        if on_delta is not None:
+            on_delta("model-")
+            on_delta("aware")
+        return await self.run_async(
+            message,
+            history=history,
+            model_override=model_override,
+            on_event=on_event,
+        )
+
+
 class _MultimodalEchoChatbot:
     def __init__(self) -> None:
         self.calls: list[MessageContent] = []
@@ -334,6 +381,41 @@ def test_local_runtime_async_with_sync_store_prefers_async_chatbot():
     assert streamed.content == "async:again"
     assert deltas == ["async:", "again"]
     assert sessions == ["s1"]
+
+
+def test_local_runtime_passes_model_override_to_chatbot():
+    bot = _ModelAwareChatbot()
+    runtime = LocalAgentRuntime(chatbot=bot, store=InMemorySessionStore())
+
+    result = asyncio.run(
+        runtime.handle_message_async(
+            "s1",
+            "hello",
+            model_override="gpt-5-mini",
+        ),
+    )
+
+    assert result.content == "model-aware"
+    assert result.model == "gpt-5-mini"
+    assert bot.model_overrides == ["gpt-5-mini"]
+
+
+def test_local_runtime_rejects_model_not_in_allowlist():
+    bot = _ModelAwareChatbot()
+    runtime = LocalAgentRuntime(chatbot=bot, store=InMemorySessionStore())
+
+    try:
+        asyncio.run(
+            runtime.handle_message_async(
+                "s1",
+                "hello",
+                model_override="gpt-unknown",
+            ),
+        )
+    except ValueError as exc:
+        assert "configured available models" in str(exc)
+    else:
+        raise AssertionError("Expected ValueError for disallowed model")
 
 
 def test_local_runtime_handle_input_async_accepts_multimodal_content():

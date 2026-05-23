@@ -15,10 +15,12 @@ export interface CapabilityFeatures {
   session_workspace: boolean
   file_upload: boolean
   multimodal: boolean
+  model_override: boolean
 }
 
 export interface Capabilities {
   model: ModelInfo
+  available_models: string[]
   max_iterations: number
   tools: ToolCapability[]
   features: CapabilityFeatures

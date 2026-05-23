@@ -9,6 +9,7 @@ from fastapi import APIRouter, Query, Request
 from fastapi.responses import StreamingResponse
 
 from simplified_chatbot.agent.types import ContentBlock, MessageContent
+from simplified_chatbot.runtime.local_runtime import ModelNotAllowedError
 from simplified_chatbot.server.common import error_response, get_request_id, get_runtime
 from simplified_chatbot.server.schemas import (
     ChatImageInput,
@@ -42,7 +43,15 @@ async def chat(request: Request, payload: ChatRequest) -> ChatResponse:
         result = await runtime.handle_input_async(
             payload.session_id,
             content,
+            model_override=payload.model,
             on_event=on_event,
+        )
+    except ModelNotAllowedError as exc:
+        return error_response(
+            request,
+            status_code=400,
+            code="MODEL_NOT_ALLOWED",
+            message=str(exc),
         )
     except KeyError:
         return error_response(
@@ -150,6 +159,7 @@ async def chat_stream_post(
         request,
         session_id=payload.session_id,
         message=content,
+        model_override=payload.model,
     )
 
 
@@ -158,6 +168,7 @@ def _build_chat_stream_response(
     *,
     session_id: str,
     message: MessageContent,
+    model_override: str | None = None,
 ) -> StreamingResponse:
     """Build the shared SSE response for GET/POST stream endpoints."""
     runtime = get_runtime(request)
@@ -176,6 +187,7 @@ def _build_chat_stream_response(
                 session_id,
                 message,
                 on_delta=on_delta,
+                model_override=model_override,
                 on_event=on_event,
             )
             await queue.put(
@@ -188,6 +200,17 @@ def _build_chat_stream_response(
                         tools_used=result.tools_used,
                         stop_reason=result.stop_reason,
                     ).model_dump(),
+                },
+            )
+        except ModelNotAllowedError as exc:
+            await queue.put(
+                {
+                    "event": "error",
+                    "data": {
+                        "code": "MODEL_NOT_ALLOWED",
+                        "message": str(exc),
+                        "request_id": request_id,
+                    },
                 },
             )
         except ValueError as exc:

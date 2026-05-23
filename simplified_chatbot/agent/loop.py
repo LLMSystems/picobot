@@ -56,11 +56,17 @@ class AgentLoop:
         message: MessageContent,
         history: list[Message] | None = None,
         *,
+        model_override: str | None = None,
         on_event: EventCallback | None = None,
     ) -> RunResult:
         """Sync wrapper for run_async()."""
         return self._run_sync(
-            lambda: self.run_async(message, history=history, on_event=on_event),
+            lambda: self.run_async(
+                message,
+                history=history,
+                model_override=model_override,
+                on_event=on_event,
+            ),
             method_name="run",
             async_method_name="run_async",
         )
@@ -71,6 +77,7 @@ class AgentLoop:
         history: list[Message] | None = None,
         *,
         on_delta: Callable[[str], None] | None = None,
+        model_override: str | None = None,
         on_event: EventCallback | None = None,
     ) -> RunResult:
         """Sync wrapper for run_stream_async()."""
@@ -79,6 +86,7 @@ class AgentLoop:
                 message,
                 history=history,
                 on_delta=on_delta,
+                model_override=model_override,
                 on_event=on_event,
             ),
             method_name="run_stream",
@@ -90,6 +98,7 @@ class AgentLoop:
         message: MessageContent,
         history: list[Message] | None = None,
         *,
+        model_override: str | None = None,
         on_event: EventCallback | None = None,
     ) -> RunResult:
         """Execute one user turn and return the updated conversation history."""
@@ -98,6 +107,7 @@ class AgentLoop:
             history=history,
             stream=False,
             on_delta=None,
+            model_override=model_override,
             on_event=on_event,
         )
 
@@ -107,6 +117,7 @@ class AgentLoop:
         history: list[Message] | None = None,
         *,
         on_delta: Callable[[str], None] | None = None,
+        model_override: str | None = None,
         on_event: EventCallback | None = None,
     ) -> RunResult:
         """Execute one streamed user turn and return the aggregated result."""
@@ -115,6 +126,7 @@ class AgentLoop:
             history=history,
             stream=True,
             on_delta=on_delta,
+            model_override=model_override,
             on_event=on_event,
         )
 
@@ -125,9 +137,11 @@ class AgentLoop:
         history: list[Message] | None,
         stream: bool,
         on_delta: Callable[[str], None] | None,
+        model_override: str | None,
         on_event: EventCallback | None,
     ) -> RunResult:
         text = self._normalize_user_message(message)
+        effective_model = self._resolve_effective_model(model_override)
         conversation = [
             *self._normalize_history(history),
             {"role": "user", "content": text},
@@ -144,6 +158,7 @@ class AgentLoop:
             ]
             response = await self._call_provider_async(
                 request_messages,
+                model=effective_model,
                 stream=stream,
                 on_delta=on_delta,
                 tools=tool_definitions,
@@ -218,7 +233,7 @@ class AgentLoop:
             return RunResult(
                 content=response.content,
                 messages=conversation,
-                model=self._config.model,
+                model=effective_model,
                 provider=self._config.provider,
                 usage=response.usage,
                 tools_used=tools_used,
@@ -230,7 +245,7 @@ class AgentLoop:
         return RunResult(
             content=final_message,
             messages=conversation,
-            model=self._config.model,
+            model=effective_model,
             provider=self._config.provider,
             usage=usage,
             tools_used=tools_used,
@@ -278,6 +293,7 @@ class AgentLoop:
         self,
         messages: list[Message],
         *,
+        model: str,
         stream: bool,
         on_delta: Callable[[str], None] | None,
         tools: list[dict[str, object]] | None,
@@ -287,7 +303,7 @@ class AgentLoop:
             if callable(stream_generate_async):
                 response = stream_generate_async(
                     messages,
-                    model=self._config.model,
+                    model=model,
                     max_tokens=self._config.max_tokens,
                     temperature=self._config.temperature,
                     timeout=self._config.request_timeout,
@@ -300,7 +316,7 @@ class AgentLoop:
             return await asyncio.to_thread(
                 self._provider.stream_generate,
                 messages,
-                model=self._config.model,
+                model=model,
                 max_tokens=self._config.max_tokens,
                 temperature=self._config.temperature,
                 timeout=self._config.request_timeout,
@@ -312,7 +328,7 @@ class AgentLoop:
         if callable(generate_async):
             response = generate_async(
                 messages,
-                model=self._config.model,
+                model=model,
                 max_tokens=self._config.max_tokens,
                 temperature=self._config.temperature,
                 timeout=self._config.request_timeout,
@@ -324,12 +340,20 @@ class AgentLoop:
         return await asyncio.to_thread(
             self._provider.generate,
             messages,
-            model=self._config.model,
+            model=model,
             max_tokens=self._config.max_tokens,
             temperature=self._config.temperature,
             timeout=self._config.request_timeout,
             tools=tools,
         )
+
+    def _resolve_effective_model(self, model_override: str | None) -> str:
+        if model_override is None:
+            return self._config.model
+        stripped = model_override.strip()
+        if not stripped:
+            raise ValueError("model_override must not be empty")
+        return stripped
 
     @staticmethod
     def _run_sync(

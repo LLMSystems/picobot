@@ -5,6 +5,7 @@ import type { Capabilities, ToolCapability } from '@/lib/types'
 
 const FALLBACK: Capabilities = {
   model: { provider: 'unknown', name: 'unknown' },
+  available_models: [],
   max_iterations: 8,
   tools: [],
   features: {
@@ -12,6 +13,7 @@ const FALLBACK: Capabilities = {
     session_workspace: false,
     file_upload: false,
     multimodal: false,
+    model_override: false,
   },
 }
 
@@ -22,6 +24,10 @@ export const useCapabilitiesStore = defineStore('capabilities', () => {
 
   async function load() {
     if (loaded.value) return
+    await refresh()
+  }
+
+  async function refresh() {
     try {
       data.value = await api.capabilities()
       failed.value = false
@@ -42,5 +48,14 @@ export const useCapabilitiesStore = defineStore('capabilities', () => {
   const modelName = computed(() => data.value.model.name)
   const streamingEnabled = computed(() => data.value.features.streaming)
 
-  return { data, loaded, failed, load, toolMap, modelName, streamingEnabled }
+  return {
+    data,
+    loaded,
+    failed,
+    load,
+    refresh,
+    toolMap,
+    modelName,
+    streamingEnabled,
+  }
 })

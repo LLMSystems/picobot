@@ -167,6 +167,20 @@ def test_agent_loop_run_async_returns_result():
     assert result.messages[-1]["content"] == "Async hello"
 
 
+def test_agent_loop_model_override_is_passed_to_provider():
+    config = ChatbotConfig(
+        model="gpt-4.1-mini",
+        available_models=["gpt-4.1-mini", "gpt-5-mini"],
+    )
+    provider = DummyProvider(content="Override hello")
+    loop = AgentLoop(provider=provider, config=config, system_prompt="System prompt")
+
+    result = loop.run("Hello override", model_override="gpt-5-mini")
+
+    assert provider.calls[0]["model"] == "gpt-5-mini"
+    assert result.model == "gpt-5-mini"
+
+
 def test_agent_loop_stream_async_returns_result():
     config = ChatbotConfig(model="gpt-4.1-mini")
     provider = DummyProvider()

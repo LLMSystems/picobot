@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from simplified_chatbot.config.loader import load_config
 from simplified_chatbot.providers.factory import build_provider
 
@@ -44,6 +46,37 @@ def test_load_config_supports_workspace_root_dir_alias(tmp_path):
     config = load_config(config_path)
 
     assert config.workspace_root_dir == "agent-workspaces"
+
+
+def test_load_config_supports_available_models_alias(tmp_path):
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "provider": "openai_compat",
+                "model": "gpt-4.1-mini",
+                "availableModels": ["gpt-4.1-mini", "gpt-5-mini"],
+            },
+        ),
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+
+    assert config.available_models == ["gpt-4.1-mini", "gpt-5-mini"]
+
+
+def test_load_config_requires_default_model_to_exist_in_available_models():
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError, match="available_models"):
+        load_config_payload(
+            {
+                "provider": "openai_compat",
+                "model": "gpt-4.1-mini",
+                "availableModels": ["gpt-5-mini"],
+            },
+        )
 
 
 def test_load_config_auto_loads_dotenv_from_parent_directory(tmp_path, monkeypatch):

@@ -107,10 +107,17 @@ class LocalAgentRuntime:
             chrome_debugging_port=chrome_port,
         )
 
-    def handle_message(self, session_id: str, message: str) -> RunResult:
+    def handle_message(
+        self,
+        session_id: str,
+        message: str,
+        *,
+        model_override: str | None = None,
+    ) -> RunResult:
         return self.handle_input_with_events(
             session_id,
             message,
+            model_override=model_override,
             on_event=None,
         )
 
@@ -118,10 +125,13 @@ class LocalAgentRuntime:
         self,
         session_id: str,
         content: MessageContent,
+        *,
+        model_override: str | None = None,
     ) -> RunResult:
         return self.handle_input_with_events(
             session_id,
             content,
+            model_override=model_override,
             on_event=None,
         )
 
@@ -130,11 +140,13 @@ class LocalAgentRuntime:
         session_id: str,
         message: str,
         *,
+        model_override: str | None = None,
         on_event: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> RunResult:
         return self.handle_input_with_events(
             session_id,
             message,
+            model_override=model_override,
             on_event=on_event,
         )
 
@@ -143,6 +155,7 @@ class LocalAgentRuntime:
         session_id: str,
         content: MessageContent,
         *,
+        model_override: str | None = None,
         on_event: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> RunResult:
         if isinstance(self.store, AsyncSessionStore):
@@ -157,12 +170,14 @@ class LocalAgentRuntime:
             "run_started",
             _build_run_started_payload(session_id, content),
         )
+        resolved_model = self._resolve_model_override(model_override)
         chatbot = self._get_chatbot_for_session(session_id)
         history = self.store.load_history(session_id)
         result = _invoke_chatbot_method(
             chatbot.run,
             content,
             history=history,
+            model_override=resolved_model,
             on_event=event_callback,
         )
         self.store.save_history(
@@ -177,12 +192,14 @@ class LocalAgentRuntime:
         message: str,
         *,
         on_delta: Callable[[str], None] | None = None,
+        model_override: str | None = None,
         on_event: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> RunResult:
         return self.handle_input_stream(
             session_id,
             message,
             on_delta=on_delta,
+            model_override=model_override,
             on_event=on_event,
         )
 
@@ -192,6 +209,7 @@ class LocalAgentRuntime:
         content: MessageContent,
         *,
         on_delta: Callable[[str], None] | None = None,
+        model_override: str | None = None,
         on_event: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> RunResult:
         if isinstance(self.store, AsyncSessionStore):
@@ -206,6 +224,7 @@ class LocalAgentRuntime:
             "run_started",
             _build_run_started_payload(session_id, content),
         )
+        resolved_model = self._resolve_model_override(model_override)
         chatbot = self._get_chatbot_for_session(session_id)
         history = self.store.load_history(session_id)
         result = _invoke_chatbot_method(
@@ -213,6 +232,7 @@ class LocalAgentRuntime:
             content,
             history=history,
             on_delta=on_delta,
+            model_override=resolved_model,
             on_event=event_callback,
         )
         self.store.save_history(
@@ -226,11 +246,13 @@ class LocalAgentRuntime:
         session_id: str,
         message: str,
         *,
+        model_override: str | None = None,
         on_event: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> RunResult:
         return await self.handle_input_async(
             session_id,
             message,
+            model_override=model_override,
             on_event=on_event,
         )
 
@@ -239,6 +261,7 @@ class LocalAgentRuntime:
         session_id: str,
         content: MessageContent,
         *,
+        model_override: str | None = None,
         on_event: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> RunResult:
         event_callback = _build_runtime_event_callback(session_id, on_event)
@@ -247,11 +270,13 @@ class LocalAgentRuntime:
             "run_started",
             _build_run_started_payload(session_id, content),
         )
+        resolved_model = self._resolve_model_override(model_override)
         history = await self._load_history_async(session_id)
         result = await self._run_chat_async(
             session_id,
             content,
             history=history,
+            model_override=resolved_model,
             on_event=event_callback,
         )
         await self._save_history_async(session_id, result.messages)
@@ -263,12 +288,14 @@ class LocalAgentRuntime:
         message: str,
         *,
         on_delta: Callable[[str], None] | None = None,
+        model_override: str | None = None,
         on_event: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> RunResult:
         return await self.handle_input_stream_async(
             session_id,
             message,
             on_delta=on_delta,
+            model_override=model_override,
             on_event=on_event,
         )
 
@@ -278,6 +305,7 @@ class LocalAgentRuntime:
         content: MessageContent,
         *,
         on_delta: Callable[[str], None] | None = None,
+        model_override: str | None = None,
         on_event: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> RunResult:
         event_callback = _build_runtime_event_callback(session_id, on_event)
@@ -286,12 +314,14 @@ class LocalAgentRuntime:
             "run_started",
             _build_run_started_payload(session_id, content),
         )
+        resolved_model = self._resolve_model_override(model_override)
         history = await self._load_history_async(session_id)
         result = await self._run_chat_stream_async(
             session_id,
             content,
             history=history,
             on_delta=on_delta,
+            model_override=resolved_model,
             on_event=event_callback,
         )
         await self._save_history_async(session_id, result.messages)
@@ -742,6 +772,7 @@ class LocalAgentRuntime:
         session_id: str,
         message: MessageContent,
         history: list[Message],
+        model_override: str | None,
         on_event: Callable[[str, dict[str, Any]], None] | None,
     ) -> RunResult:
         chatbot = self._get_chatbot_for_session(session_id)
@@ -751,11 +782,19 @@ class LocalAgentRuntime:
                 run_async,
                 message,
                 history=history,
+                model_override=model_override,
                 on_event=on_event,
             )
             if inspect.isawaitable(result):
                 return await result
             return result
+        if model_override is not None:
+            return await asyncio.to_thread(
+                chatbot.run,
+                message,
+                history=history,
+                model_override=model_override,
+            )
         return await asyncio.to_thread(chatbot.run, message, history=history)
 
     async def _run_chat_stream_async(
@@ -765,6 +804,7 @@ class LocalAgentRuntime:
         *,
         history: list[Message],
         on_delta: Callable[[str], None] | None,
+        model_override: str | None,
         on_event: Callable[[str, dict[str, Any]], None] | None,
     ) -> RunResult:
         chatbot = self._get_chatbot_for_session(session_id)
@@ -775,11 +815,20 @@ class LocalAgentRuntime:
                 message,
                 history=history,
                 on_delta=on_delta,
+                model_override=model_override,
                 on_event=on_event,
             )
             if inspect.isawaitable(result):
                 return await result
             return result
+        if model_override is not None:
+            return await asyncio.to_thread(
+                chatbot.run_stream,
+                message,
+                history,
+                on_delta=on_delta,
+                model_override=model_override,
+            )
         return await asyncio.to_thread(
             chatbot.run_stream,
             message,
@@ -804,6 +853,27 @@ class LocalAgentRuntime:
         self._bind_chrome_port(session_chatbot)
         self._session_chatbots[session_id] = session_chatbot
         return session_chatbot
+
+    def _resolve_model_override(self, model_override: str | None) -> str | None:
+        if model_override is None:
+            return None
+        stripped = model_override.strip()
+        if not stripped:
+            raise ValueError("model_override must not be empty")
+
+        config = getattr(self.chatbot, "config", None)
+        available_models = getattr(config, "available_models", []) if config is not None else []
+        if available_models:
+            allowed = [item for item in available_models if isinstance(item, str) and item]
+        else:
+            default_model = getattr(config, "model", None) if config is not None else None
+            allowed = [default_model] if isinstance(default_model, str) and default_model else []
+
+        if allowed and stripped not in allowed:
+            raise ModelNotAllowedError(
+                f"Model '{stripped}' is not in the configured available models",
+            )
+        return stripped
 
     @staticmethod
     def _build_session_summary(
@@ -972,6 +1042,10 @@ class WorkspaceMoveDestinationParentMissingError(WorkspaceMoveError):
     """Raised when the destination parent directory does not exist."""
 
 
+class ModelNotAllowedError(ValueError):
+    """Raised when a requested model is outside the configured allowlist."""
+
+
 def _emit_runtime_event(
     callback: Callable[[str, dict[str, Any]], None] | None,
     event: str,
@@ -1019,12 +1093,15 @@ def _invoke_chatbot_method(
     *args: object,
     history: list[Message],
     on_delta: Callable[[str], None] | None = None,
+    model_override: str | None = None,
     on_event: Callable[[str, dict[str, Any]], None] | None = None,
 ) -> Any:
     kwargs: dict[str, Any] = {"history": history}
     signature = inspect.signature(method)
     if on_delta is not None and "on_delta" in signature.parameters:
         kwargs["on_delta"] = on_delta
+    if model_override is not None and "model_override" in signature.parameters:
+        kwargs["model_override"] = model_override
     if on_event is not None and "on_event" in signature.parameters:
         kwargs["on_event"] = on_event
     return method(*args, **kwargs)

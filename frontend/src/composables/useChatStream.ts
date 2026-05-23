@@ -27,6 +27,7 @@ export async function runStream(
     message: string
     client_request_id?: string
     images?: ChatImageInput[]
+    model?: string
   },
   signal: AbortSignal,
   h: StreamHandlers,

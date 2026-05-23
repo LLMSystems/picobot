@@ -112,9 +112,6 @@ function cancel() {
     </div>
 
     <div class="flex items-center gap-2 text-xs text-muted-foreground">
-      <span class="hidden rounded-full border px-2 py-0.5 sm:inline">
-        {{ caps.modelName }}
-      </span>
       <Button
         variant="ghost"
         size="icon"

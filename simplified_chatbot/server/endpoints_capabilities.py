@@ -34,6 +34,7 @@ async def get_capabilities(request: Request) -> CapabilitiesResponse:
 
     provider_name = str(getattr(config, "provider", "unknown"))
     model_name = str(getattr(config, "model", "unknown"))
+    available_models = getattr(config, "available_models", []) if config is not None else []
     max_iterations = int(getattr(config, "max_iterations", 0) or 0)
 
     return CapabilitiesResponse(
@@ -41,6 +42,11 @@ async def get_capabilities(request: Request) -> CapabilitiesResponse:
             provider=provider_name,
             name=model_name,
         ),
+        available_models=[
+            item
+            for item in (available_models or [model_name])
+            if isinstance(item, str) and item
+        ],
         max_iterations=max_iterations,
         tools=_build_tool_capabilities(tools),
         features=CapabilitiesFeatures(
@@ -51,6 +57,7 @@ async def get_capabilities(request: Request) -> CapabilitiesResponse:
                 and importlib.util.find_spec("multipart") is not None
             ),
             multimodal=True,
+            model_override=True,
         ),
     )
 

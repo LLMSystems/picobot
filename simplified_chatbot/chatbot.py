@@ -127,22 +127,30 @@ class SimplifiedChatbot:
         message: MessageContent,
         history: list[Message] | None = None,
         *,
+        model_override: str | None = None,
         on_event: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> RunResult:
         """Run one model turn."""
-        return self._loop.run(message, history=history, on_event=on_event)
+        return self._loop.run(
+            message,
+            history=history,
+            model_override=model_override,
+            on_event=on_event,
+        )
 
     async def run_async(
         self,
         message: MessageContent,
         history: list[Message] | None = None,
         *,
+        model_override: str | None = None,
         on_event: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> RunResult:
         """Run one model turn asynchronously."""
         return await self._loop.run_async(
             message,
             history=history,
+            model_override=model_override,
             on_event=on_event,
         )
 
@@ -152,6 +160,7 @@ class SimplifiedChatbot:
         history: list[Message] | None = None,
         *,
         on_delta: Callable[[str], None] | None = None,
+        model_override: str | None = None,
         on_event: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> RunResult:
         """Run one streamed model turn."""
@@ -159,6 +168,7 @@ class SimplifiedChatbot:
             message,
             history=history,
             on_delta=on_delta,
+            model_override=model_override,
             on_event=on_event,
         )
 
@@ -168,6 +178,7 @@ class SimplifiedChatbot:
         history: list[Message] | None = None,
         *,
         on_delta: Callable[[str], None] | None = None,
+        model_override: str | None = None,
         on_event: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> RunResult:
         """Run one streamed model turn asynchronously."""
@@ -175,6 +186,7 @@ class SimplifiedChatbot:
             message,
             history=history,
             on_delta=on_delta,
+            model_override=model_override,
             on_event=on_event,
         )
 

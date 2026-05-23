@@ -1,5 +1,6 @@
 import asyncio
 import json
+from pathlib import Path
 
 import pytest
 
@@ -152,6 +153,7 @@ class _CapabilityChatbot(_AsyncOnlyChatbot):
         self.config = ChatbotConfig(
             provider="openai_compat",
             model="gpt-4.1-mini",
+            available_models=["gpt-4.1-mini", "gpt-5-mini"],
             max_iterations=8,
         )
         self.tools = build_default_tool_registry(workspace=tmp_path)
@@ -214,6 +216,48 @@ class _WriteEventfulToolChatbot:
         raise AssertionError("sync run_stream() should not be used")
 
 
+class _ModelAwareChatbot(_AsyncOnlyChatbot):
+    def __init__(self) -> None:
+        self.calls: list[str | None] = []
+        self.config = ChatbotConfig(
+            provider="openai_compat",
+            model="gpt-4.1-mini",
+            available_models=["gpt-4.1-mini", "gpt-5-mini"],
+            max_iterations=8,
+        )
+        self.tools = build_default_tool_registry(workspace=Path.cwd())
+
+    async def run_async(
+        self,
+        message: str,
+        history: list[Message] | None = None,
+        *,
+        model_override=None,
+        on_event=None,
+    ) -> _DummyResult:
+        self.calls.append(model_override)
+        result = await super().run_async(message, history=history, on_event=on_event)
+        result.model = model_override or self.config.model
+        return result
+
+    async def run_stream_async(
+        self,
+        message: str,
+        history: list[Message] | None = None,
+        *,
+        on_delta=None,
+        model_override=None,
+        on_event=None,
+    ) -> _DummyResult:
+        self.calls.append(model_override)
+        if on_delta is not None:
+            on_delta("echo:")
+            on_delta(message)
+        result = await super().run_async(message, history=history, on_event=on_event)
+        result.model = model_override or self.config.model
+        return result
+
+
 def test_post_chat_returns_full_response_and_persists_history(tmp_path):
     store = AioSQLiteSessionStore(tmp_path / "sessions.db")
     runtime = LocalAgentRuntime(chatbot=_AsyncOnlyChatbot(), store=store)
@@ -246,6 +290,39 @@ def test_post_chat_returns_full_response_and_persists_history(tmp_path):
     assert history[-1]["content"] == "echo:hello"
     assert history[-1]["id"].startswith("msg_")
     assert history[-1]["created_at"].endswith("Z")
+
+
+def test_post_chat_accepts_model_override(tmp_path):
+    store = AioSQLiteSessionStore(tmp_path / "sessions.db")
+    chatbot = _ModelAwareChatbot()
+    runtime = LocalAgentRuntime(chatbot=chatbot, store=store)
+    app = create_app(runtime=runtime)
+    client = TestClient(app)
+
+    response = client.post(
+        "/chat",
+        json={"session_id": "s1", "message": "hello", "model": "gpt-5-mini"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["content"] == "echo:hello"
+    assert chatbot.calls == ["gpt-5-mini"]
+
+
+def test_post_chat_rejects_model_outside_allowlist(tmp_path):
+    store = AioSQLiteSessionStore(tmp_path / "sessions.db")
+    chatbot = _ModelAwareChatbot()
+    runtime = LocalAgentRuntime(chatbot=chatbot, store=store)
+    app = create_app(runtime=runtime)
+    client = TestClient(app)
+
+    response = client.post(
+        "/chat",
+        json={"session_id": "s1", "message": "hello", "model": "gpt-unknown"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "MODEL_NOT_ALLOWED"
 
 
 def test_cors_preflight_returns_expected_headers(tmp_path, monkeypatch):
@@ -352,6 +429,25 @@ def test_post_chat_stream_returns_sse_events_and_persists_history(tmp_path):
         "tools_used": [],
         "stop_reason": "stop",
     }
+
+
+def test_post_chat_stream_accepts_model_override(tmp_path):
+    store = AioSQLiteSessionStore(tmp_path / "sessions.db")
+    chatbot = _ModelAwareChatbot()
+    runtime = LocalAgentRuntime(chatbot=chatbot, store=store)
+    app = create_app(runtime=runtime)
+    client = TestClient(app)
+
+    with client.stream(
+        "POST",
+        "/chat/stream",
+        json={"session_id": "s1", "message": "hello", "model": "gpt-5-mini"},
+    ) as response:
+        body = "".join(response.iter_text())
+
+    assert response.status_code == 200
+    assert "event: done" in body
+    assert chatbot.calls == ["gpt-5-mini"]
 
 
 def test_get_chat_stream_emits_tool_events(tmp_path):
@@ -497,12 +593,14 @@ def test_get_capabilities_returns_frontend_metadata(tmp_path):
         "provider": "openai_compat",
         "name": "gpt-4.1-mini",
     }
+    assert payload["available_models"] == ["gpt-4.1-mini", "gpt-5-mini"]
     assert payload["max_iterations"] == 8
     assert payload["features"] == {
         "streaming": True,
         "session_workspace": True,
         "file_upload": True,
-        "multimodal": False,
+        "multimodal": True,
+        "model_override": True,
     }
     tools = {item["name"]: item for item in payload["tools"]}
     assert tools["read_file"]["category"] == "filesystem"

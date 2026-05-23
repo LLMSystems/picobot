@@ -2,10 +2,19 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { Button } from '@/components/ui/button'
 import { Send, Square, Plus, X, Loader2, AlertTriangle } from 'lucide-vue-next'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 import { useChatStore } from '@/stores/chat'
 import { useCapabilitiesStore } from '@/stores/capabilities'
 import { useComposerBus } from '@/composables/useComposerBus'
 import { useImageAttachments } from '@/composables/useImageAttachments'
+import { useSelectedModel } from '@/composables/useSelectedModel'
+import ModelSelector from './ModelSelector.vue'
+import { ApiError } from '@/lib/errors'
 import { toast } from 'vue-sonner'
 
 const chat = useChatStore()
@@ -25,6 +34,8 @@ const imagesEnabled = computed(
 )
 
 const attachments = useImageAttachments(() => chat.currentSessionId)
+const { selected: selectedModel, resetToDefault: resetModel } =
+  useSelectedModel()
 
 const canSend = computed(() => {
   if (chat.isStreaming || chat.currentSessionId === null) return false
@@ -70,13 +81,22 @@ async function send() {
   if (!canSend.value) return
   const t = text.value
   const imgs = attachments.toImages()
+  const model = selectedModel.value
   text.value = ''
   attachments.clearAll()
   await nextTick()
   autoResize()
   try {
-    await chat.send(t, imgs)
+    await chat.send(t, imgs, model)
   } catch (err) {
+    if (err instanceof ApiError && err.code === 'MODEL_NOT_ALLOWED') {
+      toast.error('所選模型不在允許清單', {
+        description: '已重設為預設模型，請再試一次',
+      })
+      resetModel()
+      void caps.refresh()
+      return
+    }
     if (err instanceof Error) {
       toast.error('傳送失敗', {
         description: err.message,
@@ -231,19 +251,28 @@ function onDrop(e: DragEvent) {
         />
 
         <div class="mt-1 flex items-center gap-1">
-          <Button
-            v-if="imagesEnabled"
-            variant="ghost"
-            size="icon"
-            class="size-8 rounded-full"
-            :disabled="
-              chat.currentSessionId === null || !attachments.canAddMore.value
-            "
-            aria-label="附加圖片"
-            @click="openPicker"
-          >
-            <Plus class="size-4" />
-          </Button>
+          <TooltipProvider v-if="imagesEnabled" :delay-duration="200">
+            <Tooltip>
+              <TooltipTrigger as-child>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  class="size-8 rounded-full"
+                  :disabled="
+                    chat.currentSessionId === null ||
+                    !attachments.canAddMore.value
+                  "
+                  aria-label="附加圖片"
+                  @click="openPicker"
+                >
+                  <Plus class="size-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="top">
+                附加圖片（拖曳 / 貼上 / 點擊）
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
           <input
             v-if="imagesEnabled"
             ref="fileInputRef"
@@ -253,6 +282,7 @@ function onDrop(e: DragEvent) {
             class="hidden"
             @change="onFilesChosen"
           />
+          <ModelSelector />
           <div class="flex-1" />
           <Button
             v-if="!chat.isStreaming"

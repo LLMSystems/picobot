@@ -98,6 +98,7 @@ export const api = {
     session_id: string
     message: string
     images?: ChatImageInput[]
+    model?: string
   }) =>
     request<ChatResponse>('/chat', {
       method: 'POST',

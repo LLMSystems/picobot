@@ -47,6 +47,7 @@ class ChatRequest(BaseModel):
 
     session_id: str = Field(min_length=1)
     message: str = Field(min_length=1)
+    model: str | None = Field(default=None, min_length=1)
     images: list[ChatImageInput] = Field(default_factory=list)
 
 
@@ -145,12 +146,14 @@ class CapabilitiesFeatures(BaseModel):
     session_workspace: bool = False
     file_upload: bool = False
     multimodal: bool = False
+    model_override: bool = False
 
 
 class CapabilitiesResponse(BaseModel):
     """Capabilities summary for frontend UI bootstrapping."""
 
     model: CapabilitiesModelInfo
+    available_models: list[str] = Field(default_factory=list)
     max_iterations: int
     tools: list[CapabilitiesToolInfo] = Field(default_factory=list)
     features: CapabilitiesFeatures

@@ -234,6 +234,7 @@ export const useChatStore = defineStore('chat', () => {
   async function send(
     text: string,
     images: ChatImageInput[] = [],
+    model: string | null = null,
   ): Promise<void> {
     const sessionId = currentSessionId.value
     if (!sessionId) return
@@ -286,6 +287,7 @@ export const useChatStore = defineStore('chat', () => {
             session_id: sessionId,
             message: text,
             ...(images.length ? { images } : {}),
+            ...(model ? { model } : {}),
           },
           abortController.signal,
           {
@@ -342,6 +344,7 @@ export const useChatStore = defineStore('chat', () => {
           session_id: sessionId,
           message: text,
           ...(images.length ? { images } : {}),
+          ...(model ? { model } : {}),
         })
         assistantMsg.content = resp.content
         if (resp.content) {
