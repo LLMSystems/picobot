@@ -332,7 +332,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     fileContent.value = null
     fileError.value = null
     if (!path) return
-    if (detectPreviewKind(path) !== 'text') return
+    const kind = detectPreviewKind(path)
+    if (kind !== 'text' && kind !== 'html') return
     await loadFile(path)
   }
 

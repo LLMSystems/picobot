@@ -1,4 +1,4 @@
-export type PreviewKind = 'image' | 'svg' | 'pdf' | 'text'
+export type PreviewKind = 'image' | 'svg' | 'pdf' | 'html' | 'text'
 
 const IMAGE_EXTS = new Set([
   'png',
@@ -19,6 +19,7 @@ export function detectPreviewKind(path: string | null | undefined): PreviewKind 
   const ext = base.slice(dot + 1)
   if (ext === 'svg') return 'svg'
   if (ext === 'pdf') return 'pdf'
+  if (ext === 'html' || ext === 'htm') return 'html'
   if (IMAGE_EXTS.has(ext)) return 'image'
   return 'text'
 }

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { Loader2 } from 'lucide-vue-next'
 import hljs from 'highlight.js'
 import { ApiError } from '@/lib/errors'
@@ -10,6 +10,24 @@ import { api } from '@/lib/api'
 import { detectPreviewKind } from '@/lib/preview'
 
 const ws = useWorkspaceStore()
+
+type HtmlMode = 'preview' | 'source'
+const htmlMode = ref<HtmlMode>('preview')
+
+watch(
+  () => ws.selectedPath,
+  () => {
+    htmlMode.value = 'preview'
+  },
+)
+
+function htmlTabClass(m: HtmlMode): string {
+  const base =
+    'inline-flex items-center rounded px-2.5 py-1 text-xs transition-colors'
+  return htmlMode.value === m
+    ? `${base} bg-background text-foreground shadow-sm`
+    : `${base} text-muted-foreground hover:text-foreground`
+}
 
 const previewKind = computed(() => detectPreviewKind(ws.selectedPath))
 
@@ -150,6 +168,60 @@ const errorMessage = computed(() => {
           :title="ws.selectedPath ?? ''"
           class="h-full w-full border-0 bg-muted/20"
         />
+      </template>
+      <template v-else-if="previewKind === 'html'">
+        <div class="flex h-full min-h-0 flex-col">
+          <div
+            class="flex shrink-0 items-center gap-1 border-b bg-muted/30 px-2 py-1.5"
+            role="tablist"
+          >
+            <div class="flex items-center gap-0.5 rounded-md border bg-muted/40 p-0.5">
+              <button
+                type="button"
+                role="tab"
+                :aria-selected="htmlMode === 'preview'"
+                :class="htmlTabClass('preview')"
+                @click="htmlMode = 'preview'"
+              >
+                預覽
+              </button>
+              <button
+                type="button"
+                role="tab"
+                :aria-selected="htmlMode === 'source'"
+                :class="htmlTabClass('source')"
+                @click="htmlMode = 'source'"
+              >
+                原始碼
+              </button>
+            </div>
+          </div>
+          <iframe
+            v-if="htmlMode === 'preview'"
+            :src="rawUrl"
+            :title="ws.selectedPath ?? ''"
+            sandbox="allow-scripts"
+            class="h-full w-full border-0 bg-background"
+          />
+          <template v-else>
+            <template v-if="ws.loadingFile && !ws.fileContent">
+              <div class="flex h-full items-center justify-center gap-2 text-xs text-muted-foreground">
+                <Loader2 class="size-4 animate-spin" />
+                載入中…
+              </div>
+            </template>
+            <template v-else-if="errorMessage">
+              <div class="flex h-full items-center justify-center px-4 text-center text-xs text-muted-foreground">
+                {{ errorMessage }}
+              </div>
+            </template>
+            <template v-else-if="ws.fileContent">
+              <pre
+                class="m-0 flex-1 overflow-auto whitespace-pre bg-muted/20 px-4 py-3 font-mono text-xs leading-relaxed"
+              ><code class="hljs" v-html="highlightedHtml" /></pre>
+            </template>
+          </template>
+        </div>
       </template>
       <template v-else-if="ws.loadingFile && !ws.fileContent">
         <div class="flex h-full items-center justify-center gap-2 text-xs text-muted-foreground">
