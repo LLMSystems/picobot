@@ -1,14 +1,35 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { Button } from '@/components/ui/button'
-import { Copy, AlertCircle, CircleStop } from 'lucide-vue-next'
+import { Copy, AlertCircle, CircleStop, RefreshCw } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import MarkdownView from '@/components/common/MarkdownView.vue'
 import StreamingCursor from './StreamingCursor.vue'
 import ToolCallCard from './ToolCallCard.vue'
+import { useChatStore } from '@/stores/chat'
 import type { DisplayMessage } from '@/lib/types'
 
 const props = defineProps<{ message: DisplayMessage }>()
+const chat = useChatStore()
+
+const canRegenerate = computed(
+  () =>
+    !chat.isStreaming &&
+    (props.message.status === 'complete' ||
+      props.message.status === 'aborted' ||
+      props.message.status === 'error') &&
+    chat.isLastAssistant(props.message.id),
+)
+
+async function regenerate() {
+  try {
+    await chat.regenerate(props.message.id)
+  } catch (err) {
+    if (err instanceof Error) {
+      toast.error('重新產生失敗', { description: err.message })
+    }
+  }
+}
 
 const showThinking = computed(
   () =>
@@ -89,10 +110,15 @@ async function copy() {
       </div>
 
       <div
-        v-if="message.status === 'complete'"
+        v-if="
+          message.status === 'complete' ||
+          message.status === 'aborted' ||
+          message.status === 'error'
+        "
         class="flex items-center gap-1 opacity-0 transition group-hover:opacity-100"
       >
         <Button
+          v-if="message.status === 'complete'"
           variant="ghost"
           size="icon"
           class="size-7"
@@ -100,6 +126,17 @@ async function copy() {
           @click="copy"
         >
           <Copy class="size-3.5" />
+        </Button>
+        <Button
+          v-if="canRegenerate"
+          variant="ghost"
+          size="icon"
+          class="size-7"
+          aria-label="重新產生"
+          title="重新產生"
+          @click="regenerate"
+        >
+          <RefreshCw class="size-3.5" />
         </Button>
       </div>
     </div>

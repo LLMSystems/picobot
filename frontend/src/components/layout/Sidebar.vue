@@ -10,7 +10,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { Plus, MessageSquare } from 'lucide-vue-next'
+import { Plus, MessageSquare, Search, X } from 'lucide-vue-next'
 import { useSessionsStore } from '@/stores/sessions'
 import { useChatStore } from '@/stores/chat'
 import { toast } from 'vue-sonner'
@@ -35,6 +35,19 @@ const deleteTarget = ref<string | null>(null)
 const deleteTitle = computed(() => {
   const s = deleteTarget.value ? sessions.findById(deleteTarget.value) : null
   return s?.title ?? ''
+})
+
+const search = ref('')
+
+const filteredSessions = computed(() => {
+  const q = search.value.trim().toLowerCase()
+  if (!q) return sessions.list
+  return sessions.list.filter((s) => {
+    if (s.title.toLowerCase().includes(q)) return true
+    if (s.last_user_message?.toLowerCase().includes(q)) return true
+    if (s.last_assistant_preview?.toLowerCase().includes(q)) return true
+    return false
+  })
 })
 
 async function newChat() {
@@ -102,7 +115,7 @@ async function confirmDelete() {
       />
       <span class="text-lg font-semibold tracking-tight">Picobot</span>
     </div>
-    <div class="px-3 pb-3">
+    <div class="space-y-2 px-3 pb-3">
       <Button
         size="sm"
         class="h-8 w-full gap-1.5 rounded-[8px] bg-brand text-sm font-medium text-brand-foreground shadow-none transition-shadow hover:bg-brand/90 hover:shadow-md"
@@ -111,6 +124,26 @@ async function confirmDelete() {
         <Plus class="size-3.5" />
         新對話
       </Button>
+      <div class="relative">
+        <Search
+          class="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
+        />
+        <input
+          v-model="search"
+          type="text"
+          placeholder="搜尋對話…"
+          class="h-8 w-full rounded-[8px] border bg-background pl-7 pr-7 text-xs outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
+        />
+        <button
+          v-if="search"
+          type="button"
+          class="absolute right-1.5 top-1/2 grid size-5 -translate-y-1/2 place-items-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+          aria-label="清空搜尋"
+          @click="search = ''"
+        >
+          <X class="size-3" />
+        </button>
+      </div>
     </div>
 
     <div class="flex-1 min-h-0 overflow-y-auto px-2 pb-3">
@@ -126,8 +159,13 @@ async function confirmDelete() {
           <p class="mt-1">按上方「新對話」開始</p>
         </div>
       </template>
+      <template v-else-if="filteredSessions.length === 0">
+        <div class="px-3 py-8 text-center text-xs text-muted-foreground">
+          <p>找不到符合「{{ search }}」的對話</p>
+        </div>
+      </template>
       <ul v-else role="listbox" class="space-y-0.5">
-        <li v-for="s in sessions.list" :key="s.session_id">
+        <li v-for="s in filteredSessions" :key="s.session_id">
           <SessionItem
             :session="s"
             :active="currentId === s.session_id"

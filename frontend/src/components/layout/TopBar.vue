@@ -4,10 +4,24 @@ import { useRoute } from 'vue-router'
 import { useSessionsStore } from '@/stores/sessions'
 import { useCapabilitiesStore } from '@/stores/capabilities'
 import { Button } from '@/components/ui/button'
-import { Menu, Pencil, Moon, Sun, PanelRight } from 'lucide-vue-next'
+import { Menu, Pencil, Moon, Sun, PanelRight, Bell, BellOff, Download } from 'lucide-vue-next'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { toast } from 'vue-sonner'
 import { useTheme } from '@/composables/useTheme'
 import { useWorkspaceStore } from '@/stores/workspace'
+import { useNotifications } from '@/composables/useNotifications'
+import { api } from '@/lib/api'
+import {
+  downloadAsFile,
+  formatMessagesAsJson,
+  formatMessagesAsMarkdown,
+  sanitizeFilename,
+} from '@/lib/export'
 
 defineEmits<{ (e: 'toggle-sidebar'): void }>()
 
@@ -16,6 +30,56 @@ const sessions = useSessionsStore()
 const caps = useCapabilitiesStore()
 const ws = useWorkspaceStore()
 const { theme, toggle: toggleTheme } = useTheme()
+const notifs = useNotifications()
+
+const exporting = ref(false)
+
+async function exportSession(format: 'markdown' | 'json') {
+  const sid = currentId.value
+  const s = currentSession.value
+  if (!sid || !s) return
+  if (exporting.value) return
+  exporting.value = true
+  try {
+    const { messages } = await api.getMessages(sid)
+    const base = sanitizeFilename(s.title || 'picobot-session')
+    if (format === 'markdown') {
+      const content = formatMessagesAsMarkdown(messages, s.title, sid)
+      downloadAsFile(`${base}.md`, content, 'text/markdown')
+    } else {
+      const content = formatMessagesAsJson(messages, s.title, sid)
+      downloadAsFile(`${base}.json`, content, 'application/json')
+    }
+    toast.success('已匯出', { description: `${base}.${format === 'markdown' ? 'md' : 'json'}` })
+  } catch (err) {
+    toast.error('匯出失敗', {
+      description: err instanceof Error ? err.message : '',
+    })
+  } finally {
+    exporting.value = false
+  }
+}
+
+async function toggleNotifications() {
+  if (!notifs.supported) {
+    toast.error('此瀏覽器不支援通知')
+    return
+  }
+  const result = await notifs.toggle()
+  if (notifs.permission.value === 'denied') {
+    toast.error('通知權限已被瀏覽器拒絕', {
+      description: '請在瀏覽器設定開啟此網站的通知權限',
+    })
+    return
+  }
+  if (result) {
+    toast.success('已開啟通知', {
+      description: '長任務完成時若分頁不在前景會通知你',
+    })
+  } else {
+    toast.info('已關閉通知')
+  }
+}
 
 const currentId = computed(() =>
   route.name === 'chat' && typeof route.params.id === 'string'
@@ -112,6 +176,42 @@ function cancel() {
     </div>
 
     <div class="flex items-center gap-2 text-xs text-muted-foreground">
+      <DropdownMenu v-if="currentSession">
+        <DropdownMenuTrigger as-child>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="匯出對話"
+            title="匯出對話"
+            :disabled="exporting"
+          >
+            <Download class="size-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" class="w-44">
+          <DropdownMenuItem @click="exportSession('markdown')">
+            <span class="text-sm">匯出為 Markdown</span>
+          </DropdownMenuItem>
+          <DropdownMenuItem @click="exportSession('json')">
+            <span class="text-sm">匯出為 JSON</span>
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <Button
+        v-if="notifs.supported"
+        variant="ghost"
+        size="icon"
+        :aria-pressed="notifs.enabled.value"
+        aria-label="切換通知"
+        title="長任務完成通知"
+        @click="toggleNotifications"
+      >
+        <Bell
+          v-if="notifs.enabled.value && notifs.permission.value === 'granted'"
+          class="size-4"
+        />
+        <BellOff v-else class="size-4 opacity-50" />
+      </Button>
       <Button
         variant="ghost"
         size="icon"

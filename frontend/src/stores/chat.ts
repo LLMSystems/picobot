@@ -6,6 +6,7 @@ import { runStream } from '@/composables/useChatStream'
 import { useSessionsStore } from '@/stores/sessions'
 import { useCapabilitiesStore } from '@/stores/capabilities'
 import { useWorkspaceStore } from '@/stores/workspace'
+import { useNotifications } from '@/composables/useNotifications'
 import type {
   ChatImageInput,
   DisplayMessage,
@@ -231,6 +232,14 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
+  function rewriteMentions(input: string): string {
+    return input.replace(
+      /(^|\s)@([^\s@]+)/g,
+      (_match, prefix: string, path: string) =>
+        `${prefix}「workspace 檔案：${path}」`,
+    )
+  }
+
   async function send(
     text: string,
     images: ChatImageInput[] = [],
@@ -241,6 +250,8 @@ export const useChatStore = defineStore('chat', () => {
     if (runStatus.value === 'streaming') return
     const trimmed = text.trim()
     if (!trimmed && images.length === 0) return
+
+    text = rewriteMentions(text)
 
     const caps = useCapabilitiesStore()
     const sessions = useSessionsStore()
@@ -333,8 +344,14 @@ export const useChatStore = defineStore('chat', () => {
                   })
                 }
               }
+              const finalContent = streamingMessage.value.content
               messages.value.push(streamingMessage.value)
               streamingMessage.value = null
+              const notifs = useNotifications()
+              notifs.notify(
+                'Picobot 完成回應',
+                finalContent.slice(0, 140) || undefined,
+              )
             },
             onWorkspaceChanged: (d) => scheduleWorkspaceUpdate(d),
           },
@@ -404,6 +421,63 @@ export const useChatStore = defineStore('chat', () => {
     return null
   }
 
+  function findPrecedingUser(
+    assistantMessageId: string,
+  ): DisplayMessage | null {
+    const idx = messages.value.findIndex((m) => m.id === assistantMessageId)
+    if (idx < 0) return null
+    for (let i = idx - 1; i >= 0; i--) {
+      const m = messages.value[i]
+      if (m && m.role === 'user') return m
+    }
+    return null
+  }
+
+  function isLastAssistant(messageId: string): boolean {
+    for (let i = messages.value.length - 1; i >= 0; i--) {
+      const m = messages.value[i]
+      if (!m) continue
+      if (m.role === 'assistant') return m.id === messageId
+      if (m.role === 'user') return false
+    }
+    return false
+  }
+
+  async function regenerate(
+    assistantMessageId: string,
+    model: string | null = null,
+  ): Promise<void> {
+    if (runStatus.value === 'streaming') return
+    const user = findPrecedingUser(assistantMessageId)
+    if (!user) return
+    const images: ChatImageInput[] = (user.images ?? [])
+      .filter((img) => img.path || img.url)
+      .map((img) => ({
+        ...(img.path ? { path: img.path } : {}),
+        ...(img.url ? { url: img.url } : {}),
+        ...(img.detail ? { detail: img.detail } : {}),
+      }))
+    await send(user.content, images, model)
+  }
+
+  async function editAndResend(
+    userMessageId: string,
+    newText: string,
+    model: string | null = null,
+  ): Promise<void> {
+    if (runStatus.value === 'streaming') return
+    const target = messages.value.find((m) => m.id === userMessageId)
+    if (!target || target.role !== 'user') return
+    const images: ChatImageInput[] = (target.images ?? [])
+      .filter((img) => img.path || img.url)
+      .map((img) => ({
+        ...(img.path ? { path: img.path } : {}),
+        ...(img.url ? { url: img.url } : {}),
+        ...(img.detail ? { detail: img.detail } : {}),
+      }))
+    await send(newText, images, model)
+  }
+
   const isStreaming = computed(() => runStatus.value === 'streaming')
 
   return {
@@ -418,5 +492,8 @@ export const useChatStore = defineStore('chat', () => {
     send,
     stop,
     retryLastUser,
+    regenerate,
+    editAndResend,
+    isLastAssistant,
   }
 })

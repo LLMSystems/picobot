@@ -15,7 +15,9 @@ import { useImageAttachments } from '@/composables/useImageAttachments'
 import { useSelectedModel } from '@/composables/useSelectedModel'
 import ModelSelector from './ModelSelector.vue'
 import { ApiError } from '@/lib/errors'
+import { api } from '@/lib/api'
 import { toast } from 'vue-sonner'
+import { FileText } from 'lucide-vue-next'
 
 const chat = useChatStore()
 const caps = useCapabilitiesStore()
@@ -33,9 +35,117 @@ const imagesEnabled = computed(
     caps.data.features.multimodal && caps.data.features.session_workspace,
 )
 
+const WORKSPACE_DRAG_TYPE = 'application/x-picobot-path'
+
 const attachments = useImageAttachments(() => chat.currentSessionId)
 const { selected: selectedModel, resetToDefault: resetModel } =
   useSelectedModel()
+
+const dragKind = ref<'files' | 'workspace' | null>(null)
+
+interface MentionFile {
+  path: string
+  name: string
+}
+const mentionFiles = ref<MentionFile[]>([])
+const mentionFilesLoadedFor = ref<string | null>(null)
+const mentionActive = ref(false)
+const mentionQuery = ref('')
+const mentionStart = ref(0)
+const mentionSelected = ref(0)
+
+const filteredMentionFiles = computed<MentionFile[]>(() => {
+  if (!mentionActive.value) return []
+  const q = mentionQuery.value.toLowerCase()
+  const all = mentionFiles.value
+  const list = q
+    ? all.filter((f) => f.path.toLowerCase().includes(q))
+    : all
+  return list.slice(0, 8)
+})
+
+watch(filteredMentionFiles, () => {
+  mentionSelected.value = 0
+})
+
+async function loadMentionFiles() {
+  const sid = chat.currentSessionId
+  if (!sid) return
+  if (mentionFilesLoadedFor.value === sid) return
+  try {
+    const resp = await api.listWorkspaceTree(sid, {
+      recursive: true,
+      max_entries: 500,
+    })
+    mentionFiles.value = resp.entries
+      .filter((e) => e.type === 'file')
+      .map((e) => ({ path: e.path, name: e.name }))
+    mentionFilesLoadedFor.value = sid
+  } catch {
+    // silently ignore - mention popover just won't show files
+  }
+}
+
+watch(
+  () => chat.currentSessionId,
+  (sid) => {
+    if (sid !== mentionFilesLoadedFor.value) {
+      mentionFiles.value = []
+      mentionFilesLoadedFor.value = null
+      mentionActive.value = false
+    }
+  },
+)
+
+function closeMention() {
+  mentionActive.value = false
+  mentionQuery.value = ''
+}
+
+function checkMention() {
+  const el = textareaRef.value
+  if (!el) {
+    closeMention()
+    return
+  }
+  const pos = el.selectionStart ?? text.value.length
+  const before = text.value.slice(0, pos)
+  const lastAt = before.lastIndexOf('@')
+  if (lastAt < 0) {
+    closeMention()
+    return
+  }
+  const prevChar = lastAt > 0 ? text.value[lastAt - 1] : ''
+  if (prevChar && !/\s/.test(prevChar)) {
+    closeMention()
+    return
+  }
+  const query = before.slice(lastAt + 1)
+  if (/\s/.test(query)) {
+    closeMention()
+    return
+  }
+  mentionStart.value = lastAt
+  mentionQuery.value = query
+  mentionActive.value = true
+  void loadMentionFiles()
+}
+
+async function insertMention(file: MentionFile) {
+  const el = textareaRef.value
+  if (!el) return
+  const pos = el.selectionStart ?? text.value.length
+  const before = text.value.slice(0, mentionStart.value)
+  const after = text.value.slice(pos)
+  const inserted = `@${file.path} `
+  text.value = `${before}${inserted}${after}`
+  closeMention()
+  await nextTick()
+  const newPos = before.length + inserted.length
+  el.focus()
+  el.setSelectionRange(newPos, newPos)
+  autoResize()
+}
 
 const canSend = computed(() => {
   if (chat.isStreaming || chat.currentSessionId === null) return false
@@ -119,6 +229,33 @@ async function send() {
 
 function onKeydown(e: KeyboardEvent) {
   if (isComposing.value || e.keyCode === 229) return
+
+  if (mentionActive.value && filteredMentionFiles.value.length > 0) {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      mentionSelected.value =
+        (mentionSelected.value + 1) % filteredMentionFiles.value.length
+      return
+    }
+    if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      const len = filteredMentionFiles.value.length
+      mentionSelected.value = (mentionSelected.value - 1 + len) % len
+      return
+    }
+    if (e.key === 'Enter' || e.key === 'Tab') {
+      e.preventDefault()
+      const chosen = filteredMentionFiles.value[mentionSelected.value]
+      if (chosen) void insertMention(chosen)
+      return
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      closeMention()
+      return
+    }
+  }
+
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault()
     if (chat.isStreaming) return
@@ -142,6 +279,11 @@ function onKeydown(e: KeyboardEvent) {
   }
 }
 
+function onInput() {
+  autoResize()
+  checkMention()
+}
+
 function stop() {
   chat.stop()
 }
@@ -163,29 +305,71 @@ function onPaste(e: ClipboardEvent) {
   attachments.handlePaste(e)
 }
 
+function detectDragKind(e: DragEvent): 'files' | 'workspace' | null {
+  const types = e.dataTransfer?.types
+  if (!types) return null
+  if (types.includes(WORKSPACE_DRAG_TYPE)) return 'workspace'
+  if (imagesEnabled.value && types.includes('Files')) return 'files'
+  return null
+}
+
 function onDragEnter(e: DragEvent) {
-  if (!imagesEnabled.value) return
-  if (!e.dataTransfer?.types.includes('Files')) return
+  const kind = detectDragKind(e)
+  if (!kind) return
   dragCounter += 1
   isDragOver.value = true
+  dragKind.value = kind
 }
 
 function onDragLeave() {
-  if (!imagesEnabled.value) return
   dragCounter = Math.max(0, dragCounter - 1)
-  if (dragCounter === 0) isDragOver.value = false
+  if (dragCounter === 0) {
+    isDragOver.value = false
+    dragKind.value = null
+  }
 }
 
 function onDragOver(e: DragEvent) {
-  if (!imagesEnabled.value) return
-  if (e.dataTransfer?.types.includes('Files')) {
-    e.preventDefault()
+  const kind = detectDragKind(e)
+  if (!kind) return
+  e.preventDefault()
+  if (e.dataTransfer) {
+    // workspace tree sets effectAllowed='move'; match with 'move' here so
+    // the browser doesn't silently cancel the drop
+    e.dataTransfer.dropEffect = kind === 'workspace' ? 'move' : 'copy'
   }
+}
+
+async function insertWorkspacePath(path: string) {
+  const el = textareaRef.value
+  const pos = el?.selectionStart ?? text.value.length
+  const before = text.value.slice(0, pos)
+  const after = text.value.slice(pos)
+  const needsLeadingSpace =
+    before.length > 0 && !/\s$/.test(before)
+  const needsTrailingSpace = after.length > 0 && !/^\s/.test(after)
+  const inserted = `${needsLeadingSpace ? ' ' : ''}@${path}${needsTrailingSpace ? ' ' : ' '}`
+  text.value = `${before}${inserted}${after}`
+  await nextTick()
+  if (el) {
+    const newPos = before.length + inserted.length
+    el.focus()
+    el.setSelectionRange(newPos, newPos)
+  }
+  autoResize()
 }
 
 function onDrop(e: DragEvent) {
   dragCounter = 0
   isDragOver.value = false
+  const wsPath = e.dataTransfer?.getData(WORKSPACE_DRAG_TYPE)
+  if (wsPath) {
+    e.preventDefault()
+    dragKind.value = null
+    void insertWorkspacePath(wsPath)
+    return
+  }
+  dragKind.value = null
   if (!imagesEnabled.value) return
   attachments.handleDrop(e)
 }
@@ -259,7 +443,9 @@ function onDrop(e: DragEvent) {
           @paste="onPaste"
           @compositionstart="isComposing = true"
           @compositionend="isComposing = false"
-          @input="autoResize"
+          @input="onInput"
+          @click="checkMention"
+          @keyup="checkMention"
         />
 
         <div class="mt-1 flex items-center gap-1">
@@ -322,7 +508,46 @@ function onDrop(e: DragEvent) {
           v-if="isDragOver"
           class="pointer-events-none absolute inset-0 flex items-center justify-center rounded-2xl border-2 border-dashed border-brand/60 bg-background/80 text-sm font-medium text-brand"
         >
-          放開以附加圖片
+          {{
+            dragKind === 'workspace'
+              ? '放開以引用此檔案'
+              : '放開以附加圖片'
+          }}
+        </div>
+
+        <div
+          v-if="mentionActive && filteredMentionFiles.length > 0"
+          class="absolute bottom-full left-0 right-0 z-20 mb-2 max-h-64 overflow-y-auto rounded-xl border bg-background shadow-lg"
+        >
+          <div
+            class="flex items-center justify-between gap-2 border-b px-3 py-1.5 text-[11px] text-muted-foreground"
+          >
+            <span>引用 workspace 檔案</span>
+            <span class="font-mono">@{{ mentionQuery || '…' }}</span>
+          </div>
+          <ul role="listbox" class="py-1">
+            <li
+              v-for="(f, idx) in filteredMentionFiles"
+              :key="f.path"
+              role="option"
+              :aria-selected="idx === mentionSelected"
+              class="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-sm"
+              :class="
+                idx === mentionSelected ? 'bg-muted text-foreground' : ''
+              "
+              @mousedown.prevent="insertMention(f)"
+              @mouseenter="mentionSelected = idx"
+            >
+              <FileText class="size-3.5 shrink-0 text-muted-foreground" />
+              <span class="flex-1 truncate font-mono text-xs">{{ f.path }}</span>
+            </li>
+          </ul>
+        </div>
+        <div
+          v-else-if="mentionActive"
+          class="absolute bottom-full left-0 right-0 z-20 mb-2 rounded-xl border bg-background px-3 py-2 text-xs text-muted-foreground shadow-lg"
+        >
+          找不到符合「{{ mentionQuery }}」的檔案
         </div>
       </div>
       <p class="mt-2 text-center text-[11px] text-muted-foreground/70">
