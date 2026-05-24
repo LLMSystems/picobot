@@ -65,10 +65,22 @@ watch(text, () => {
 watch(
   () => bus.focusToken.value,
   async () => {
-    const { text: filled, submit } = bus.consume()
-    if (filled !== null) text.value = filled
+    const { text: filled, submit, mode } = bus.consume()
+    if (filled !== null) {
+      if (mode === 'append' && text.value) {
+        const sep = text.value.endsWith('\n') ? '' : '\n'
+        text.value = `${text.value}${sep}${filled}`
+      } else {
+        text.value = filled
+      }
+    }
     await nextTick()
-    textareaRef.value?.focus()
+    const el = textareaRef.value
+    el?.focus()
+    if (el && filled !== null) {
+      const end = el.value.length
+      el.setSelectionRange(end, end)
+    }
     autoResize()
     if (submit && filled !== null && canSend.value) {
       void send()

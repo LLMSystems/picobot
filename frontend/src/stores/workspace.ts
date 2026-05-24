@@ -4,6 +4,7 @@ import { toast } from 'vue-sonner'
 import { api } from '@/lib/api'
 import { ApiError } from '@/lib/errors'
 import { detectPreviewKind } from '@/lib/preview'
+import { useComposerBus } from '@/composables/useComposerBus'
 import type {
   WorkspaceEntryDTO,
   WorkspaceFileResponse,
@@ -416,6 +417,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     if (parentKey === '' || expanded.value.has(parentKey)) {
       await refreshTree({ path: parent })
     }
+    if (resp.created) notifyComposerOfMkdir(resp.path)
     return { path: resp.path, created: resp.created }
   }
 
@@ -490,6 +492,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         if (resp.type === 'directory') next.add(resp.dst)
         expanded.value = next
       }
+
+      notifyComposerOfMove(src, resp.dst)
     } catch (err) {
       if (
         err instanceof ApiError &&
@@ -526,6 +530,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         await select(null)
       }
       toast.success('已刪除', { description: path })
+      notifyComposerOfDelete(path)
     } catch (err) {
       toast.error('刪除失敗', { description: describeDeleteError(err) })
       throw err
@@ -579,6 +584,40 @@ export const useWorkspaceStore = defineStore('workspace', () => {
 
   function clearDelete() {
     pendingDelete.value = null
+  }
+
+  function notifyComposerOfUploads(paths: string[]) {
+    if (paths.length === 0) return
+    const list = paths.map((p) => `「${p}」`).join('、')
+    const text =
+      paths.length === 1
+        ? `（使用者上傳了檔案：${list}）`
+        : `（使用者上傳了 ${paths.length} 個檔案：${list}）`
+    const bus = useComposerBus()
+    bus.append(text)
+  }
+
+  function notifyComposerOfDelete(path: string) {
+    if (!path) return
+    const bus = useComposerBus()
+    bus.append(`（使用者刪除了檔案：「${path}」）`)
+  }
+
+  function notifyComposerOfMove(src: string, dst: string) {
+    const srcParent = parentOf(src)
+    const dstParent = parentOf(dst)
+    const isRename = srcParent === dstParent
+    const text = isRename
+      ? `（使用者把「${src}」重新命名為「${dst}」）`
+      : `（使用者把「${src}」移動到「${dst}」）`
+    const bus = useComposerBus()
+    bus.append(text)
+  }
+
+  function notifyComposerOfMkdir(path: string) {
+    if (!path) return
+    const bus = useComposerBus()
+    bus.append(`（使用者建立了資料夾：「${path}」）`)
   }
 
   async function uploadFiles(
@@ -643,6 +682,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         toast.success(`${action}成功`, {
           description: `${resp.uploaded.length} 個檔案 → ${desc}`,
         })
+        notifyComposerOfUploads(resp.uploaded.map((u) => u.path))
       }
       if (resp.skipped.length > 0) {
         uploadConflict.value = {
