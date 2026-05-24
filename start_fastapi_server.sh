@@ -27,6 +27,15 @@ apt-get install -y \
   libgtk-3-0 \
   ca-certificates
 
+apt-get update && apt-get install -y \
+  fontconfig \
+  fonts-noto-cjk \
+  fonts-noto-color-emoji \
+  fonts-dejavu-core \
+  fonts-liberation
+
+fc-cache -fv
+
 echo "[3/4] Installing agent-browser..."
 npm install -g agent-browser
 
