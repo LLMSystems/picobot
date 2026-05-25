@@ -268,8 +268,14 @@ async def upload_workspace_files(
     """Upload one or more files into the session workspace."""
     runtime = get_runtime(request)
     form = await request.form()
-    files = [item for _, item in form.multi_items() if hasattr(item, "read")]
-    if not files:
+    form_items = form.multi_items()
+
+    # Build a mapping from index to relative_path sent by the browser
+    # The frontend sends pairs: ("relative_paths", "subdir/file.txt") alongside ("files", <UploadFile>)
+    relative_paths: list[str] = [v for k, v in form_items if k == "relative_paths" and isinstance(v, str)]
+    file_items = [item for _, item in form_items if hasattr(item, "read")]
+
+    if not file_items:
         return error_response(
             request,
             status_code=400,
@@ -277,14 +283,17 @@ async def upload_workspace_files(
             message="No files were provided",
         )
 
-    payload_files = [
-        UploadFileInput(
-            name=str(getattr(item, "filename", "") or ""),
-            content=await item.read(),
-            content_type=getattr(item, "content_type", None),
+    payload_files = []
+    for idx, item in enumerate(file_items):
+        rel_path = relative_paths[idx] if idx < len(relative_paths) else None
+        payload_files.append(
+            UploadFileInput(
+                name=str(getattr(item, "filename", "") or ""),
+                content=await item.read(),
+                content_type=getattr(item, "content_type", None),
+                relative_path=rel_path or None,
+            )
         )
-        for item in files
-    ]
     try:
         payload = await runtime.upload_workspace_files_async(
             session_id,

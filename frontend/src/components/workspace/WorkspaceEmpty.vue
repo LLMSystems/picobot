@@ -5,6 +5,7 @@ import {
   FolderX,
   AlertTriangle,
   Upload,
+  FolderUp,
   FolderPlus,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
@@ -16,9 +17,14 @@ defineProps<{ variant: 'empty' | 'unavailable' | 'error' }>()
 const ws = useWorkspaceStore()
 const caps = useCapabilitiesStore()
 const fileInputRef = ref<HTMLInputElement | null>(null)
+const folderInputRef = ref<HTMLInputElement | null>(null)
 
 function openPicker() {
   fileInputRef.value?.click()
+}
+
+function openFolderPicker() {
+  folderInputRef.value?.click()
 }
 
 async function onFilesChosen(e: Event) {
@@ -59,6 +65,16 @@ async function onFilesChosen(e: Event) {
             上傳檔案
           </Button>
           <Button
+            v-if="caps.data.features.file_upload"
+            size="sm"
+            variant="outline"
+            class="w-full gap-1.5"
+            @click="openFolderPicker"
+          >
+            <FolderUp class="size-3.5" />
+            上傳資料夾
+          </Button>
+          <Button
             v-if="caps.data.features.session_workspace"
             size="sm"
             variant="outline"
@@ -72,6 +88,14 @@ async function onFilesChosen(e: Event) {
         <input
           ref="fileInputRef"
           type="file"
+          multiple
+          class="hidden"
+          @change="onFilesChosen"
+        />
+        <input
+          ref="folderInputRef"
+          type="file"
+          webkitdirectory
           multiple
           class="hidden"
           @change="onFilesChosen"

@@ -566,13 +566,24 @@ class LocalAgentRuntime:
         uploaded: list[dict[str, object]] = []
         skipped: list[dict[str, object]] = []
         for item in files:
-            _validate_upload_filename(item.name)
             if len(item.content) > self.max_upload_file_bytes:
                 raise WorkspaceUploadFileTooLargeError(
                     f"file '{item.name}' exceeds max size {self.max_upload_file_bytes} bytes",
                 )
 
-            target = target_dir / item.name
+            if item.relative_path:
+                # Folder upload: validate each path component and resolve target
+                rel = item.relative_path.replace("\\", "/").strip("/")
+                parts = rel.split("/")
+                for part in parts:
+                    _validate_upload_filename(part)
+                target = target_dir.joinpath(*parts)
+                display_name = parts[-1]
+            else:
+                _validate_upload_filename(item.name)
+                target = target_dir / item.name
+                display_name = item.name
+
             relative_path = _relative_posix(target, workspace)
             already_exists = target.exists()
             if already_exists and target.is_dir():
@@ -582,7 +593,7 @@ class LocalAgentRuntime:
             if already_exists and not overwrite:
                 skipped.append(
                     {
-                        "name": item.name,
+                        "name": display_name,
                         "reason": "already_exists",
                     },
                 )
@@ -592,7 +603,7 @@ class LocalAgentRuntime:
             uploaded.append(
                 {
                     "path": relative_path,
-                    "name": item.name,
+                    "name": display_name,
                     "size": len(item.content),
                     "content_type": item.content_type,
                     "overwritten": already_exists,
@@ -1105,6 +1116,10 @@ class UploadFileInput:
     name: str
     content: bytes
     content_type: str | None = None
+    # POSIX relative path from the upload root, e.g. "subdir/file.txt".
+    # When set, the file is placed at <target_dir>/<relative_path> and
+    # intermediate directories are created automatically.
+    relative_path: str | None = None
 
 
 class WorkspaceUploadError(ValueError):

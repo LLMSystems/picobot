@@ -7,6 +7,7 @@ import {
   ArrowDownAZ,
   Clock,
   Upload,
+  FolderUp,
   FolderPlus,
   FilePlus,
   ArchiveIcon,
@@ -33,6 +34,7 @@ const emit = defineEmits<{
 const ws = useWorkspaceStore()
 const caps = useCapabilitiesStore()
 const fileInputRef = ref<HTMLInputElement | null>(null)
+const folderInputRef = ref<HTMLInputElement | null>(null)
 
 function downloadZip() {
   const id = ws.sessionId
@@ -47,6 +49,10 @@ function downloadZip() {
 
 function openPicker() {
   fileInputRef.value?.click()
+}
+
+function openFolderPicker() {
+  folderInputRef.value?.click()
 }
 
 function onFilesChosen(e: Event) {
@@ -111,6 +117,20 @@ function tabBtnClass(t: WorkspaceTab): string {
             </TooltipTrigger>
             <TooltipContent>上傳檔案</TooltipContent>
           </Tooltip>
+          <Tooltip v-if="caps.data.features.file_upload">
+            <TooltipTrigger as-child>
+              <Button
+                variant="ghost"
+                size="icon"
+                class="size-7"
+                aria-label="上傳資料夾"
+                @click="openFolderPicker"
+              >
+                <FolderUp class="size-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>上傳資料夾</TooltipContent>
+          </Tooltip>
           <Tooltip v-if="caps.data.features.session_workspace">
             <TooltipTrigger as-child>
               <Button
@@ -142,6 +162,14 @@ function tabBtnClass(t: WorkspaceTab): string {
           <input
             ref="fileInputRef"
             type="file"
+            multiple
+            class="hidden"
+            @change="onFilesChosen"
+          />
+          <input
+            ref="folderInputRef"
+            type="file"
+            webkitdirectory
             multiple
             class="hidden"
             @change="onFilesChosen"

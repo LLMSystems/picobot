@@ -133,7 +133,12 @@ export const api = {
     files: File[],
   ) => {
     const formData = new FormData()
-    for (const f of files) formData.append('files', f, f.name)
+    for (const f of files) {
+      formData.append('files', f, f.name)
+      // webkitRelativePath is set by the browser when the user picks a folder.
+      // We mirror the order so the backend can zip files[i] with relative_paths[i].
+      formData.append('relative_paths', (f as File & { webkitRelativePath?: string }).webkitRelativePath || '')
+    }
     return requestRaw<WorkspaceUploadResponse>(
       `/sessions/${encodeURIComponent(id)}/workspace/upload${qs(params)}`,
       { method: 'POST', body: formData },
