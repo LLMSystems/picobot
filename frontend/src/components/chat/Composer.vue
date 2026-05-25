@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
 import { Button } from '@/components/ui/button'
-import { Send, Square, Plus, X, Loader2, AlertTriangle } from 'lucide-vue-next'
+import { Send, Square, Plus, X, Loader2, AlertTriangle, FileText } from 'lucide-vue-next'
 import {
   Tooltip,
   TooltipContent,
@@ -11,13 +11,12 @@ import {
 import { useChatStore } from '@/stores/chat'
 import { useCapabilitiesStore } from '@/stores/capabilities'
 import { useComposerBus } from '@/composables/useComposerBus'
-import { useImageAttachments } from '@/composables/useImageAttachments'
+import { useImageAttachments, ACCEPTED_FILE_EXTENSIONS } from '@/composables/useImageAttachments'
 import { useSelectedModel } from '@/composables/useSelectedModel'
 import ModelSelector from './ModelSelector.vue'
 import { ApiError } from '@/lib/errors'
 import { api } from '@/lib/api'
 import { toast } from 'vue-sonner'
-import { FileText } from 'lucide-vue-next'
 
 const chat = useChatStore()
 const caps = useCapabilitiesStore()
@@ -35,9 +34,43 @@ const imagesEnabled = computed(
     caps.data.features.multimodal && caps.data.features.session_workspace,
 )
 
+const fileUploadEnabled = computed(() => caps.data.features.session_workspace)
+
 const WORKSPACE_DRAG_TYPE = 'application/x-picobot-path'
 
-const attachments = useImageAttachments(() => chat.currentSessionId)
+function insertPathIntoText(path: string) {
+  const el = textareaRef.value
+  const pos = el?.selectionStart ?? text.value.length
+  const before = text.value.slice(0, pos)
+  const after = text.value.slice(pos)
+  const needsLeadingSpace = before.length > 0 && !/\s$/.test(before)
+  const needsTrailingSpace = after.length > 0 && !/^\s/.test(after)
+  const inserted = `${needsLeadingSpace ? ' ' : ''}@${path}${needsTrailingSpace ? ' ' : ' '}`
+  text.value = `${before}${inserted}${after}`
+  void nextTick().then(() => {
+    if (el) {
+      const newPos = before.length + inserted.length
+      el.focus()
+      el.setSelectionRange(newPos, newPos)
+    }
+    autoResize()
+  })
+}
+
+function removePathFromText(path: string) {
+  const mention = `@${path}`
+  // Remove the mention and any surrounding whitespace padding we may have added
+  text.value = text.value
+    .replace(new RegExp(`\\s*${mention.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*`, 'g'), ' ')
+    .trim()
+  void nextTick().then(autoResize)
+}
+
+const attachments = useImageAttachments(
+  () => chat.currentSessionId,
+  (path) => insertPathIntoText(path),
+  (path) => removePathFromText(path),
+)
 const { selected: selectedModel, resetToDefault: resetModel } =
   useSelectedModel()
 
@@ -289,7 +322,7 @@ function stop() {
 }
 
 function openPicker() {
-  if (!imagesEnabled.value) return
+  if (!imagesEnabled.value && !fileUploadEnabled.value) return
   fileInputRef.value?.click()
 }
 
@@ -309,7 +342,7 @@ function detectDragKind(e: DragEvent): 'files' | 'workspace' | null {
   const types = e.dataTransfer?.types
   if (!types) return null
   if (types.includes(WORKSPACE_DRAG_TYPE)) return 'workspace'
-  if (imagesEnabled.value && types.includes('Files')) return 'files'
+  if ((imagesEnabled.value || fileUploadEnabled.value) && types.includes('Files')) return 'files'
   return null
 }
 
@@ -334,8 +367,6 @@ function onDragOver(e: DragEvent) {
   if (!kind) return
   e.preventDefault()
   if (e.dataTransfer) {
-    // workspace tree sets effectAllowed='move'; match with 'move' here so
-    // the browser doesn't silently cancel the drop
     e.dataTransfer.dropEffect = kind === 'workspace' ? 'move' : 'copy'
   }
 }
@@ -370,8 +401,22 @@ function onDrop(e: DragEvent) {
     return
   }
   dragKind.value = null
-  if (!imagesEnabled.value) return
+  if (!imagesEnabled.value && !fileUploadEnabled.value) return
   attachments.handleDrop(e)
+}
+
+// Build the accept string for the file input
+const fileInputAccept = computed(() => {
+  const parts: string[] = []
+  if (imagesEnabled.value) parts.push('image/*')
+  if (fileUploadEnabled.value) parts.push(...ACCEPTED_FILE_EXTENSIONS)
+  return parts.join(',')
+})
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 </script>
 
@@ -390,12 +435,14 @@ function onDrop(e: DragEvent) {
         @dragover="onDragOver"
         @drop="onDrop"
       >
+        <!-- Attachment chips -->
         <div
           v-if="attachments.attachments.value.length > 0"
           class="mb-2 flex flex-wrap gap-2"
         >
+          <!-- Image chips -->
           <div
-            v-for="att in attachments.attachments.value"
+            v-for="att in attachments.imageAttachments.value"
             :key="att.id"
             class="group relative size-20 overflow-hidden rounded-lg border bg-muted"
           >
@@ -430,6 +477,60 @@ function onDrop(e: DragEvent) {
               <X class="size-3" />
             </button>
           </div>
+
+          <!-- File chips -->
+          <div
+            v-for="att in attachments.fileAttachments.value"
+            :key="att.id"
+            class="group relative flex max-w-[180px] items-center gap-2 rounded-lg border bg-muted px-3 py-2 text-xs"
+            :class="att.status === 'error' ? 'border-destructive/50' : ''"
+          >
+            <div class="shrink-0">
+              <Loader2
+                v-if="att.status === 'uploading'"
+                class="size-4 animate-spin text-muted-foreground"
+              />
+              <AlertTriangle
+                v-else-if="att.status === 'error'"
+                class="size-4 text-destructive"
+              />
+              <FileText
+                v-else
+                class="size-4 text-muted-foreground"
+              />
+            </div>
+            <div class="min-w-0 flex-1">
+              <p class="truncate font-medium leading-tight" :title="att.file.name">
+                {{ att.file.name }}
+              </p>
+              <p
+                v-if="att.status === 'error'"
+                class="truncate text-[10px] text-destructive"
+                :title="att.error"
+              >
+                {{ att.error || '上傳失敗' }}
+              </p>
+              <p v-else class="text-[10px] text-muted-foreground">
+                {{ formatFileSize(att.file.size) }}
+              </p>
+            </div>
+            <button
+              v-if="att.status === 'error'"
+              type="button"
+              class="shrink-0 text-[10px] text-muted-foreground underline hover:text-foreground"
+              @click.stop="attachments.retry(att.id)"
+            >
+              重試
+            </button>
+            <button
+              type="button"
+              class="absolute right-1 top-1 grid size-4 place-items-center rounded-full bg-muted-foreground/20 text-muted-foreground opacity-0 transition-opacity hover:bg-muted-foreground/40 group-hover:opacity-100"
+              aria-label="移除"
+              @click.stop="attachments.remove(att.id)"
+            >
+              <X class="size-2.5" />
+            </button>
+          </div>
         </div>
 
         <textarea
@@ -449,7 +550,7 @@ function onDrop(e: DragEvent) {
         />
 
         <div class="mt-1 flex items-center gap-1">
-          <TooltipProvider v-if="imagesEnabled" :delay-duration="200">
+          <TooltipProvider v-if="imagesEnabled || fileUploadEnabled" :delay-duration="200">
             <Tooltip>
               <TooltipTrigger as-child>
                 <Button
@@ -460,22 +561,22 @@ function onDrop(e: DragEvent) {
                     chat.currentSessionId === null ||
                     !attachments.canAddMore.value
                   "
-                  aria-label="附加圖片"
+                  aria-label="附加檔案"
                   @click="openPicker"
                 >
                   <Plus class="size-4" />
                 </Button>
               </TooltipTrigger>
               <TooltipContent side="top">
-                附加圖片（拖曳 / 貼上 / 點擊）
+                {{ imagesEnabled ? '附加圖片或檔案（拖曳 / 貼上 / 點擊）' : '附加檔案（拖曳 / 點擊）' }}
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
           <input
-            v-if="imagesEnabled"
+            v-if="imagesEnabled || fileUploadEnabled"
             ref="fileInputRef"
             type="file"
-            accept="image/*"
+            :accept="fileInputAccept"
             multiple
             class="hidden"
             @change="onFilesChosen"
@@ -511,7 +612,7 @@ function onDrop(e: DragEvent) {
           {{
             dragKind === 'workspace'
               ? '放開以引用此檔案'
-              : '放開以附加圖片'
+              : '放開以附加檔案'
           }}
         </div>
 
@@ -551,7 +652,7 @@ function onDrop(e: DragEvent) {
         </div>
       </div>
       <p class="mt-2 text-center text-[11px] text-muted-foreground/70">
-        Enter 送出・Shift+Enter 換行・拖曳 / 貼上 / 點 + 可附加圖片
+        Enter 送出・Shift+Enter 換行・拖曳 / 貼上 / 點 + 可附加圖片或檔案
       </p>
     </div>
   </div>

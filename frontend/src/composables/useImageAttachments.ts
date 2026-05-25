@@ -6,17 +6,56 @@ import type { ChatImageInput } from '@/lib/types'
 
 export const MAX_IMAGES_PER_MESSAGE = 4
 export const MAX_IMAGE_BYTES = 10 * 1024 * 1024
+export const MAX_FILE_BYTES = 50 * 1024 * 1024
 export const UPLOAD_SUBDIR = 'uploads/chat'
 
 export type AttachmentStatus = 'uploading' | 'ready' | 'error'
+export type AttachmentKind = 'image' | 'file'
 
 export interface ImageAttachment {
+  kind: 'image'
   id: string
   file: File
   previewUrl: string
   status: AttachmentStatus
   path?: string
   error?: string
+}
+
+export interface FileAttachment {
+  kind: 'file'
+  id: string
+  file: File
+  status: AttachmentStatus
+  path?: string
+  error?: string
+}
+
+export type Attachment = ImageAttachment | FileAttachment
+
+// Accepted MIME types for non-image file attachments
+export const ACCEPTED_FILE_TYPES = [
+  'application/pdf',
+  'text/plain',
+  'text/markdown',
+  'text/csv',
+  'text/html',
+  'text/xml',
+  'application/json',
+  'application/xml',
+]
+
+export const ACCEPTED_FILE_EXTENSIONS = [
+  '.pdf', '.txt', '.md', '.markdown', '.csv',
+  '.html', '.htm', '.xml', '.json', '.log',
+  '.yaml', '.yml', '.toml', '.ini', '.conf',
+  '.py', '.js', '.ts', '.jsx', '.tsx', '.vue',
+  '.rs', '.go', '.java', '.kt', '.cpp', '.c', '.h',
+  '.rb', '.php', '.sh', '.bash',
+]
+
+function isImageFile(file: File): boolean {
+  return file.type.startsWith('image/')
 }
 
 let attachmentIdSeq = 0
@@ -50,7 +89,7 @@ async function ensureUploadDir(sessionId: string): Promise<void> {
 
 function uniqueFileName(file: File): string {
   const dot = file.name.lastIndexOf('.')
-  const stem = dot > 0 ? file.name.slice(0, dot) : file.name || 'image'
+  const stem = dot > 0 ? file.name.slice(0, dot) : file.name || 'file'
   const ext =
     dot > 0
       ? file.name.slice(dot).toLowerCase()
@@ -63,15 +102,26 @@ function uniqueFileName(file: File): string {
             : file.type === 'image/gif'
               ? '.gif'
               : ''
-  const safe = stem.replace(/[^\w.-]+/g, '_').slice(0, 60) || 'image'
+  const safe = stem.replace(/[^\w.-]+/g, '_').slice(0, 60) || 'file'
   return `${Date.now()}-${Math.random().toString(36).slice(2, 6)}-${safe}${ext}`
 }
 
-export function useImageAttachments(getSessionId: () => string | null) {
-  const attachments = ref<ImageAttachment[]>([])
+export function useImageAttachments(
+  getSessionId: () => string | null,
+  onFileReady?: (path: string) => void,
+  onFileRemoved?: (path: string) => void,
+) {
+  const attachments = ref<Attachment[]>([])
 
-  const canAddMore = computed(
-    () => attachments.value.length < MAX_IMAGES_PER_MESSAGE,
+  const imageAttachments = computed(
+    () => attachments.value.filter((a): a is ImageAttachment => a.kind === 'image'),
+  )
+  const fileAttachments = computed(
+    () => attachments.value.filter((a): a is FileAttachment => a.kind === 'file'),
+  )
+
+  const canAddMoreImages = computed(
+    () => imageAttachments.value.length < MAX_IMAGES_PER_MESSAGE,
   )
   const hasUploading = computed(() =>
     attachments.value.some((a) => a.status === 'uploading'),
@@ -80,19 +130,21 @@ export function useImageAttachments(getSessionId: () => string | null) {
     attachments.value.some((a) => a.status === 'ready'),
   )
 
-  function revokePreview(att: ImageAttachment) {
-    try {
-      URL.revokeObjectURL(att.previewUrl)
-    } catch {
-      // ignore
+  function revokePreview(att: Attachment) {
+    if (att.kind === 'image') {
+      try {
+        URL.revokeObjectURL(att.previewUrl)
+      } catch {
+        // ignore
+      }
     }
   }
 
-  function findAtt(id: string): ImageAttachment | undefined {
+  function findAtt(id: string): Attachment | undefined {
     return attachments.value.find((a) => a.id === id)
   }
 
-  async function uploadOne(attId: string, file: File, sessionId: string) {
+  async function uploadOne(attId: string, file: File, sessionId: string, isImage: boolean) {
     const renamed = new File([file], uniqueFileName(file), { type: file.type })
     try {
       await ensureUploadDir(sessionId)
@@ -106,16 +158,19 @@ export function useImageAttachments(getSessionId: () => string | null) {
       const uploaded = resp.uploaded[0]
       if (!uploaded) {
         target.status = 'error'
-        target.error = '上傳失敗'
+        ;(target as { error?: string }).error = '上傳失敗'
         return
       }
       target.path = uploaded.path
       target.status = 'ready'
+      if (!isImage && onFileReady) {
+        onFileReady(uploaded.path)
+      }
     } catch (err) {
       const target = findAtt(attId)
       if (!target) return
       target.status = 'error'
-      target.error = describeUploadError(err)
+      ;(target as { error?: string }).error = describeUploadError(err)
     }
   }
 
@@ -127,50 +182,61 @@ export function useImageAttachments(getSessionId: () => string | null) {
     }
 
     const imageFiles: File[] = []
-    let rejectedNonImage = 0
+    const docFiles: File[] = []
     let rejectedTooLarge = 0
 
     for (const f of files) {
-      if (!f.type.startsWith('image/')) {
-        rejectedNonImage += 1
-        continue
+      if (f.type.startsWith('image/')) {
+        if (f.size > MAX_IMAGE_BYTES) {
+          rejectedTooLarge += 1
+          continue
+        }
+        imageFiles.push(f)
+      } else {
+        if (f.size > MAX_FILE_BYTES) {
+          rejectedTooLarge += 1
+          continue
+        }
+        docFiles.push(f)
       }
-      if (f.size > MAX_IMAGE_BYTES) {
-        rejectedTooLarge += 1
-        continue
-      }
-      imageFiles.push(f)
     }
 
-    if (rejectedNonImage > 0) {
-      toast.error(`已忽略 ${rejectedNonImage} 個非圖片檔案`)
-    }
     if (rejectedTooLarge > 0) {
-      toast.error(`已忽略 ${rejectedTooLarge} 個超過 10 MiB 的圖片`)
+      toast.error(`已忽略 ${rejectedTooLarge} 個超過大小限制的檔案`)
     }
-    if (imageFiles.length === 0) return
 
-    const available = MAX_IMAGES_PER_MESSAGE - attachments.value.length
-    if (available <= 0) {
+    // Handle image files
+    const available = MAX_IMAGES_PER_MESSAGE - imageAttachments.value.length
+    if (imageFiles.length > 0 && available <= 0) {
       toast.error(`一則訊息最多 ${MAX_IMAGES_PER_MESSAGE} 張圖片`)
-      return
-    }
-    const accepted = imageFiles.slice(0, available)
-    if (imageFiles.length > available) {
-      toast.warning(
-        `已超過上限 ${MAX_IMAGES_PER_MESSAGE} 張，僅加入前 ${available} 張`,
-      )
+    } else {
+      const accepted = imageFiles.slice(0, available)
+      if (imageFiles.length > available && available > 0) {
+        toast.warning(`已超過圖片上限 ${MAX_IMAGES_PER_MESSAGE} 張，僅加入前 ${available} 張`)
+      }
+      for (const file of accepted) {
+        const att: ImageAttachment = {
+          kind: 'image',
+          id: newId(),
+          file,
+          previewUrl: URL.createObjectURL(file),
+          status: 'uploading',
+        }
+        attachments.value.push(att)
+        void uploadOne(att.id, file, sessionId, true)
+      }
     }
 
-    for (const file of accepted) {
-      const att: ImageAttachment = {
+    // Handle document files
+    for (const file of docFiles) {
+      const att: FileAttachment = {
+        kind: 'file',
         id: newId(),
         file,
-        previewUrl: URL.createObjectURL(file),
         status: 'uploading',
       }
       attachments.value.push(att)
-      void uploadOne(att.id, file, sessionId)
+      void uploadOne(att.id, file, sessionId, false)
     }
   }
 
@@ -178,7 +244,11 @@ export function useImageAttachments(getSessionId: () => string | null) {
     const idx = attachments.value.findIndex((a) => a.id === id)
     if (idx < 0) return
     const [att] = attachments.value.splice(idx, 1)
-    if (att) revokePreview(att)
+    if (!att) return
+    revokePreview(att)
+    if (att.kind === 'file' && att.path && att.status === 'ready' && onFileRemoved) {
+      onFileRemoved(att.path)
+    }
   }
 
   function retry(id: string) {
@@ -187,8 +257,8 @@ export function useImageAttachments(getSessionId: () => string | null) {
     const att = findAtt(id)
     if (!att || att.status !== 'error') return
     att.status = 'uploading'
-    att.error = undefined
-    void uploadOne(att.id, att.file, sessionId)
+    ;(att as { error?: string }).error = undefined
+    void uploadOne(att.id, att.file, sessionId, att.kind === 'image')
   }
 
   function clearAll() {
@@ -197,7 +267,7 @@ export function useImageAttachments(getSessionId: () => string | null) {
   }
 
   function toImages(): ChatImageInput[] {
-    return attachments.value
+    return imageAttachments.value
       .filter((a) => a.status === 'ready' && a.path)
       .map((a) => ({ path: a.path! }))
   }
@@ -221,10 +291,13 @@ export function useImageAttachments(getSessionId: () => string | null) {
   function handleDrop(event: DragEvent): boolean {
     const files = event.dataTransfer?.files
     if (!files || files.length === 0) return false
-    const list = Array.from(files).filter((f) => f.type.startsWith('image/'))
-    if (list.length === 0) return false
+    const list = Array.from(files)
+    const accepted = list.filter(
+      (f) => f.type.startsWith('image/') || !isImageFile(f),
+    )
+    if (accepted.length === 0) return false
     event.preventDefault()
-    addFiles(list)
+    addFiles(accepted)
     return true
   }
 
@@ -234,7 +307,11 @@ export function useImageAttachments(getSessionId: () => string | null) {
 
   return {
     attachments,
-    canAddMore,
+    imageAttachments,
+    fileAttachments,
+    canAddMoreImages,
+    // keep old name as alias for compatibility
+    canAddMore: canAddMoreImages,
     hasUploading,
     hasReady,
     addFiles,
