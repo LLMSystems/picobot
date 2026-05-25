@@ -6,21 +6,29 @@ import mimetypes
 from urllib.parse import quote
 
 from fastapi import APIRouter, Query, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 
 from simplified_chatbot.server.common import error_response, get_runtime
 from simplified_chatbot.server.schemas import (
+    WorkspaceCreateFileRequest,
+    WorkspaceCreateFileResponse,
+    WorkspaceDeleteDirectoryResponse,
     WorkspaceDeleteResponse,
     WorkspaceFileResponse,
     WorkspaceMkdirRequest,
     WorkspaceMkdirResponse,
     WorkspaceMoveRequest,
     WorkspaceMoveResponse,
+    WorkspaceSaveFileRequest,
+    WorkspaceSaveFileResponse,
     WorkspaceTreeResponse,
     WorkspaceUploadResponse,
 )
 from simplified_chatbot.runtime.local_runtime import (
     UploadFileInput,
+    WorkspaceDeleteRootForbiddenError,
+    WorkspaceDirectoryNotEmptyError,
+    WorkspaceFileAlreadyExistsError,
     WorkspaceFilenameInvalidError,
     WorkspaceMoveDestinationExistsError,
     WorkspaceMoveDestinationIsDirectoryError,
@@ -172,6 +180,7 @@ async def get_workspace_file_raw(
     request: Request,
     session_id: str,
     path: str = Query(min_length=1),
+    download: bool = Query(default=False),
 ):
     """Stream the raw bytes of a workspace file (for image / PDF preview)."""
     runtime = get_runtime(request)
@@ -234,9 +243,10 @@ async def get_workspace_file_raw(
     filename = target.name
     ascii_fallback = filename.encode("ascii", "replace").decode("ascii").replace('"', "")
     encoded_filename = quote(filename, safe="")
+    disposition = "attachment" if download else "inline"
     headers = {
         "Content-Disposition": (
-            f'inline; filename="{ascii_fallback}"; filename*=UTF-8\'\'{encoded_filename}'
+            f'{disposition}; filename="{ascii_fallback}"; filename*=UTF-8\'\'{encoded_filename}'
         ),
         "X-Content-Type-Options": "nosniff",
         "Cache-Control": "private, max-age=60",
@@ -400,6 +410,251 @@ async def delete_workspace_file(
             message=f"Path '{path}' is not a file",
         )
     return WorkspaceDeleteResponse.model_validate(payload)
+
+
+@router.post(
+    "/sessions/{session_id}/workspace/file",
+    response_model=WorkspaceCreateFileResponse,
+)
+async def create_workspace_file(
+    request: Request,
+    session_id: str,
+    body: WorkspaceCreateFileRequest,
+) -> WorkspaceCreateFileResponse:
+    """Create a new text file in the session workspace."""
+    runtime = get_runtime(request)
+    try:
+        payload = await runtime.create_workspace_file_async(
+            session_id,
+            path=body.path,
+            content=body.content,
+            overwrite=body.overwrite,
+        )
+    except KeyError:
+        return error_response(
+            request,
+            status_code=404,
+            code="SESSION_NOT_FOUND",
+            message=f"Session '{session_id}' not found",
+        )
+    except RuntimeError as exc:
+        return error_response(
+            request,
+            status_code=409,
+            code="WORKSPACE_NOT_AVAILABLE",
+            message=str(exc),
+        )
+    except WorkspaceFileAlreadyExistsError:
+        return error_response(
+            request,
+            status_code=409,
+            code="WORKSPACE_FILE_ALREADY_EXISTS",
+            message=f"File '{body.path}' already exists",
+        )
+    except IsADirectoryError:
+        return error_response(
+            request,
+            status_code=400,
+            code="WORKSPACE_NOT_A_FILE",
+            message=f"Path '{body.path}' is a directory",
+        )
+    except FileNotFoundError:
+        return error_response(
+            request,
+            status_code=404,
+            code="WORKSPACE_DIRECTORY_NOT_FOUND",
+            message=f"Parent directory for '{body.path}' not found",
+        )
+    except ValueError as exc:
+        return error_response(
+            request,
+            status_code=400,
+            code="WORKSPACE_PATH_INVALID",
+            message=str(exc),
+        )
+    return WorkspaceCreateFileResponse.model_validate(payload)
+
+
+@router.put(
+    "/sessions/{session_id}/workspace/file",
+    response_model=WorkspaceSaveFileResponse,
+)
+async def save_workspace_file(
+    request: Request,
+    session_id: str,
+    body: WorkspaceSaveFileRequest,
+) -> WorkspaceSaveFileResponse:
+    """Save (overwrite) a text file in the session workspace."""
+    runtime = get_runtime(request)
+    try:
+        payload = await runtime.save_workspace_file_async(
+            session_id,
+            path=body.path,
+            content=body.content,
+        )
+    except KeyError:
+        return error_response(
+            request,
+            status_code=404,
+            code="SESSION_NOT_FOUND",
+            message=f"Session '{session_id}' not found",
+        )
+    except RuntimeError as exc:
+        return error_response(
+            request,
+            status_code=409,
+            code="WORKSPACE_NOT_AVAILABLE",
+            message=str(exc),
+        )
+    except IsADirectoryError:
+        return error_response(
+            request,
+            status_code=400,
+            code="WORKSPACE_NOT_A_FILE",
+            message=f"Path '{body.path}' is a directory",
+        )
+    except FileNotFoundError:
+        return error_response(
+            request,
+            status_code=404,
+            code="WORKSPACE_DIRECTORY_NOT_FOUND",
+            message=f"Parent directory for '{body.path}' not found",
+        )
+    except ValueError as exc:
+        return error_response(
+            request,
+            status_code=400,
+            code="WORKSPACE_PATH_INVALID",
+            message=str(exc),
+        )
+    return WorkspaceSaveFileResponse.model_validate(payload)
+
+
+@router.get("/sessions/{session_id}/workspace/download")
+async def download_workspace_zip(
+    request: Request,
+    session_id: str,
+    path: str = Query(default="."),
+):
+    """Download workspace (or a subdirectory) as a ZIP archive."""
+    runtime = get_runtime(request)
+    try:
+        zip_name, buf = await runtime.download_workspace_zip_async(
+            session_id,
+            path=path,
+        )
+    except KeyError:
+        return error_response(
+            request,
+            status_code=404,
+            code="SESSION_NOT_FOUND",
+            message=f"Session '{session_id}' not found",
+        )
+    except RuntimeError as exc:
+        return error_response(
+            request,
+            status_code=409,
+            code="WORKSPACE_NOT_AVAILABLE",
+            message=str(exc),
+        )
+    except FileNotFoundError:
+        return error_response(
+            request,
+            status_code=404,
+            code="WORKSPACE_DIRECTORY_NOT_FOUND",
+            message=f"Directory '{path}' not found",
+        )
+    except NotADirectoryError:
+        return error_response(
+            request,
+            status_code=400,
+            code="WORKSPACE_NOT_A_DIRECTORY",
+            message=f"Path '{path}' is not a directory",
+        )
+    except ValueError as exc:
+        return error_response(
+            request,
+            status_code=400,
+            code="WORKSPACE_PATH_INVALID",
+            message=str(exc),
+        )
+    encoded_name = quote(zip_name, safe="")
+    headers = {
+        "Content-Disposition": (
+            f'attachment; filename="{zip_name}"; filename*=UTF-8\'\'{encoded_name}'
+        ),
+    }
+    return StreamingResponse(buf, media_type="application/zip", headers=headers)
+
+
+@router.delete(
+    "/sessions/{session_id}/workspace/directory",
+    response_model=WorkspaceDeleteDirectoryResponse,
+)
+async def delete_workspace_directory(
+    request: Request,
+    session_id: str,
+    path: str = Query(min_length=1),
+    recursive: bool = Query(default=False),
+) -> WorkspaceDeleteDirectoryResponse:
+    """Delete a directory from the session workspace."""
+    runtime = get_runtime(request)
+    try:
+        payload = await runtime.delete_workspace_directory_async(
+            session_id,
+            path=path,
+            recursive=recursive,
+        )
+    except KeyError:
+        return error_response(
+            request,
+            status_code=404,
+            code="SESSION_NOT_FOUND",
+            message=f"Session '{session_id}' not found",
+        )
+    except RuntimeError as exc:
+        return error_response(
+            request,
+            status_code=409,
+            code="WORKSPACE_NOT_AVAILABLE",
+            message=str(exc),
+        )
+    except WorkspaceDeleteRootForbiddenError:
+        return error_response(
+            request,
+            status_code=400,
+            code="WORKSPACE_DELETE_ROOT_FORBIDDEN",
+            message="Cannot delete workspace root directory",
+        )
+    except WorkspaceDirectoryNotEmptyError:
+        return error_response(
+            request,
+            status_code=409,
+            code="WORKSPACE_DIRECTORY_NOT_EMPTY",
+            message=f"Directory '{path}' is not empty. Use recursive=true to delete.",
+        )
+    except FileNotFoundError:
+        return error_response(
+            request,
+            status_code=404,
+            code="WORKSPACE_DIRECTORY_NOT_FOUND",
+            message=f"Directory '{path}' not found",
+        )
+    except NotADirectoryError:
+        return error_response(
+            request,
+            status_code=400,
+            code="WORKSPACE_NOT_A_DIRECTORY",
+            message=f"Path '{path}' is not a directory",
+        )
+    except ValueError as exc:
+        return error_response(
+            request,
+            status_code=400,
+            code="WORKSPACE_PATH_INVALID",
+            message=str(exc),
+        )
+    return WorkspaceDeleteDirectoryResponse.model_validate(payload)
 
 
 @router.post(

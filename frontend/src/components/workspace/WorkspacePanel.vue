@@ -29,6 +29,16 @@ const mkdirTargetLabel = computed(() => {
   return p === '.' ? '/ (根目錄)' : p
 })
 
+const newFileRequest = computed(() => ws.pendingNewFile)
+const showNewFile = computed(() => newFileRequest.value !== null)
+const newFileName = ref('')
+const creatingFile = ref(false)
+const newFileInputRef = ref<HTMLInputElement | null>(null)
+const newFileTargetLabel = computed(() => {
+  const p = newFileRequest.value?.parent ?? '.'
+  return p === '.' ? '/ (根目錄)' : p
+})
+
 const ws = useWorkspaceStore()
 
 const { containerRef, ratio, onPointerDown: onSplitPointerDown } =
@@ -75,6 +85,49 @@ watch(mkdirRequest, async (req) => {
     mkdirInputRef.value?.focus()
   }
 })
+
+watch(newFileRequest, async (req) => {
+  if (req) {
+    newFileName.value = ''
+    await nextTick()
+    newFileInputRef.value?.focus()
+  }
+})
+
+function describeCreateFileError(err: unknown): string {
+  if (err instanceof ApiError) {
+    switch (err.code) {
+      case 'WORKSPACE_NOT_AVAILABLE':
+        return '此 session 沒有啟用 workspace'
+      case 'WORKSPACE_PATH_INVALID':
+        return '路徑不合法'
+      case 'WORKSPACE_FILE_ALREADY_EXISTS':
+        return '同名檔案已存在'
+      case 'WORKSPACE_DIRECTORY_NOT_FOUND':
+        return '父目錄不存在'
+      default:
+        return err.message
+    }
+  }
+  return err instanceof Error ? err.message : '建立失敗'
+}
+
+async function submitNewFile() {
+  const name = newFileName.value.trim()
+  if (!name || creatingFile.value) return
+  const req = newFileRequest.value
+  if (!req) return
+  creatingFile.value = true
+  try {
+    const result = await ws.createFile(name, { parent: req.parent })
+    ws.closeNewFile()
+    toast.success('檔案已建立', { description: result.path })
+  } catch (err) {
+    toast.error('建立檔案失敗', { description: describeCreateFileError(err) })
+  } finally {
+    creatingFile.value = false
+  }
+}
 
 function describeMkdirError(err: unknown): string {
   if (err instanceof ApiError) {
@@ -146,7 +199,11 @@ async function confirmDelete() {
   if (!target || deleting.value) return
   deleting.value = true
   try {
-    await ws.deleteFile(target.path)
+    if (target.type === 'directory') {
+      await ws.deleteDirectory(target.path)
+    } else {
+      await ws.deleteFile(target.path)
+    }
     ws.clearDelete()
   } catch {
     // toast already handled in store
@@ -331,6 +388,9 @@ function dismissMoveConflict() {
           <DialogDescription>
             <span class="font-mono">{{ deleteTarget?.path }}</span>
             將被永久刪除，此操作無法復原。
+            <template v-if="deleteTarget?.type === 'directory'">
+              <br />資料夾內所有檔案也會一併刪除。
+            </template>
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>
@@ -341,6 +401,39 @@ function dismissMoveConflict() {
             @click="confirmDelete"
           >
             刪除
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    <Dialog
+      :open="showNewFile"
+      @update:open="(v) => !v && ws.closeNewFile()"
+    >
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>新增檔案</DialogTitle>
+          <DialogDescription>
+            將建立在
+            <span class="font-mono text-foreground">{{ newFileTargetLabel }}</span>
+            底下。
+          </DialogDescription>
+        </DialogHeader>
+        <input
+          ref="newFileInputRef"
+          v-model="newFileName"
+          class="w-full rounded-md border bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          placeholder="檔案名稱（例如：notes.md）"
+          @keydown.enter.prevent="submitNewFile"
+          @keydown.esc.prevent="ws.closeNewFile()"
+        />
+        <DialogFooter>
+          <Button variant="outline" @click="ws.closeNewFile()">取消</Button>
+          <Button
+            :disabled="!newFileName.trim() || creatingFile"
+            @click="submitNewFile"
+          >
+            建立
           </Button>
         </DialogFooter>
       </DialogContent>

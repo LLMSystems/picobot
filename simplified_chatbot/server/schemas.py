@@ -255,6 +255,47 @@ class WorkspaceMoveResponse(BaseModel):
     overwritten: bool = False
 
 
+class WorkspaceSaveFileRequest(BaseModel):
+    """Request body for saving (overwriting) one workspace file."""
+
+    path: str = Field(min_length=1)
+    content: str
+
+
+class WorkspaceSaveFileResponse(BaseModel):
+    """Response body for saving one workspace file."""
+
+    session_id: str
+    path: str
+    saved: bool = True
+    size: int = 0
+    updated_at: str = ""
+
+
+class WorkspaceCreateFileRequest(BaseModel):
+    """Request body for creating one workspace file."""
+
+    path: str = Field(min_length=1)
+    content: str = ""
+    overwrite: bool = False
+
+
+class WorkspaceCreateFileResponse(BaseModel):
+    """Response body for creating one workspace file."""
+
+    session_id: str
+    path: str
+    created: bool = True
+
+
+class WorkspaceDeleteDirectoryResponse(BaseModel):
+    """Response body for deleting one workspace directory."""
+
+    session_id: str
+    path: str
+    deleted: bool = True
+
+
 class HealthResponse(BaseModel):
     """Simple health check payload."""
 

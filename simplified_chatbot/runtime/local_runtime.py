@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 import inspect
 import os
 from pathlib import Path
+import shutil
 import tempfile
 from typing import Any
 import uuid
@@ -626,6 +627,118 @@ class LocalAgentRuntime:
             "deleted": True,
         }
 
+    async def save_workspace_file_async(
+        self,
+        session_id: str,
+        *,
+        path: str,
+        content: str,
+    ) -> dict[str, object]:
+        """Overwrite a text file in the session workspace."""
+        workspace = await self.get_workspace_root_async(session_id)
+        relative_path, target = _resolve_workspace_relative_path(workspace, path)
+        if relative_path == ".":
+            raise ValueError("path must not be the workspace root")
+        if target.exists() and target.is_dir():
+            raise IsADirectoryError(path)
+        if not target.parent.exists():
+            raise FileNotFoundError(str(target.parent))
+        encoded = content.encode("utf-8")
+        await asyncio.to_thread(_atomic_write_bytes, target, encoded)
+        stat = target.stat()
+        updated_at = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat()
+        return {
+            "session_id": session_id,
+            "path": relative_path,
+            "saved": True,
+            "size": stat.st_size,
+            "updated_at": updated_at,
+        }
+
+    async def download_workspace_zip_async(
+        self,
+        session_id: str,
+        *,
+        path: str = ".",
+    ) -> tuple[str, object]:
+        """Return (filename, zip_bytes_io) for the given workspace path."""
+        import io
+        import zipfile as _zipfile
+
+        workspace = await self.get_workspace_root_async(session_id)
+        relative_path, target = _resolve_workspace_relative_path(workspace, path)
+        if not target.exists():
+            raise FileNotFoundError(path)
+        if not target.is_dir():
+            raise NotADirectoryError(path)
+
+        zip_name = "workspace.zip" if relative_path == "." else f"{target.name}.zip"
+
+        def _build_zip() -> io.BytesIO:
+            buf = io.BytesIO()
+            with _zipfile.ZipFile(buf, "w", _zipfile.ZIP_DEFLATED) as zf:
+                for f in sorted(target.rglob("*")):
+                    if f.is_file():
+                        zf.write(f, f.relative_to(target))
+            buf.seek(0)
+            return buf
+
+        buf = await asyncio.to_thread(_build_zip)
+        return zip_name, buf
+
+    async def create_workspace_file_async(
+        self,
+        session_id: str,
+        *,
+        path: str,
+        content: str = "",
+        overwrite: bool = False,
+    ) -> dict[str, object]:
+        """Create a new text file in the session workspace."""
+        workspace = await self.get_workspace_root_async(session_id)
+        relative_path, target = _resolve_workspace_relative_path(workspace, path)
+        if relative_path == ".":
+            raise ValueError("path must not be the workspace root")
+        if target.exists():
+            if target.is_dir():
+                raise IsADirectoryError(path)
+            if not overwrite:
+                raise WorkspaceFileAlreadyExistsError(path)
+        if not target.parent.exists():
+            raise FileNotFoundError(str(target.parent))
+        encoded = content.encode("utf-8")
+        await asyncio.to_thread(_atomic_write_bytes, target, encoded)
+        return {
+            "session_id": session_id,
+            "path": relative_path,
+            "created": True,
+        }
+
+    async def delete_workspace_directory_async(
+        self,
+        session_id: str,
+        *,
+        path: str,
+        recursive: bool = False,
+    ) -> dict[str, object]:
+        """Delete a directory from the session workspace."""
+        workspace = await self.get_workspace_root_async(session_id)
+        relative_path, target = _resolve_workspace_relative_path(workspace, path)
+        if relative_path == ".":
+            raise WorkspaceDeleteRootForbiddenError("cannot delete workspace root")
+        if not target.exists():
+            raise FileNotFoundError(path)
+        if not target.is_dir():
+            raise NotADirectoryError(path)
+        if not recursive and any(target.iterdir()):
+            raise WorkspaceDirectoryNotEmptyError(path)
+        await asyncio.to_thread(shutil.rmtree, target)
+        return {
+            "session_id": session_id,
+            "path": relative_path,
+            "deleted": True,
+        }
+
     async def create_workspace_directory_async(
         self,
         session_id: str,
@@ -1040,6 +1153,18 @@ class WorkspaceMoveIntoSelfError(WorkspaceMoveError):
 
 class WorkspaceMoveDestinationParentMissingError(WorkspaceMoveError):
     """Raised when the destination parent directory does not exist."""
+
+
+class WorkspaceFileAlreadyExistsError(ValueError):
+    """Raised when creating a file that already exists and overwrite is false."""
+
+
+class WorkspaceDirectoryNotEmptyError(ValueError):
+    """Raised when deleting a non-empty directory without recursive=True."""
+
+
+class WorkspaceDeleteRootForbiddenError(ValueError):
+    """Raised when trying to delete the workspace root directory."""
 
 
 class ModelNotAllowedError(ValueError):

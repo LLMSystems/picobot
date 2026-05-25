@@ -8,6 +8,8 @@ import {
   Loader2,
   Pencil,
   Trash2,
+  Download,
+  FilePlus,
 } from 'lucide-vue-next'
 import {
   ContextMenu,
@@ -20,6 +22,7 @@ import { useWorkspaceStore } from '@/stores/workspace'
 import { useCapabilitiesStore } from '@/stores/capabilities'
 import { useRelativeTime } from '@/composables/useRelativeTime'
 import { ApiError } from '@/lib/errors'
+import { api } from '@/lib/api'
 import type { WorkspaceEntryDTO } from '@/lib/types'
 
 const INTERNAL_DRAG_TYPE = 'application/x-picobot-path'
@@ -204,6 +207,18 @@ async function onDrop(e: DragEvent) {
 const indentStyle = computed(() => ({
   paddingLeft: `${props.depth * 12 + 6}px`,
 }))
+
+function downloadEntry() {
+  const id = ws.sessionId
+  if (!id || isDir.value) return
+  const base = api.workspaceFileRawUrl(id, props.entry.path)
+  const url = `${base}&download=true`
+  const a = document.createElement('a')
+  a.href = url
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+}
 </script>
 
 <template>
@@ -261,12 +276,25 @@ const indentStyle = computed(() => ({
         </button>
       </ContextMenuTrigger>
       <ContextMenuContent class="w-48">
+        <ContextMenuItem
+          v-if="isDir"
+          @select="ws.openNewFile(entry.path)"
+        >
+          <FilePlus class="size-3.5" />
+          新增檔案
+        </ContextMenuItem>
         <ContextMenuItem @select="ws.startRename(entry.path)">
           <Pencil class="size-3.5" />
           重新命名
         </ContextMenuItem>
         <ContextMenuItem
           v-if="!isDir"
+          @select="downloadEntry"
+        >
+          <Download class="size-3.5" />
+          下載
+        </ContextMenuItem>
+        <ContextMenuItem
           class="text-destructive focus:text-destructive"
           @select="ws.startDelete(entry.path)"
         >

@@ -153,8 +153,13 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     type: 'file' | 'directory'
     name: string
   } | null>(null)
-  const pendingDelete = ref<{ path: string; name: string } | null>(null)
+  const pendingDelete = ref<{ path: string; name: string; type: 'file' | 'directory' } | null>(null)
   const mkdirRequest = ref<{ parent: string } | null>(null)
+  const pendingNewFile = ref<{ parent: string } | null>(null)
+  const activeDir = ref<string>('.')
+  const editMode = ref(false)
+  const editContent = ref('')
+  const editSaving = ref(false)
 
   function openMkdir(parent?: string) {
     mkdirRequest.value = { parent: parent ?? targetUploadDir() }
@@ -162,6 +167,14 @@ export const useWorkspaceStore = defineStore('workspace', () => {
 
   function closeMkdir() {
     mkdirRequest.value = null
+  }
+
+  function openNewFile(parent?: string) {
+    pendingNewFile.value = { parent: parent ?? targetUploadDir() }
+  }
+
+  function closeNewFile() {
+    pendingNewFile.value = null
   }
 
   function persistVisible() {
@@ -211,6 +224,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     loadingFile.value = false
     loadState.value = 'idle'
     lastSyncedAt.value = 0
+    activeDir.value = '.'
   }
 
   function mergeEntries(list: WorkspaceEntryDTO[]) {
@@ -324,10 +338,15 @@ export const useWorkspaceStore = defineStore('workspace', () => {
 
   async function toggleExpand(path: string) {
     if (expanded.value.has(path)) collapse(path)
-    else await expand(path)
+    else {
+      activeDir.value = path
+      await expand(path)
+    }
   }
 
   async function select(path: string | null) {
+    editMode.value = false
+    editContent.value = ''
     selectedPath.value = path
     fileContent.value = null
     fileError.value = null
@@ -388,12 +407,15 @@ export const useWorkspaceStore = defineStore('workspace', () => {
 
   function targetUploadDir(): string {
     const sel = selectedPath.value
-    if (!sel) return '.'
-    const entry = entries.value.get(sel)
-    if (!entry) return '.'
-    if (entry.type === 'directory') return sel
-    const parent = parentOf(sel)
-    return parent === '' ? '.' : parent
+    if (sel) {
+      const entry = entries.value.get(sel)
+      if (entry) {
+        if (entry.type === 'directory') return sel
+        const parent = parentOf(sel)
+        return parent === '' ? '.' : parent
+      }
+    }
+    return activeDir.value
   }
 
   async function createDirectory(
@@ -538,6 +560,108 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     }
   }
 
+  function enterEditMode() {
+    const content = fileContent.value?.content ?? ''
+    editContent.value = content
+    editMode.value = true
+  }
+
+  function exitEditMode() {
+    editMode.value = false
+    editContent.value = ''
+  }
+
+  async function saveFile(): Promise<void> {
+    const id = sessionId.value
+    const path = selectedPath.value
+    if (!id || !path || editSaving.value) return
+    editSaving.value = true
+    try {
+      await api.saveWorkspaceFile(id, { path, content: editContent.value })
+      if (sessionId.value !== id || selectedPath.value !== path) return
+      // Reload file content and refresh tree entry for updated_at
+      await loadFile(path)
+      await refreshPaths([path])
+      editMode.value = false
+      editContent.value = ''
+      toast.success('已儲存', { description: path })
+      const bus = useComposerBus()
+      bus.append(`（使用者編輯了檔案：「${path}」）`)
+    } catch (err) {
+      if (err instanceof ApiError) {
+        toast.error('儲存失敗', { description: err.message })
+      } else {
+        toast.error('儲存失敗')
+      }
+      throw err
+    } finally {
+      editSaving.value = false
+    }
+  }
+
+  async function createFile(
+    name: string,
+    opts: { parent?: string } = {},
+  ): Promise<{ path: string; created: boolean }> {
+    const id = sessionId.value
+    if (!id) throw new Error('沒有作用中的 session')
+    const trimmed = name.trim()
+    if (!trimmed) throw new Error('檔案名稱不能為空')
+
+    const parent = opts.parent ?? targetUploadDir()
+    const fullPath =
+      parent === '.' || parent === '' ? trimmed : `${parent}/${trimmed}`
+
+    const resp = await api.createWorkspaceFile(id, { path: fullPath })
+    if (sessionId.value !== id) return { path: resp.path, created: resp.created }
+
+    const parentKey = parent === '.' ? '' : parent
+    if (parentKey !== '') {
+      expanded.value = new Set([...expanded.value, parentKey])
+    }
+    await refreshTree({ path: parent })
+    await select(resp.path)
+    if (resp.created) {
+      const bus = useComposerBus()
+      bus.append(`（使用者建立了檔案：「${resp.path}」）`)
+    }
+    return { path: resp.path, created: resp.created }
+  }
+
+  async function deleteDirectory(path: string): Promise<void> {
+    const id = sessionId.value
+    if (!id) throw new Error('沒有作用中的 session')
+    if (!path || path === '.') throw new Error('路徑不合法')
+
+    try {
+      await api.deleteWorkspaceDirectory(id, { path, recursive: true })
+      if (sessionId.value !== id) return
+
+      const parent = parentOf(path)
+      if (parent === '' || expanded.value.has(parent)) {
+        await refreshTree({ path: parent === '' ? '.' : parent })
+      }
+      if (selectedPath.value === path || selectedPath.value?.startsWith(`${path}/`)) {
+        await select(null)
+      }
+      if (expanded.value.has(path)) {
+        const next = new Set(expanded.value)
+        next.delete(path)
+        expanded.value = next
+      }
+      toast.success('已刪除資料夾', { description: path })
+      const bus = useComposerBus()
+      bus.append(`（使用者刪除了資料夾：「${path}」）`)
+    } catch (err) {
+      if (err instanceof ApiError) {
+        toast.error('刪除失敗', { description: err.message })
+      } else {
+        toast.error('刪除失敗')
+      }
+      throw err
+    }
+  }
+
   async function renameEntry(src: string, newName: string): Promise<void> {
     const trimmed = newName.trim()
     if (!trimmed) throw new Error('名稱不能為空')
@@ -580,7 +704,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   function startDelete(path: string) {
     const entry = entries.value.get(path)
     if (!entry) return
-    pendingDelete.value = { path, name: entry.name }
+    pendingDelete.value = { path, name: entry.name, type: entry.type }
   }
 
   function clearDelete() {
@@ -760,8 +884,11 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     pendingRename,
     pendingDelete,
     mkdirRequest,
+    pendingNewFile,
     openMkdir,
     closeMkdir,
+    openNewFile,
+    closeNewFile,
     rootChildren,
     hasContent,
     bind,
@@ -792,7 +919,15 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     isDescendantPath,
     setDraggingPath,
     clearMoveConflict,
+    editMode,
+    editContent,
+    editSaving,
+    enterEditMode,
+    exitEditMode,
+    saveFile,
     deleteFile,
+    deleteDirectory,
+    createFile,
     renameEntry,
     startRename,
     clearRename,

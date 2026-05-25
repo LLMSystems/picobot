@@ -9,6 +9,13 @@ import { Button } from '@/components/ui/button'
 import { api } from '@/lib/api'
 import { detectPreviewKind } from '@/lib/preview'
 
+function onEditorKeydown(e: KeyboardEvent) {
+  if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+    e.preventDefault()
+    void ws.saveFile()
+  }
+}
+
 const ws = useWorkspaceStore()
 
 type HtmlMode = 'preview' | 'source'
@@ -147,7 +154,16 @@ const errorMessage = computed(() => {
 
 <template>
   <div class="flex h-full min-h-0 flex-col">
-    <div class="flex-1 overflow-auto">
+    <!-- 編輯模式 -->
+    <textarea
+      v-if="ws.editMode"
+      v-model="ws.editContent"
+      class="h-full w-full resize-none bg-background px-4 py-3 font-mono text-xs leading-relaxed outline-none"
+      spellcheck="false"
+      @keydown="onEditorKeydown"
+    />
+
+    <div v-else class="flex-1 overflow-auto">
       <template v-if="!ws.selectedPath">
         <div class="flex h-full items-center justify-center px-4 text-center text-xs text-muted-foreground">
           點左側檔案以預覽
@@ -248,7 +264,7 @@ const errorMessage = computed(() => {
     </div>
 
     <div
-      v-if="ws.fileContent?.truncated"
+      v-if="!ws.editMode && ws.fileContent?.truncated"
       class="flex shrink-0 items-center gap-2 border-t bg-muted/40 px-3 py-2 text-[11px]"
     >
       <span class="text-muted-foreground">已截斷</span>

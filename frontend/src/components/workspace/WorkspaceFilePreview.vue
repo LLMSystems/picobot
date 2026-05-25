@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { File as FileIcon, Maximize2, Copy, X } from 'lucide-vue-next'
+import { File as FileIcon, Maximize2, Copy, X, Download, Pencil, Save, XCircle } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { detectPreviewKind } from '@/lib/preview'
+import { api } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -18,6 +19,7 @@ const showFullscreen = ref(false)
 
 const previewKind = computed(() => detectPreviewKind(ws.selectedPath))
 const isBinaryPreview = computed(() => previewKind.value !== 'text')
+const isTextFile = computed(() => previewKind.value === 'text' || previewKind.value === 'html')
 const hasAnything = computed(
   () =>
     isBinaryPreview.value ||
@@ -36,6 +38,19 @@ async function copyContent() {
     toast.error('複製失敗')
   }
 }
+
+function downloadFile() {
+  const id = ws.sessionId
+  const path = ws.selectedPath
+  if (!id || !path) return
+  const base = api.workspaceFileRawUrl(id, path)
+  const url = `${base}&download=true`
+  const a = document.createElement('a')
+  a.href = url
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+}
 </script>
 
 <template>
@@ -46,34 +61,87 @@ async function copyContent() {
     >
       <FileIcon class="size-3.5 text-muted-foreground" />
       <span class="truncate font-mono">{{ ws.selectedPath }}</span>
-      <span
-        v-if="ws.fileContent"
-        class="ml-auto shrink-0 text-[10px] text-muted-foreground"
-      >
-        {{ ws.fileContent.line_count }} lines
-      </span>
-      <Button
-        v-if="ws.fileContent"
-        variant="ghost"
-        size="icon"
-        class="size-6"
-        aria-label="複製檔案內容"
-        title="複製檔案內容"
-        @click="copyContent"
-      >
-        <Copy class="size-3.5" />
-      </Button>
-      <Button
-        v-if="hasAnything"
-        variant="ghost"
-        size="icon"
-        class="size-6"
-        aria-label="全螢幕預覽"
-        title="全螢幕預覽"
-        @click="showFullscreen = true"
-      >
-        <Maximize2 class="size-3.5" />
-      </Button>
+
+      <!-- 編輯模式：儲存 + 取消 -->
+      <template v-if="ws.editMode">
+        <span class="ml-auto shrink-0 text-[10px] text-amber-500">編輯中</span>
+        <Button
+          variant="ghost"
+          size="icon"
+          class="size-6"
+          aria-label="儲存"
+          title="儲存 (Ctrl+S)"
+          :disabled="ws.editSaving"
+          @click="ws.saveFile()"
+        >
+          <Save class="size-3.5" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          class="size-6"
+          aria-label="取消編輯"
+          title="取消編輯"
+          @click="ws.exitEditMode()"
+        >
+          <XCircle class="size-3.5" />
+        </Button>
+      </template>
+
+      <!-- 一般模式 -->
+      <template v-else>
+        <span
+          v-if="ws.fileContent"
+          class="ml-auto shrink-0 text-[10px] text-muted-foreground"
+        >
+          {{ ws.fileContent.line_count }} lines
+        </span>
+        <Button
+          v-if="ws.fileContent && isTextFile"
+          variant="ghost"
+          size="icon"
+          class="size-6"
+          aria-label="編輯檔案"
+          title="編輯檔案"
+          @click="ws.enterEditMode()"
+        >
+          <Pencil class="size-3.5" />
+        </Button>
+        <Button
+          v-if="ws.fileContent"
+          variant="ghost"
+          size="icon"
+          class="size-6"
+          aria-label="複製檔案內容"
+          title="複製檔案內容"
+          @click="copyContent"
+        >
+          <Copy class="size-3.5" />
+        </Button>
+        <Button
+          v-if="ws.selectedPath"
+          variant="ghost"
+          size="icon"
+          class="size-6"
+          aria-label="下載檔案"
+          title="下載檔案"
+          @click="downloadFile"
+        >
+          <Download class="size-3.5" />
+        </Button>
+        <Button
+          v-if="hasAnything"
+          variant="ghost"
+          size="icon"
+          class="size-6"
+          aria-label="全螢幕預覽"
+          title="全螢幕預覽"
+          @click="showFullscreen = true"
+        >
+          <Maximize2 class="size-3.5" />
+        </Button>
+      </template>
+
       <Button
         variant="ghost"
         size="icon"

@@ -245,3 +245,23 @@ export interface WorkspaceMoveResponse {
   type: WorkspaceEntryType
   overwritten: boolean
 }
+
+export interface WorkspaceCreateFileResponse {
+  session_id: string
+  path: string
+  created: boolean
+}
+
+export interface WorkspaceSaveFileResponse {
+  session_id: string
+  path: string
+  saved: boolean
+  size: number
+  updated_at: string
+}
+
+export interface WorkspaceDeleteDirectoryResponse {
+  session_id: string
+  path: string
+  deleted: boolean
+}

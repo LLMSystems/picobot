@@ -8,6 +8,8 @@ import {
   Clock,
   Upload,
   FolderPlus,
+  FilePlus,
+  ArchiveIcon,
   Folder,
   Globe,
 } from 'lucide-vue-next'
@@ -20,6 +22,7 @@ import {
 } from '@/components/ui/tooltip'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useCapabilitiesStore } from '@/stores/capabilities'
+import { api } from '@/lib/api'
 
 const props = defineProps<{ tab: WorkspaceTab }>()
 const emit = defineEmits<{
@@ -30,6 +33,17 @@ const emit = defineEmits<{
 const ws = useWorkspaceStore()
 const caps = useCapabilitiesStore()
 const fileInputRef = ref<HTMLInputElement | null>(null)
+
+function downloadZip() {
+  const id = ws.sessionId
+  if (!id) return
+  const url = api.workspaceDownloadUrl(id)
+  const a = document.createElement('a')
+  a.href = url
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+}
 
 function openPicker() {
   fileInputRef.value?.click()
@@ -103,6 +117,20 @@ function tabBtnClass(t: WorkspaceTab): string {
                 variant="ghost"
                 size="icon"
                 class="size-7"
+                aria-label="新增檔案"
+                @click="ws.openNewFile()"
+              >
+                <FilePlus class="size-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>新增檔案</TooltipContent>
+          </Tooltip>
+          <Tooltip v-if="caps.data.features.session_workspace">
+            <TooltipTrigger as-child>
+              <Button
+                variant="ghost"
+                size="icon"
+                class="size-7"
                 aria-label="新增資料夾"
                 @click="ws.openMkdir()"
               >
@@ -144,6 +172,20 @@ function tabBtnClass(t: WorkspaceTab): string {
             <TooltipContent>
               {{ ws.sortMode === 'updated' ? '目前：依修改時間' : '目前：依名稱' }}
             </TooltipContent>
+          </Tooltip>
+          <Tooltip v-if="caps.data.features.session_workspace">
+            <TooltipTrigger as-child>
+              <Button
+                variant="ghost"
+                size="icon"
+                class="size-7"
+                aria-label="下載 ZIP"
+                @click="downloadZip"
+              >
+                <ArchiveIcon class="size-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>下載整個 Workspace</TooltipContent>
           </Tooltip>
           <Tooltip>
             <TooltipTrigger as-child>

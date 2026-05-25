@@ -11,6 +11,9 @@ import type {
   WorkspaceDeleteResponse,
   WorkspaceMkdirResponse,
   WorkspaceMoveResponse,
+  WorkspaceCreateFileResponse,
+  WorkspaceDeleteDirectoryResponse,
+  WorkspaceSaveFileResponse,
 } from './types'
 import { ApiError } from './errors'
 
@@ -157,4 +160,34 @@ export const api = {
       `/sessions/${encodeURIComponent(id)}/workspace/move`,
       { method: 'POST', body: JSON.stringify(body) },
     ),
+
+  createWorkspaceFile: (
+    id: string,
+    body: { path: string; content?: string; overwrite?: boolean },
+  ) =>
+    request<WorkspaceCreateFileResponse>(
+      `/sessions/${encodeURIComponent(id)}/workspace/file`,
+      { method: 'POST', body: JSON.stringify(body) },
+    ),
+
+  saveWorkspaceFile: (
+    id: string,
+    body: { path: string; content: string },
+  ) =>
+    request<WorkspaceSaveFileResponse>(
+      `/sessions/${encodeURIComponent(id)}/workspace/file`,
+      { method: 'PUT', body: JSON.stringify(body) },
+    ),
+
+  deleteWorkspaceDirectory: (
+    id: string,
+    params: { path: string; recursive?: boolean },
+  ) =>
+    request<WorkspaceDeleteDirectoryResponse>(
+      `/sessions/${encodeURIComponent(id)}/workspace/directory${qs(params)}`,
+      { method: 'DELETE' },
+    ),
+
+  workspaceDownloadUrl: (id: string, path?: string): string =>
+    `${API_BASE}/sessions/${encodeURIComponent(id)}/workspace/download${qs({ path })}`,
 }
