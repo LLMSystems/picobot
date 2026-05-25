@@ -13,6 +13,7 @@ import {
   ArchiveIcon,
   Folder,
   Globe,
+  Plus,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import {
@@ -21,6 +22,13 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useCapabilitiesStore } from '@/stores/capabilities'
 import { api } from '@/lib/api'
@@ -69,6 +77,10 @@ function tabBtnClass(t: WorkspaceTab): string {
     ? `${base} bg-background text-foreground shadow-sm`
     : `${base} text-muted-foreground hover:text-foreground`
 }
+
+const showUpload = caps.data.features.file_upload
+const showNew = caps.data.features.session_workspace
+const showAddMenu = showUpload || showNew
 </script>
 
 <template>
@@ -100,65 +112,48 @@ function tabBtnClass(t: WorkspaceTab): string {
         瀏覽器
       </button>
     </div>
+
     <TooltipProvider :delay-duration="200">
       <div class="ml-auto flex items-center gap-1">
         <template v-if="tab === 'files'">
-          <Tooltip v-if="caps.data.features.file_upload">
-            <TooltipTrigger as-child>
+          <!-- + dropdown：上傳檔案 / 上傳資料夾 / 新增檔案 / 新增資料夾 -->
+          <DropdownMenu v-if="showAddMenu">
+            <DropdownMenuTrigger as-child>
               <Button
                 variant="ghost"
                 size="icon"
                 class="size-7"
-                aria-label="上傳檔案"
-                @click="openPicker"
+                aria-label="新增或上傳"
+                title="新增或上傳"
               >
-                <Upload class="size-4" />
+                <Plus class="size-4" />
               </Button>
-            </TooltipTrigger>
-            <TooltipContent>上傳檔案</TooltipContent>
-          </Tooltip>
-          <Tooltip v-if="caps.data.features.file_upload">
-            <TooltipTrigger as-child>
-              <Button
-                variant="ghost"
-                size="icon"
-                class="size-7"
-                aria-label="上傳資料夾"
-                @click="openFolderPicker"
-              >
-                <FolderUp class="size-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>上傳資料夾</TooltipContent>
-          </Tooltip>
-          <Tooltip v-if="caps.data.features.session_workspace">
-            <TooltipTrigger as-child>
-              <Button
-                variant="ghost"
-                size="icon"
-                class="size-7"
-                aria-label="新增檔案"
-                @click="ws.openNewFile()"
-              >
-                <FilePlus class="size-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>新增檔案</TooltipContent>
-          </Tooltip>
-          <Tooltip v-if="caps.data.features.session_workspace">
-            <TooltipTrigger as-child>
-              <Button
-                variant="ghost"
-                size="icon"
-                class="size-7"
-                aria-label="新增資料夾"
-                @click="ws.openMkdir()"
-              >
-                <FolderPlus class="size-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>新增資料夾</TooltipContent>
-          </Tooltip>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" class="w-40">
+              <template v-if="caps.data.features.file_upload">
+                <DropdownMenuItem @click="openPicker">
+                  <Upload class="mr-2 size-3.5" />
+                  上傳檔案
+                </DropdownMenuItem>
+                <DropdownMenuItem @click="openFolderPicker">
+                  <FolderUp class="mr-2 size-3.5" />
+                  上傳資料夾
+                </DropdownMenuItem>
+              </template>
+              <DropdownMenuSeparator v-if="caps.data.features.file_upload && caps.data.features.session_workspace" />
+              <template v-if="caps.data.features.session_workspace">
+                <DropdownMenuItem @click="ws.openNewFile()">
+                  <FilePlus class="mr-2 size-3.5" />
+                  新增檔案
+                </DropdownMenuItem>
+                <DropdownMenuItem @click="ws.openMkdir()">
+                  <FolderPlus class="mr-2 size-3.5" />
+                  新增資料夾
+                </DropdownMenuItem>
+              </template>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
           <input
             ref="fileInputRef"
             type="file"
@@ -174,6 +169,8 @@ function tabBtnClass(t: WorkspaceTab): string {
             class="hidden"
             @change="onFilesChosen"
           />
+
+          <!-- 排序 -->
           <Tooltip>
             <TooltipTrigger as-child>
               <Button
@@ -201,6 +198,8 @@ function tabBtnClass(t: WorkspaceTab): string {
               {{ ws.sortMode === 'updated' ? '目前：依修改時間' : '目前：依名稱' }}
             </TooltipContent>
           </Tooltip>
+
+          <!-- 下載 ZIP -->
           <Tooltip v-if="caps.data.features.session_workspace">
             <TooltipTrigger as-child>
               <Button
@@ -215,6 +214,8 @@ function tabBtnClass(t: WorkspaceTab): string {
             </TooltipTrigger>
             <TooltipContent>下載整個 Workspace</TooltipContent>
           </Tooltip>
+
+          <!-- 重新整理 -->
           <Tooltip>
             <TooltipTrigger as-child>
               <Button
@@ -229,8 +230,11 @@ function tabBtnClass(t: WorkspaceTab): string {
             </TooltipTrigger>
             <TooltipContent>重新整理</TooltipContent>
           </Tooltip>
+
           <span class="mx-1 h-5 w-px bg-border" aria-hidden="true" />
         </template>
+
+        <!-- 關閉 -->
         <Tooltip>
           <TooltipTrigger as-child>
             <Button
