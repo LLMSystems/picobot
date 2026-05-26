@@ -343,7 +343,7 @@ defineExpose({ disconnect })
         variant="ghost"
         class="size-7"
         title="重新整理（Shift 強制重載）"
-        @click="(e) => reloadPage((e as MouseEvent).shiftKey)"
+        @click="(e: MouseEvent) => reloadPage(e.shiftKey)"
       >
         <RefreshCw class="size-4" />
       </Button>
