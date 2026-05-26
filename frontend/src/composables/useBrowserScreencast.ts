@@ -121,6 +121,26 @@ export function useBrowserScreencast() {
     }
   }
 
+  function sendInput(payload: Record<string, unknown>): boolean {
+    if (!socket || socket.readyState !== WebSocket.OPEN) return false
+    try {
+      socket.send(JSON.stringify({ type: 'input', ...payload }))
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  function navigate(payload: Record<string, unknown>): boolean {
+    if (!socket || socket.readyState !== WebSocket.OPEN) return false
+    try {
+      socket.send(JSON.stringify({ type: 'navigate', ...payload }))
+      return true
+    } catch {
+      return false
+    }
+  }
+
   function disconnect() {
     stopped = true
     stopFpsTimer()
@@ -149,5 +169,7 @@ export function useBrowserScreencast() {
     fps,
     connect,
     disconnect,
+    sendInput,
+    navigate,
   }
 }
