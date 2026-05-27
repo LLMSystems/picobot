@@ -725,6 +725,250 @@ class AioSQLiteSessionStore(AsyncSessionStore):
         return merged
 
 
+class AioSQLiteSubagentStore:
+    """Async SQLite-backed store for persisted subagent runs."""
+
+    def __init__(self, db_path: str | Path) -> None:
+        if aiosqlite is None:
+            raise ImportError(
+                "AioSQLiteSubagentStore requires 'aiosqlite'. Install with: pip install aiosqlite",
+            )
+        self.db_path = Path(db_path).expanduser().resolve()
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._initialized = False
+        self._init_lock: Any = None
+
+    async def ensure_schema(self) -> None:
+        await self._ensure_initialized()
+
+    async def _ensure_initialized(self) -> None:
+        if self._initialized:
+            return
+        if self._init_lock is None:
+            import asyncio
+
+            self._init_lock = asyncio.Lock()
+        async with self._init_lock:
+            if self._initialized:
+                return
+            async with aiosqlite.connect(str(self.db_path)) as conn:
+                await conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS subagent_runs (
+                        task_id TEXT PRIMARY KEY,
+                        parent_session_id TEXT NOT NULL,
+                        label TEXT NOT NULL,
+                        task TEXT NOT NULL,
+                        workspace TEXT,
+                        phase TEXT NOT NULL,
+                        started_at TEXT NOT NULL,
+                        finished_at TEXT,
+                        stop_reason TEXT,
+                        ok INTEGER,
+                        error TEXT,
+                        usage_json TEXT NOT NULL,
+                        tool_events_json TEXT NOT NULL,
+                        final_content TEXT
+                    )
+                    """,
+                )
+                await conn.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_subagent_runs_parent_session
+                    ON subagent_runs(parent_session_id, started_at DESC)
+                    """,
+                )
+                await conn.commit()
+            self._initialized = True
+
+    async def upsert_run(self, payload: dict[str, object]) -> None:
+        await self._ensure_initialized()
+        row = self._normalize_payload(payload)
+        async with aiosqlite.connect(str(self.db_path)) as conn:
+            await conn.execute(
+                """
+                INSERT INTO subagent_runs (
+                    task_id,
+                    parent_session_id,
+                    label,
+                    task,
+                    workspace,
+                    phase,
+                    started_at,
+                    finished_at,
+                    stop_reason,
+                    ok,
+                    error,
+                    usage_json,
+                    tool_events_json,
+                    final_content
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(task_id) DO UPDATE SET
+                    parent_session_id = excluded.parent_session_id,
+                    label = excluded.label,
+                    task = excluded.task,
+                    workspace = excluded.workspace,
+                    phase = excluded.phase,
+                    started_at = excluded.started_at,
+                    finished_at = excluded.finished_at,
+                    stop_reason = excluded.stop_reason,
+                    ok = excluded.ok,
+                    error = excluded.error,
+                    usage_json = excluded.usage_json,
+                    tool_events_json = excluded.tool_events_json,
+                    final_content = excluded.final_content
+                """,
+                row,
+            )
+            await conn.commit()
+
+    async def get_run(self, task_id: str) -> dict[str, object] | None:
+        await self._ensure_initialized()
+        async with aiosqlite.connect(str(self.db_path)) as conn:
+            cursor = await conn.execute(
+                """
+                SELECT
+                    task_id,
+                    parent_session_id,
+                    label,
+                    task,
+                    workspace,
+                    phase,
+                    started_at,
+                    finished_at,
+                    stop_reason,
+                    ok,
+                    error,
+                    usage_json,
+                    tool_events_json,
+                    final_content
+                FROM subagent_runs
+                WHERE task_id = ?
+                """,
+                (task_id,),
+            )
+            row = await cursor.fetchone()
+            await cursor.close()
+        return self._row_to_payload(row) if row is not None else None
+
+    async def list_runs(
+        self,
+        *,
+        parent_session_id: str | None = None,
+        phase: str | None = None,
+        limit: int = 50,
+    ) -> list[dict[str, object]]:
+        await self._ensure_initialized()
+        query = [
+            """
+            SELECT
+                task_id,
+                parent_session_id,
+                label,
+                task,
+                workspace,
+                phase,
+                started_at,
+                finished_at,
+                stop_reason,
+                ok,
+                error,
+                usage_json,
+                tool_events_json,
+                final_content
+            FROM subagent_runs
+            """
+        ]
+        clauses: list[str] = []
+        params: list[object] = []
+        if parent_session_id is not None:
+            clauses.append("parent_session_id = ?")
+            params.append(parent_session_id)
+        if phase is not None:
+            clauses.append("phase = ?")
+            params.append(phase)
+        if clauses:
+            query.append("WHERE " + " AND ".join(clauses))
+        query.append("ORDER BY started_at DESC")
+        query.append("LIMIT ?")
+        params.append(limit)
+
+        async with aiosqlite.connect(str(self.db_path)) as conn:
+            cursor = await conn.execute("\n".join(query), tuple(params))
+            rows = await cursor.fetchall()
+            await cursor.close()
+        return [self._row_to_payload(row) for row in rows]
+
+    @staticmethod
+    def _normalize_payload(payload: dict[str, object]) -> tuple[object, ...]:
+        task_id = str(payload["task_id"])
+        parent_session_id = str(payload["parent_session_id"])
+        label = str(payload["label"])
+        task = str(payload["task"])
+        workspace = payload.get("workspace")
+        phase = str(payload["phase"])
+        started_at = str(payload["started_at"])
+        finished_at = payload.get("finished_at")
+        stop_reason = payload.get("stop_reason")
+        ok = payload.get("ok")
+        error = payload.get("error")
+        usage = payload.get("usage", {})
+        tool_events = payload.get("tool_events", [])
+        final_content = payload.get("final_content")
+
+        return (
+            task_id,
+            parent_session_id,
+            label,
+            task,
+            str(workspace) if isinstance(workspace, (str, Path)) else None,
+            phase,
+            started_at,
+            str(finished_at) if isinstance(finished_at, str) else None,
+            str(stop_reason) if isinstance(stop_reason, str) else None,
+            _bool_to_sqlite(ok),
+            str(error) if isinstance(error, str) else None,
+            json.dumps(usage if isinstance(usage, dict) else {}, ensure_ascii=False),
+            json.dumps(tool_events if isinstance(tool_events, list) else [], ensure_ascii=False),
+            str(final_content) if isinstance(final_content, str) else None,
+        )
+
+    @staticmethod
+    def _row_to_payload(row: tuple[object, ...]) -> dict[str, object]:
+        (
+            task_id,
+            parent_session_id,
+            label,
+            task,
+            workspace,
+            phase,
+            started_at,
+            finished_at,
+            stop_reason,
+            ok,
+            error,
+            usage_json,
+            tool_events_json,
+            final_content,
+        ) = row
+        return {
+            "task_id": str(task_id),
+            "parent_session_id": str(parent_session_id),
+            "label": str(label),
+            "task": str(task),
+            "workspace": str(workspace) if isinstance(workspace, str) else None,
+            "phase": str(phase),
+            "started_at": str(started_at),
+            "finished_at": str(finished_at) if isinstance(finished_at, str) else None,
+            "stop_reason": str(stop_reason) if isinstance(stop_reason, str) else None,
+            "ok": _sqlite_to_bool(ok),
+            "error": str(error) if isinstance(error, str) else None,
+            "usage": _safe_load_json_dict(usage_json),
+            "tool_events": _safe_load_json_list(tool_events_json),
+            "final_content": str(final_content) if isinstance(final_content, str) else None,
+        }
+
+
 def _utc_timestamp() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
@@ -739,3 +983,37 @@ def _file_timestamp_metadata(path: Path, *, session_id: str) -> dict[str, object
         "created_at": updated,
         "updated_at": updated,
     }
+
+
+def _bool_to_sqlite(value: object) -> int | None:
+    if value is None:
+        return None
+    return 1 if bool(value) else 0
+
+
+def _sqlite_to_bool(value: object) -> bool | None:
+    if value is None:
+        return None
+    return bool(value)
+
+
+def _safe_load_json_dict(payload: object) -> dict[str, object]:
+    if not isinstance(payload, str):
+        return {}
+    try:
+        loaded = json.loads(payload)
+    except json.JSONDecodeError:
+        return {}
+    return loaded if isinstance(loaded, dict) else {}
+
+
+def _safe_load_json_list(payload: object) -> list[dict[str, object]]:
+    if not isinstance(payload, str):
+        return []
+    try:
+        loaded = json.loads(payload)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(loaded, list):
+        return []
+    return [item for item in loaded if isinstance(item, dict)]

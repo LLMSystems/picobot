@@ -121,6 +121,26 @@ async def test_error_result_is_captured():
 
 
 @pytest.mark.asyncio
+async def test_stop_finish_reason_is_treated_as_success():
+    manager = SubagentManager(
+        lambda _workspace, _model: _FakeChatbot(
+            result=SimpleNamespace(
+                content="done",
+                stop_reason="stop",
+                usage={"prompt_tokens": 2},
+            )
+        ),
+    )
+
+    task_id = await manager.spawn(SubagentSpec(task="finish normally"))
+    result = await manager.wait(task_id)
+
+    assert result.ok is True
+    assert result.stop_reason == "stop"
+    assert manager.get_status(task_id).phase == "done"
+
+
+@pytest.mark.asyncio
 async def test_tool_events_update_status():
     manager = SubagentManager(
         lambda _workspace, _model: _FakeChatbot(
@@ -159,12 +179,14 @@ async def test_factory_receives_workspace_and_model_override(tmp_path: Path):
             task="collect references",
             workspace=workspace,
             model_override="gpt-5-mini",
+            parent_session_id="session_123",
         )
     )
     await manager.wait(task_id)
 
     assert captured["workspace"] == workspace
     assert captured["model_override"] == "gpt-5-mini"
+    assert manager.get_status(task_id).parent_session_id == "session_123"
 
 
 @pytest.mark.asyncio
@@ -222,3 +244,102 @@ async def test_explicit_relative_workspace_resolves_against_parent_workspace(tmp
     assert result.workspace == expected_workspace
     assert captured["workspace"] == expected_workspace
     assert expected_workspace.is_dir()
+
+
+@pytest.mark.asyncio
+async def test_result_callback_receives_completed_result_with_parent_session_id(tmp_path: Path):
+    seen: dict[str, object] = {}
+
+    async def result_callback(status, result):
+        seen["status"] = status
+        seen["result"] = result
+
+    manager = SubagentManager(
+        lambda _workspace, _model: _FakeChatbot(),
+        result_callback=result_callback,
+    )
+
+    task_id = await manager.spawn(
+        SubagentSpec(
+            task="collect notes",
+            parent_session_id="session_alpha",
+        ),
+        parent_workspace=tmp_path,
+    )
+    result = await manager.wait(task_id)
+
+    status = seen["status"]
+    callback_result = seen["result"]
+    assert status.task_id == task_id
+    assert status.parent_session_id == "session_alpha"
+    assert callback_result.task_id == task_id
+    assert callback_result.ok is True
+    assert callback_result.content == result.content
+
+
+@pytest.mark.asyncio
+async def test_result_callback_receives_error_result(tmp_path: Path):
+    seen: dict[str, object] = {}
+
+    async def result_callback(status, result):
+        seen["status"] = status
+        seen["result"] = result
+
+    manager = SubagentManager(
+        lambda _workspace, _model: _FakeChatbot(error=RuntimeError("boom")),
+        result_callback=result_callback,
+    )
+
+    task_id = await manager.spawn(
+        SubagentSpec(
+            task="explode",
+            parent_session_id="session_beta",
+        ),
+        parent_workspace=tmp_path,
+    )
+    result = await manager.wait(task_id)
+
+    status = seen["status"]
+    callback_result = seen["result"]
+    assert status.task_id == task_id
+    assert status.parent_session_id == "session_beta"
+    assert callback_result.task_id == task_id
+    assert callback_result.ok is False
+    assert callback_result.stop_reason == "error"
+    assert "boom" in (result.error or "")
+
+
+@pytest.mark.asyncio
+async def test_spawn_callback_receives_initializing_status(tmp_path: Path):
+    seen: dict[str, object] = {}
+
+    async def spawn_callback(status):
+        seen["snapshot"] = {
+            "task_id": status.task_id,
+            "phase": status.phase,
+            "parent_session_id": status.parent_session_id,
+            "workspace": status.workspace,
+            "started_at_utc": status.started_at_utc,
+        }
+
+    manager = SubagentManager(
+        lambda _workspace, _model: _FakeChatbot(delay=0.01),
+        spawn_callback=spawn_callback,
+    )
+
+    task_id = await manager.spawn(
+        SubagentSpec(
+            task="prepare scratch space",
+            parent_session_id="session_gamma",
+        ),
+        parent_workspace=tmp_path,
+    )
+    await manager.wait(task_id)
+
+    status = seen["snapshot"]
+    assert status["task_id"] == task_id
+    assert status["phase"] == "initializing"
+    assert status["parent_session_id"] == "session_gamma"
+    assert status["workspace"] == (tmp_path / ".subagents" / task_id).resolve()
+    assert isinstance(status["started_at_utc"], str)
+    assert status["started_at_utc"].endswith("Z")

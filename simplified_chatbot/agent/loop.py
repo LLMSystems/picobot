@@ -102,9 +102,28 @@ class AgentLoop:
         on_event: EventCallback | None = None,
     ) -> RunResult:
         """Execute one user turn and return the updated conversation history."""
-        return await self._run_internal_async(
-            message,
-            history=history,
+        conversation = [
+            *self._normalize_history(history),
+            {"role": "user", "content": self._normalize_user_message(message)},
+        ]
+        return await self._run_conversation_async(
+            conversation,
+            stream=False,
+            on_delta=None,
+            model_override=model_override,
+            on_event=on_event,
+        )
+
+    async def continue_async(
+        self,
+        history: list[Message],
+        *,
+        model_override: str | None = None,
+        on_event: EventCallback | None = None,
+    ) -> RunResult:
+        """Continue from existing history without appending a new user message."""
+        return await self._run_conversation_async(
+            self._normalize_history(history),
             stream=False,
             on_delta=None,
             model_override=model_override,
@@ -121,31 +140,28 @@ class AgentLoop:
         on_event: EventCallback | None = None,
     ) -> RunResult:
         """Execute one streamed user turn and return the aggregated result."""
-        return await self._run_internal_async(
-            message,
-            history=history,
+        conversation = [
+            *self._normalize_history(history),
+            {"role": "user", "content": self._normalize_user_message(message)},
+        ]
+        return await self._run_conversation_async(
+            conversation,
             stream=True,
             on_delta=on_delta,
             model_override=model_override,
             on_event=on_event,
         )
 
-    async def _run_internal_async(
+    async def _run_conversation_async(
         self,
-        message: MessageContent,
+        conversation: list[Message],
         *,
-        history: list[Message] | None,
         stream: bool,
         on_delta: Callable[[str], None] | None,
         model_override: str | None,
         on_event: EventCallback | None,
     ) -> RunResult:
-        text = self._normalize_user_message(message)
         effective_model = self._resolve_effective_model(model_override)
-        conversation = [
-            *self._normalize_history(history),
-            {"role": "user", "content": text},
-        ]
         tools_used: list[str] = []
         tool_definitions = self._tools.get_definitions() or None
         usage: dict[str, int] = {}
@@ -464,9 +480,9 @@ class AgentLoop:
 
             role = item.get("role")
             content = item.get("content")
-            if role not in {"user", "assistant", "tool"}:
+            if role not in {"system", "user", "assistant", "tool"}:
                 raise ValueError(
-                    "history messages may only use 'user', 'assistant', or 'tool' roles",
+                    "history messages may only use 'system', 'user', 'assistant', or 'tool' roles",
                 )
             if role == "user":
                 if isinstance(content, str):
@@ -480,11 +496,28 @@ class AgentLoop:
                     raise TypeError(
                         f"history[{index}].content must be a string or content block list",
                     )
-            else:
+            elif role in {"system", "assistant", "tool"}:
                 if not isinstance(content, str):
                     raise TypeError(f"history[{index}].content must be a string")
                 normalized_content = content
+            else:  # pragma: no cover
+                raise ValueError(f"Unsupported history role: {role}")
             message: Message = {"role": role, "content": normalized_content}
+            metadata = item.get("metadata")
+            if metadata is not None:
+                if not isinstance(metadata, dict):
+                    raise TypeError(f"history[{index}].metadata must be a dictionary")
+                message["metadata"] = dict(metadata)
+            message_id = item.get("id")
+            if message_id is not None:
+                if not isinstance(message_id, str):
+                    raise TypeError(f"history[{index}].id must be a string")
+                message["id"] = message_id
+            created_at = item.get("created_at")
+            if created_at is not None:
+                if not isinstance(created_at, str):
+                    raise TypeError(f"history[{index}].created_at must be a string")
+                message["created_at"] = created_at
             if role == "assistant" and isinstance(item.get("tool_calls"), list):
                 message["tool_calls"] = item["tool_calls"]
             if role == "tool":

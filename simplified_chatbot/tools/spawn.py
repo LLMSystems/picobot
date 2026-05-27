@@ -43,9 +43,11 @@ class SpawnTool(Tool):
         manager: SubagentManager,
         *,
         workspace: Path | None = None,
+        parent_session_id: str | None = None,
     ) -> None:
         self._manager = manager
         self._workspace = workspace.resolve() if workspace is not None else None
+        self._parent_session_id = parent_session_id
 
     @property
     def name(self) -> str:
@@ -71,6 +73,7 @@ class SpawnTool(Tool):
                 task=task,
                 label=label,
                 temperature=temperature,
+                parent_session_id=self._parent_session_id,
             ),
             parent_workspace=self._workspace,
         )

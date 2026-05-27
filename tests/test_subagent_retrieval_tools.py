@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from simplified_chatbot.agent.subagent import SubagentManager, SubagentSpec
+from simplified_chatbot.runtime.session_store import AioSQLiteSubagentStore
 from simplified_chatbot.tools.subagents import (
     ListSubagentsTool,
     SubagentStatusTool,
@@ -123,3 +124,103 @@ async def test_subagent_wait_tool_returns_status_on_timeout_and_result_when_done
     assert finished["completed"] is True
     assert finished["result"]["task_id"] == task_id
     assert finished["result"]["ok"] is True
+
+
+@pytest.mark.asyncio
+async def test_retrieval_tools_fallback_to_persisted_store(tmp_path: Path):
+    pytest.importorskip("aiosqlite")
+    store = AioSQLiteSubagentStore(tmp_path / "subagents.db")
+    await store.upsert_run(
+        {
+            "task_id": "sub_persisted_done",
+            "parent_session_id": "session_a",
+            "label": "persisted task",
+            "task": "Persisted task",
+            "workspace": str(tmp_path / "session_a" / ".subagents" / "sub_persisted_done"),
+            "phase": "done",
+            "started_at": "2026-05-27T12:00:00Z",
+            "finished_at": "2026-05-27T12:00:05Z",
+            "stop_reason": "stop",
+            "ok": True,
+            "error": None,
+            "usage": {"prompt_tokens": 8},
+            "tool_events": [{"id": "tc1", "name": "write_file", "status": "ok"}],
+            "final_content": "Finished persisted work",
+        },
+    )
+    await store.upsert_run(
+        {
+            "task_id": "sub_other_session",
+            "parent_session_id": "session_b",
+            "label": "other session task",
+            "task": "Other session task",
+            "workspace": None,
+            "phase": "done",
+            "started_at": "2026-05-27T12:00:10Z",
+            "finished_at": "2026-05-27T12:00:12Z",
+            "stop_reason": "completed",
+            "ok": True,
+            "error": None,
+            "usage": {},
+            "tool_events": [],
+            "final_content": "other",
+        },
+    )
+
+    manager = SubagentManager(lambda _workspace, _model: _FakeChatbot())
+    list_tool = ListSubagentsTool(manager, session_id="session_a", store=store)
+    status_tool = SubagentStatusTool(manager, session_id="session_a", store=store)
+    wait_tool = SubagentWaitTool(manager, session_id="session_a", store=store)
+
+    listing = await list_tool.execute(include_completed=True, limit=10)
+    status_payload = await status_tool.execute(
+        task_id="sub_persisted_done",
+        include_result=True,
+        tail_tool_events=1,
+    )
+    waited = await wait_tool.execute(
+        task_id="sub_persisted_done",
+        timeout_seconds=0.0,
+    )
+
+    assert [item["task_id"] for item in listing["items"]] == ["sub_persisted_done"]
+    assert status_payload["phase"] == "done"
+    assert status_payload["started_at"] == "2026-05-27T12:00:00Z"
+    assert status_payload["tool_events"][0]["name"] == "write_file"
+    assert status_payload["result"]["content"] == "Finished persisted work"
+    assert waited["completed"] is True
+    assert waited["result"]["task_id"] == "sub_persisted_done"
+    assert waited["result"]["ok"] is True
+
+
+@pytest.mark.asyncio
+async def test_status_tool_rejects_persisted_task_from_other_session(tmp_path: Path):
+    pytest.importorskip("aiosqlite")
+    store = AioSQLiteSubagentStore(tmp_path / "subagents.db")
+    await store.upsert_run(
+        {
+            "task_id": "sub_hidden",
+            "parent_session_id": "session_b",
+            "label": "hidden task",
+            "task": "Hidden task",
+            "workspace": None,
+            "phase": "done",
+            "started_at": "2026-05-27T12:00:00Z",
+            "finished_at": "2026-05-27T12:00:01Z",
+            "stop_reason": "completed",
+            "ok": True,
+            "error": None,
+            "usage": {},
+            "tool_events": [],
+            "final_content": "hidden",
+        },
+    )
+
+    tool = SubagentStatusTool(
+        SubagentManager(lambda _workspace, _model: _FakeChatbot()),
+        session_id="session_a",
+        store=store,
+    )
+    payload = await tool.execute(task_id="sub_hidden")
+
+    assert payload["error"] == "Unknown subagent task_id: sub_hidden"

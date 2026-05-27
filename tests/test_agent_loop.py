@@ -3,6 +3,7 @@ import asyncio
 import pytest
 
 from simplified_chatbot.agent.loop import AgentLoop
+from simplified_chatbot.agent.types import Message
 from simplified_chatbot.config.schema import ChatbotConfig
 from simplified_chatbot.providers.base import ProviderResponse, ToolCallRequest
 from simplified_chatbot.tools.fake_tools import build_fake_tool_registry
@@ -117,16 +118,39 @@ def test_agent_loop_build_messages_accepts_multimodal_user_content():
     }
 
 
-def test_agent_loop_rejects_system_messages_in_history():
+def test_agent_loop_accepts_system_messages_in_history_and_preserves_metadata():
+    config = ChatbotConfig(model="gpt-4.1-mini")
+    provider = DummyProvider(content="Continued")
+    loop = AgentLoop(provider=provider, config=config, system_prompt="System prompt")
+
+    result = loop.run(
+        "Hello",
+        history=[
+            {
+                "role": "system",
+                "content": "Internal subagent result",
+                "metadata": {"internal": True, "source": "subagent"},
+                "id": "msg_internal",
+                "created_at": "2026-01-01T00:00:00Z",
+            }
+        ],
+    )
+
+    sent_messages = provider.calls[0]["messages"]
+    assert sent_messages[1]["role"] == "system"
+    assert sent_messages[1]["content"] == "Internal subagent result"
+    assert result.messages[0]["metadata"] == {"internal": True, "source": "subagent"}
+    assert result.messages[0]["id"] == "msg_internal"
+    assert result.messages[0]["created_at"] == "2026-01-01T00:00:00Z"
+
+
+def test_agent_loop_rejects_invalid_history_role():
     config = ChatbotConfig(model="gpt-4.1-mini")
     provider = DummyProvider()
     loop = AgentLoop(provider=provider, config=config, system_prompt="System prompt")
 
-    with pytest.raises(ValueError, match="user'.*assistant'.*tool"):
-        loop.run(
-            "Hello",
-            history=[{"role": "system", "content": "Not allowed"}],
-        )
+    with pytest.raises(ValueError, match="system'.*user'.*assistant'.*tool"):
+        loop.run("Hello", history=[{"role": "narrator", "content": "Not allowed"}])
 
 
 def test_agent_loop_rejects_invalid_multimodal_user_content():
@@ -361,3 +385,124 @@ def test_agent_loop_executes_read_file_tool(tmp_path):
     assert result.messages[2]["role"] == "tool"
     assert result.messages[2]["name"] == "read_file"
     assert "1| hello tool loop" in result.messages[2]["content"]
+
+
+class ContinuationProvider:
+    def __init__(self) -> None:
+        self.iteration = 0
+        self.calls: list[list[Message]] = []
+
+    async def generate_async(
+        self,
+        messages,
+        *,
+        model: str,
+        max_tokens: int,
+        temperature: float,
+        timeout: float,
+        tools=None,
+    ) -> ProviderResponse:
+        self.calls.append(messages)
+        self.iteration += 1
+        if self.iteration == 1:
+            assert messages[-1]["role"] == "system"
+            assert messages[-1]["content"] == "Internal subagent result"
+            return ProviderResponse(
+                content="",
+                tool_calls=[
+                    ToolCallRequest(
+                        id="call_1",
+                        name="calculator",
+                        arguments={"expression": "2+2"},
+                    ),
+                ],
+                finish_reason="tool_calls",
+            )
+
+        assert messages[-1]["role"] == "tool"
+        assert messages[-1]["content"] == "4"
+        return ProviderResponse(
+            content="I used the subagent result and finished the task.",
+            finish_reason="stop",
+            usage={"prompt_tokens": 11, "completion_tokens": 4, "total_tokens": 15},
+        )
+
+    async def stream_generate_async(self, *args, **kwargs):
+        raise AssertionError("stream_generate_async should not be called in this test")
+
+
+def test_agent_loop_continue_async_does_not_append_user_message_and_can_call_tools():
+    config = ChatbotConfig(model="gpt-4.1-mini", max_iterations=4)
+    provider = ContinuationProvider()
+    loop = AgentLoop(
+        provider=provider,
+        config=config,
+        system_prompt="System prompt",
+        tools=build_fake_tool_registry(),
+    )
+    history: list[Message] = [
+        {
+            "role": "system",
+            "content": "Internal subagent result",
+            "metadata": {"internal": True, "source": "subagent"},
+        }
+    ]
+
+    result = asyncio.run(loop.continue_async(history))
+
+    assert result.content == "I used the subagent result and finished the task."
+    assert result.tools_used == ["calculator"]
+    assert result.messages[0]["role"] == "system"
+    assert result.messages[0]["content"] == "Internal subagent result"
+    assert all(
+        not (
+            message["role"] == "user"
+            and message["content"] == "Internal subagent result"
+        )
+        for message in provider.calls[0]
+    )
+
+
+def test_agent_loop_continue_async_respects_model_override_and_emits_tool_events():
+    config = ChatbotConfig(
+        model="gpt-4.1-mini",
+        available_models=["gpt-4.1-mini", "gpt-5-mini"],
+        max_iterations=4,
+    )
+    provider = ContinuationProvider()
+    loop = AgentLoop(
+        provider=provider,
+        config=config,
+        system_prompt="System prompt",
+        tools=build_fake_tool_registry(),
+    )
+    events: list[tuple[str, dict[str, object]]] = []
+
+    result = asyncio.run(
+        loop.continue_async(
+            [{"role": "system", "content": "Internal subagent result"}],
+            model_override="gpt-5-mini",
+            on_event=lambda event, data: events.append((event, data)),
+        )
+    )
+
+    assert result.model == "gpt-5-mini"
+    assert events == [
+        (
+            "tool_call_started",
+            {
+                "id": "call_1",
+                "name": "calculator",
+                "arguments": {"expression": "2+2"},
+            },
+        ),
+        (
+            "tool_call_finished",
+            {
+                "id": "call_1",
+                "name": "calculator",
+                "ok": True,
+                "result": "4",
+            },
+        ),
+    ]

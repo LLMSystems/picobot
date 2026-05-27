@@ -26,7 +26,7 @@ def test_from_config_wires_spawn_tool_into_main_chatbot(monkeypatch, tmp_path: P
     chatbot = SimplifiedChatbot.from_config(config_path)
     session_workspace = tmp_path / "workspaces" / "session-1"
     session_workspace.mkdir(parents=True)
-    session_chatbot = chatbot.for_workspace(session_workspace)
+    session_chatbot = chatbot.for_workspace(session_workspace, session_id="session-1")
 
     assert chatbot.subagent_manager is not None
     assert chatbot.supports_workspace_clone is True
@@ -34,6 +34,8 @@ def test_from_config_wires_spawn_tool_into_main_chatbot(monkeypatch, tmp_path: P
     assert "spawn" in session_chatbot.tools.tool_names
     assert chatbot.tools.get("spawn")._manager is chatbot.subagent_manager
     assert session_chatbot.tools.get("spawn")._manager is chatbot.subagent_manager
+    assert chatbot.tools.get("spawn")._parent_session_id is None
+    assert session_chatbot.tools.get("spawn")._parent_session_id == "session-1"
     assert f"Current workspace: `{session_workspace.resolve()}`" in session_chatbot.system_prompt
 
 

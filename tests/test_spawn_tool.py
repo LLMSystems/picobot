@@ -32,7 +32,11 @@ class _StubManager:
 async def test_spawn_tool_delegates_to_subagent_manager():
     manager = _StubManager()
     workspace = Path.cwd() / "main-workspace"
-    tool = SpawnTool(manager, workspace=workspace)  # type: ignore[arg-type]
+    tool = SpawnTool(
+        manager,
+        workspace=workspace,
+        parent_session_id="session_123",
+    )  # type: ignore[arg-type]
 
     result = await tool.execute(
         task="collect references",
@@ -44,6 +48,7 @@ async def test_spawn_tool_delegates_to_subagent_manager():
     assert manager.seen_spec.task == "collect references"
     assert manager.seen_spec.label == "collect refs"
     assert manager.seen_spec.temperature == 0.3
+    assert manager.seen_spec.parent_session_id == "session_123"
     assert manager.seen_parent_workspace == workspace.resolve()
     assert "started" in result
     assert "sub_deadbeef" in result

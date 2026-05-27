@@ -6,8 +6,9 @@ import asyncio
 import time
 import uuid
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Protocol
+from typing import Any, Awaitable, Callable, Protocol
 
 
 class SupportsAsyncRun(Protocol):
@@ -25,6 +26,14 @@ class SupportsAsyncRun(Protocol):
 
 
 ChatbotFactory = Callable[[Path | None, str | None], SupportsAsyncRun]
+SubagentResultCallback = Callable[
+    ["SubagentStatus", "SubagentResult"],
+    Awaitable[None] | None,
+]
+SubagentSpawnCallback = Callable[
+    ["SubagentStatus"],
+    Awaitable[None] | None,
+]
 
 
 @dataclass(slots=True)
@@ -36,6 +45,7 @@ class SubagentSpec:
     temperature: float | None = None
     workspace: Path | None = None
     model_override: str | None = None
+    parent_session_id: str | None = None
 
 
 @dataclass(slots=True)
@@ -46,7 +56,9 @@ class SubagentStatus:
     label: str
     task: str
     started_at: float
+    started_at_utc: str = field(default_factory=lambda: _utc_timestamp())
     workspace: Path | None = None
+    parent_session_id: str | None = None
     phase: str = "initializing"
     iteration: int = 0
     tool_events: list[dict[str, Any]] = field(default_factory=list)
@@ -77,11 +89,15 @@ class SubagentManager:
         chatbot_factory: ChatbotFactory,
         *,
         max_concurrent_subagents: int = 1,
+        spawn_callback: SubagentSpawnCallback | None = None,
+        result_callback: SubagentResultCallback | None = None,
     ) -> None:
         if max_concurrent_subagents < 1:
             raise ValueError("max_concurrent_subagents must be >= 1")
         self._chatbot_factory = chatbot_factory
         self.max_concurrent_subagents = max_concurrent_subagents
+        self._spawn_callback = spawn_callback
+        self._result_callback = result_callback
         self._running_tasks: dict[str, asyncio.Task[None]] = {}
         self._statuses: dict[str, SubagentStatus] = {}
         self._results: dict[str, SubagentResult] = {}
@@ -110,6 +126,7 @@ class SubagentManager:
             label=label,
             task=task_text,
             started_at=time.monotonic(),
+            parent_session_id=spec.parent_session_id,
         )
         status.workspace = self._resolve_workspace(
             task_id,
@@ -118,6 +135,12 @@ class SubagentManager:
         )
         self._statuses[task_id] = status
         self._done_events[task_id] = asyncio.Event()
+        try:
+            await self._invoke_spawn_callback(status)
+        except Exception:
+            self._statuses.pop(task_id, None)
+            self._done_events.pop(task_id, None)
+            raise
         task = asyncio.create_task(self._run_subagent(task_id, spec), name=f"subagent:{task_id}")
         self._running_tasks[task_id] = task
         task.add_done_callback(lambda finished: self._on_task_done(task_id, finished))
@@ -184,6 +207,49 @@ class SubagentManager:
         """Return a cached final result when available."""
         return self._results.get(task_id)
 
+    def bind_result_callback(
+        self,
+        callback: SubagentResultCallback,
+    ) -> None:
+        """Append one result callback while preserving any existing callback."""
+        existing = self._result_callback
+        if existing is None:
+            self._result_callback = callback
+            return
+
+        async def chained(
+            status: SubagentStatus,
+            result: SubagentResult,
+        ) -> None:
+            first = existing(status, result)
+            if asyncio.iscoroutine(first):
+                await first
+            second = callback(status, result)
+            if asyncio.iscoroutine(second):
+                await second
+
+        self._result_callback = chained
+
+    def bind_spawn_callback(
+        self,
+        callback: SubagentSpawnCallback,
+    ) -> None:
+        """Append one spawn callback while preserving any existing callback."""
+        existing = self._spawn_callback
+        if existing is None:
+            self._spawn_callback = callback
+            return
+
+        async def chained(status: SubagentStatus) -> None:
+            first = existing(status)
+            if asyncio.iscoroutine(first):
+                await first
+            second = callback(status)
+            if asyncio.iscoroutine(second):
+                await second
+
+        self._spawn_callback = chained
+
     async def wait_for(
         self,
         task_id: str,
@@ -212,7 +278,7 @@ class SubagentManager:
             status = self._statuses[task_id]
             status.phase = "cancelled"
             status.stop_reason = "cancelled"
-            self._results[task_id] = SubagentResult(
+            result = SubagentResult(
                 task_id=task_id,
                 ok=False,
                 content="Cancelled",
@@ -220,7 +286,7 @@ class SubagentManager:
                 workspace=status.workspace,
                 tool_events=list(status.tool_events),
             )
-            self._done_events[task_id].set()
+            self._queue_fallback_result(status, result)
             return
         exc = task.exception()
         if exc is not None:
@@ -228,7 +294,7 @@ class SubagentManager:
             status.phase = "error"
             status.error = str(exc)
             status.stop_reason = "error"
-            self._results[task_id] = SubagentResult(
+            result = SubagentResult(
                 task_id=task_id,
                 ok=False,
                 content=f"Error: {exc}",
@@ -237,7 +303,7 @@ class SubagentManager:
                 tool_events=list(status.tool_events),
                 error=str(exc),
             )
-            self._done_events[task_id].set()
+            self._queue_fallback_result(status, result)
 
     async def _run_subagent(self, task_id: str, spec: SubagentSpec) -> None:
         status = self._statuses[task_id]
@@ -256,7 +322,7 @@ class SubagentManager:
         except asyncio.CancelledError:
             status.phase = "cancelled"
             status.stop_reason = "cancelled"
-            self._results[task_id] = SubagentResult(
+            result = SubagentResult(
                 task_id=task_id,
                 ok=False,
                 content="Cancelled",
@@ -264,13 +330,13 @@ class SubagentManager:
                 workspace=status.workspace,
                 tool_events=list(status.tool_events),
             )
-            self._done_events[task_id].set()
+            await self._complete_task(status, result)
             raise
         except Exception as exc:
             status.phase = "error"
             status.error = str(exc)
             status.stop_reason = "error"
-            self._results[task_id] = SubagentResult(
+            result = SubagentResult(
                 task_id=task_id,
                 ok=False,
                 content=f"Error: {exc}",
@@ -279,7 +345,7 @@ class SubagentManager:
                 tool_events=list(status.tool_events),
                 error=str(exc),
             )
-            self._done_events[task_id].set()
+            await self._complete_task(status, result)
             return
 
         result = self._build_subagent_result(task_id, run_result, status)
@@ -288,8 +354,7 @@ class SubagentManager:
         if not status.usage:
             status.usage = dict(result.usage)
         status.error = result.error
-        self._results[task_id] = result
-        self._done_events[task_id].set()
+        await self._complete_task(status, result)
 
     @staticmethod
     def _generate_task_id() -> str:
@@ -340,7 +405,7 @@ class SubagentManager:
         usage = getattr(run_result, "usage", {}) or {}
         error = getattr(run_result, "error", None)
         tool_events = list(status.tool_events)
-        ok = stop_reason == "completed" and not error
+        ok = stop_reason in _SUCCESS_STOP_REASONS and not error
         return SubagentResult(
             task_id=task_id,
             ok=ok,
@@ -351,6 +416,43 @@ class SubagentManager:
             tool_events=tool_events,
             error=str(error) if error else None,
         )
+
+    async def _complete_task(
+        self,
+        status: SubagentStatus,
+        result: SubagentResult,
+    ) -> None:
+        self._results[status.task_id] = result
+        await self._invoke_result_callback(status, result)
+        self._done_events[status.task_id].set()
+
+    async def _invoke_result_callback(
+        self,
+        status: SubagentStatus,
+        result: SubagentResult,
+    ) -> None:
+        if self._result_callback is None:
+            return
+        callback_result = self._result_callback(status, result)
+        if asyncio.iscoroutine(callback_result):
+            await callback_result
+
+    async def _invoke_spawn_callback(self, status: SubagentStatus) -> None:
+        if self._spawn_callback is None:
+            return
+        callback_result = self._spawn_callback(status)
+        if asyncio.iscoroutine(callback_result):
+            await callback_result
+
+    def _queue_fallback_result(
+        self,
+        status: SubagentStatus,
+        result: SubagentResult,
+    ) -> None:
+        async def finalize() -> None:
+            await self._complete_task(status, result)
+
+        asyncio.create_task(finalize())
 
     @staticmethod
     def _update_status_from_event(status: SubagentStatus, event: str, data: dict[str, Any]) -> None:
@@ -392,3 +494,8 @@ class SubagentManager:
 
 
 _TERMINAL_PHASES = frozenset({"done", "error", "cancelled"})
+_SUCCESS_STOP_REASONS = frozenset({"completed", "stop"})
+
+
+def _utc_timestamp() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")

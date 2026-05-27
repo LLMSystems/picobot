@@ -62,6 +62,7 @@ def test_spawn_tool_registers_only_for_main_profile_when_manager_is_provided(tmp
         workspace=tmp_path,
         profile="main",
         subagent_manager=manager,
+        session_id="session_abc",
     )
     subagent_registry = build_default_tool_registry(
         workspace=tmp_path,
@@ -78,6 +79,7 @@ def test_spawn_tool_registers_only_for_main_profile_when_manager_is_provided(tmp
     assert "subagent_status" not in subagent_registry.tool_names
     assert "subagent_wait" not in subagent_registry.tool_names
     assert main_registry.get("spawn")._workspace == tmp_path.resolve()
+    assert main_registry.get("spawn")._parent_session_id == "session_abc"
 
 
 def test_read_skill_tool_reads_builtin_skill():

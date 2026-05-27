@@ -758,6 +758,8 @@ def build_default_tool_registry(
     builtin_skills_dir: Path | None = None,
     profile: Literal["main", "subagent"] = "main",
     subagent_manager: Any | None = None,
+    subagent_store: Any | None = None,
+    session_id: str | None = None,
 ) -> ToolRegistry:
     """Create a default tool registry for the requested execution profile."""
     from simplified_chatbot.tools.document_readers import (
@@ -806,10 +808,34 @@ def build_default_tool_registry(
     if profile == "main":
         register_shared_tools()
         if subagent_manager is not None:
-            registry.register(SpawnTool(subagent_manager, workspace=ws))
-            registry.register(ListSubagentsTool(subagent_manager))
-            registry.register(SubagentStatusTool(subagent_manager))
-            registry.register(SubagentWaitTool(subagent_manager))
+            registry.register(
+                SpawnTool(
+                    subagent_manager,
+                    workspace=ws,
+                    parent_session_id=session_id,
+                ),
+            )
+            registry.register(
+                ListSubagentsTool(
+                    subagent_manager,
+                    session_id=session_id,
+                    store=subagent_store,
+                ),
+            )
+            registry.register(
+                SubagentStatusTool(
+                    subagent_manager,
+                    session_id=session_id,
+                    store=subagent_store,
+                ),
+            )
+            registry.register(
+                SubagentWaitTool(
+                    subagent_manager,
+                    session_id=session_id,
+                    store=subagent_store,
+                ),
+            )
     elif profile == "subagent":
         register_shared_tools()
 
