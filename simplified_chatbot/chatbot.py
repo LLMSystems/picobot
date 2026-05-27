@@ -144,6 +144,11 @@ class SimplifiedChatbot:
         history: list[Message] | None = None,
         *,
         model_override: str | None = None,
+        temperature_override: float | None = None,
+        max_tokens_override: int | None = None,
+        max_iterations_override: int | None = None,
+        system_prompt_override: str | None = None,
+        disabled_tools: list[str] | None = None,
         on_event: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> RunResult:
         """Run one model turn asynchronously."""
@@ -151,6 +156,11 @@ class SimplifiedChatbot:
             message,
             history=history,
             model_override=model_override,
+            temperature_override=temperature_override,
+            max_tokens_override=max_tokens_override,
+            max_iterations_override=max_iterations_override,
+            system_prompt_override=system_prompt_override,
+            disabled_tools=disabled_tools,
             on_event=on_event,
         )
 
@@ -179,6 +189,11 @@ class SimplifiedChatbot:
         *,
         on_delta: Callable[[str], None] | None = None,
         model_override: str | None = None,
+        temperature_override: float | None = None,
+        max_tokens_override: int | None = None,
+        max_iterations_override: int | None = None,
+        system_prompt_override: str | None = None,
+        disabled_tools: list[str] | None = None,
         on_event: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> RunResult:
         """Run one streamed model turn asynchronously."""
@@ -187,6 +202,11 @@ class SimplifiedChatbot:
             history=history,
             on_delta=on_delta,
             model_override=model_override,
+            temperature_override=temperature_override,
+            max_tokens_override=max_tokens_override,
+            max_iterations_override=max_iterations_override,
+            system_prompt_override=system_prompt_override,
+            disabled_tools=disabled_tools,
             on_event=on_event,
         )
 

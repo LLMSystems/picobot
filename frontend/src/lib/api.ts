@@ -1,6 +1,7 @@
 import type {
   Capabilities,
   ChatImageInput,
+  ChatOverrides,
   SessionMessage,
   SessionSummary,
   ApiErrorBody,
@@ -102,7 +103,7 @@ export const api = {
     message: string
     images?: ChatImageInput[]
     model?: string
-  }) =>
+  } & ChatOverrides) =>
     request<ChatResponse>('/chat', {
       method: 'POST',
       body: JSON.stringify(body),

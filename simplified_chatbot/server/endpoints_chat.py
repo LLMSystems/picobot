@@ -44,6 +44,11 @@ async def chat(request: Request, payload: ChatRequest) -> ChatResponse:
             payload.session_id,
             content,
             model_override=payload.model,
+            temperature_override=payload.temperature,
+            max_tokens_override=payload.max_tokens,
+            max_iterations_override=payload.max_iterations,
+            system_prompt_override=payload.system_prompt,
+            disabled_tools=payload.disabled_tools,
             on_event=on_event,
         )
     except ModelNotAllowedError as exc:
@@ -160,6 +165,11 @@ async def chat_stream_post(
         session_id=payload.session_id,
         message=content,
         model_override=payload.model,
+        temperature_override=payload.temperature,
+        max_tokens_override=payload.max_tokens,
+        max_iterations_override=payload.max_iterations,
+        system_prompt_override=payload.system_prompt,
+        disabled_tools=payload.disabled_tools,
     )
 
 
@@ -169,6 +179,11 @@ def _build_chat_stream_response(
     session_id: str,
     message: MessageContent,
     model_override: str | None = None,
+    temperature_override: float | None = None,
+    max_tokens_override: int | None = None,
+    max_iterations_override: int | None = None,
+    system_prompt_override: str | None = None,
+    disabled_tools: list[str] | None = None,
 ) -> StreamingResponse:
     """Build the shared SSE response for GET/POST stream endpoints."""
     runtime = get_runtime(request)
@@ -188,6 +203,11 @@ def _build_chat_stream_response(
                 message,
                 on_delta=on_delta,
                 model_override=model_override,
+                temperature_override=temperature_override,
+                max_tokens_override=max_tokens_override,
+                max_iterations_override=max_iterations_override,
+                system_prompt_override=system_prompt_override,
+                disabled_tools=disabled_tools,
                 on_event=on_event,
             )
             await queue.put(

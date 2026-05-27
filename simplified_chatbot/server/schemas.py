@@ -49,6 +49,11 @@ class ChatRequest(BaseModel):
     message: str = Field(min_length=1)
     model: str | None = Field(default=None, min_length=1)
     images: list[ChatImageInput] = Field(default_factory=list)
+    temperature: float | None = Field(default=None, ge=0.0, le=2.0)
+    max_tokens: int | None = Field(default=None, gt=0)
+    max_iterations: int | None = Field(default=None, gt=0)
+    system_prompt: str | None = Field(default=None)
+    disabled_tools: list[str] = Field(default_factory=list)
 
 
 class ChatStreamRequest(ChatRequest):
@@ -157,6 +162,9 @@ class CapabilitiesResponse(BaseModel):
     max_iterations: int
     tools: list[CapabilitiesToolInfo] = Field(default_factory=list)
     features: CapabilitiesFeatures
+    default_system_prompt: str = ""
+    default_temperature: float = 0.7
+    default_max_tokens: int | None = None
 
 
 class WorkspaceTreeEntry(BaseModel):

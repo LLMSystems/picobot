@@ -15,6 +15,9 @@ const FALLBACK: Capabilities = {
     multimodal: false,
     model_override: false,
   },
+  default_system_prompt: '',
+  default_temperature: 0.7,
+  default_max_tokens: null,
 }
 
 export const useCapabilitiesStore = defineStore('capabilities', () => {

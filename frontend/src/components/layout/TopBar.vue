@@ -4,7 +4,9 @@ import { useRoute } from 'vue-router'
 import { useSessionsStore } from '@/stores/sessions'
 import { useCapabilitiesStore } from '@/stores/capabilities'
 import { Button } from '@/components/ui/button'
-import { Menu, Pencil, Moon, Sun, PanelRight, Bell, BellOff, Download } from 'lucide-vue-next'
+import { Menu, Pencil, Moon, Sun, PanelRight, Bell, BellOff, Download, Settings } from 'lucide-vue-next'
+import SettingsDialog from '@/components/settings/SettingsDialog.vue'
+import { useSettingsStore } from '@/stores/settings'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -29,10 +31,12 @@ const route = useRoute()
 const sessions = useSessionsStore()
 const caps = useCapabilitiesStore()
 const ws = useWorkspaceStore()
+const settings = useSettingsStore()
 const { theme, toggle: toggleTheme } = useTheme()
 const notifs = useNotifications()
 
 const exporting = ref(false)
+const settingsOpen = ref(false)
 
 async function exportSession(format: 'markdown' | 'json') {
   const sid = currentId.value
@@ -215,6 +219,21 @@ function cancel() {
       <Button
         variant="ghost"
         size="icon"
+        aria-label="設定"
+        title="設定"
+        class="relative"
+        @click="settingsOpen = true"
+      >
+        <Settings class="size-4" />
+        <span
+          v-if="settings.hasOverrides"
+          class="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-amber-500"
+          aria-hidden="true"
+        />
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon"
         aria-label="切換主題"
         @click="toggleTheme"
       >
@@ -234,4 +253,6 @@ function cancel() {
       </Button>
     </div>
   </header>
+
+  <SettingsDialog v-model:open="settingsOpen" />
 </template>

@@ -36,6 +36,10 @@ async def get_capabilities(request: Request) -> CapabilitiesResponse:
     model_name = str(getattr(config, "model", "unknown"))
     available_models = getattr(config, "available_models", []) if config is not None else []
     max_iterations = int(getattr(config, "max_iterations", 0) or 0)
+    default_temperature = float(getattr(config, "temperature", 0.7) or 0.7)
+    default_max_tokens_raw = getattr(config, "max_tokens", None)
+    default_max_tokens = int(default_max_tokens_raw) if default_max_tokens_raw else None
+    default_system_prompt = str(getattr(chatbot, "system_prompt", "") or "")
 
     return CapabilitiesResponse(
         model=CapabilitiesModelInfo(
@@ -49,6 +53,9 @@ async def get_capabilities(request: Request) -> CapabilitiesResponse:
         ],
         max_iterations=max_iterations,
         tools=_build_tool_capabilities(tools),
+        default_system_prompt=default_system_prompt,
+        default_temperature=default_temperature,
+        default_max_tokens=default_max_tokens,
         features=CapabilitiesFeatures(
             streaming=True,
             session_workspace=runtime.workspace_manager is not None,

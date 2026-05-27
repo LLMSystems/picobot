@@ -99,6 +99,11 @@ class AgentLoop:
         history: list[Message] | None = None,
         *,
         model_override: str | None = None,
+        temperature_override: float | None = None,
+        max_tokens_override: int | None = None,
+        max_iterations_override: int | None = None,
+        system_prompt_override: str | None = None,
+        disabled_tools: list[str] | None = None,
         on_event: EventCallback | None = None,
     ) -> RunResult:
         """Execute one user turn and return the updated conversation history."""
@@ -108,6 +113,11 @@ class AgentLoop:
             stream=False,
             on_delta=None,
             model_override=model_override,
+            temperature_override=temperature_override,
+            max_tokens_override=max_tokens_override,
+            max_iterations_override=max_iterations_override,
+            system_prompt_override=system_prompt_override,
+            disabled_tools=disabled_tools,
             on_event=on_event,
         )
 
@@ -118,6 +128,11 @@ class AgentLoop:
         *,
         on_delta: Callable[[str], None] | None = None,
         model_override: str | None = None,
+        temperature_override: float | None = None,
+        max_tokens_override: int | None = None,
+        max_iterations_override: int | None = None,
+        system_prompt_override: str | None = None,
+        disabled_tools: list[str] | None = None,
         on_event: EventCallback | None = None,
     ) -> RunResult:
         """Execute one streamed user turn and return the aggregated result."""
@@ -127,6 +142,11 @@ class AgentLoop:
             stream=True,
             on_delta=on_delta,
             model_override=model_override,
+            temperature_override=temperature_override,
+            max_tokens_override=max_tokens_override,
+            max_iterations_override=max_iterations_override,
+            system_prompt_override=system_prompt_override,
+            disabled_tools=disabled_tools,
             on_event=on_event,
         )
 
@@ -138,22 +158,38 @@ class AgentLoop:
         stream: bool,
         on_delta: Callable[[str], None] | None,
         model_override: str | None,
+        temperature_override: float | None = None,
+        max_tokens_override: int | None = None,
+        max_iterations_override: int | None = None,
+        system_prompt_override: str | None = None,
+        disabled_tools: list[str] | None = None,
         on_event: EventCallback | None,
     ) -> RunResult:
         text = self._normalize_user_message(message)
         effective_model = self._resolve_effective_model(model_override)
+        effective_temperature = temperature_override if temperature_override is not None else self._config.temperature
+        effective_max_tokens = max_tokens_override if max_tokens_override is not None else self._config.max_tokens
+        effective_max_iterations = max_iterations_override if max_iterations_override is not None else self._config.max_iterations
+        effective_system_prompt = system_prompt_override.strip() if system_prompt_override else self._system_prompt
+        disabled_set = set(disabled_tools) if disabled_tools else set()
+        all_definitions = self._tools.get_definitions() or []
+        filtered_definitions = [
+            d for d in all_definitions
+            if d.get("function", {}).get("name") not in disabled_set
+        ]
+        tool_definitions = filtered_definitions or None
+
         conversation = [
             *self._normalize_history(history),
             {"role": "user", "content": text},
         ]
         tools_used: list[str] = []
-        tool_definitions = self._tools.get_definitions() or None
         usage: dict[str, int] = {}
 
-        for _ in range(self._config.max_iterations):
+        for _ in range(effective_max_iterations):
             trimmed_conversation = self._trim_conversation(conversation)
             request_messages = [
-                {"role": "system", "content": self._system_prompt},
+                {"role": "system", "content": effective_system_prompt},
                 *trimmed_conversation,
             ]
             response = await self._call_provider_async(
@@ -162,6 +198,8 @@ class AgentLoop:
                 stream=stream,
                 on_delta=on_delta,
                 tools=tool_definitions,
+                temperature=effective_temperature,
+                max_tokens=effective_max_tokens,
             )
             usage = response.usage or usage
 
@@ -297,15 +335,20 @@ class AgentLoop:
         stream: bool,
         on_delta: Callable[[str], None] | None,
         tools: list[dict[str, object]] | None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
     ):
+        effective_temperature = temperature if temperature is not None else self._config.temperature
+        effective_max_tokens = max_tokens if max_tokens is not None else self._config.max_tokens
+
         if stream:
             stream_generate_async = getattr(self._provider, "stream_generate_async", None)
             if callable(stream_generate_async):
                 response = stream_generate_async(
                     messages,
                     model=model,
-                    max_tokens=self._config.max_tokens,
-                    temperature=self._config.temperature,
+                    max_tokens=effective_max_tokens,
+                    temperature=effective_temperature,
                     timeout=self._config.request_timeout,
                     on_delta=on_delta,
                     tools=tools,
@@ -317,8 +360,8 @@ class AgentLoop:
                 self._provider.stream_generate,
                 messages,
                 model=model,
-                max_tokens=self._config.max_tokens,
-                temperature=self._config.temperature,
+                max_tokens=effective_max_tokens,
+                temperature=effective_temperature,
                 timeout=self._config.request_timeout,
                 on_delta=on_delta,
                 tools=tools,
@@ -329,8 +372,8 @@ class AgentLoop:
             response = generate_async(
                 messages,
                 model=model,
-                max_tokens=self._config.max_tokens,
-                temperature=self._config.temperature,
+                max_tokens=effective_max_tokens,
+                temperature=effective_temperature,
                 timeout=self._config.request_timeout,
                 tools=tools,
             )
@@ -341,8 +384,8 @@ class AgentLoop:
             self._provider.generate,
             messages,
             model=model,
-            max_tokens=self._config.max_tokens,
-            temperature=self._config.temperature,
+            max_tokens=effective_max_tokens,
+            temperature=effective_temperature,
             timeout=self._config.request_timeout,
             tools=tools,
         )

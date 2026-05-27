@@ -4,6 +4,7 @@ import { API_BASE } from '@/lib/api'
 import type {
   ApiErrorBody,
   ChatImageInput,
+  ChatOverrides,
   DisplayToolCall,
   DoneData,
   StreamErrorData,
@@ -28,7 +29,7 @@ export async function runStream(
     client_request_id?: string
     images?: ChatImageInput[]
     model?: string
-  },
+  } & ChatOverrides,
   signal: AbortSignal,
   h: StreamHandlers,
 ): Promise<void> {

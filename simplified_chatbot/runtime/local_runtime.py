@@ -263,6 +263,11 @@ class LocalAgentRuntime:
         content: MessageContent,
         *,
         model_override: str | None = None,
+        temperature_override: float | None = None,
+        max_tokens_override: int | None = None,
+        max_iterations_override: int | None = None,
+        system_prompt_override: str | None = None,
+        disabled_tools: list[str] | None = None,
         on_event: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> RunResult:
         event_callback = _build_runtime_event_callback(session_id, on_event)
@@ -278,6 +283,11 @@ class LocalAgentRuntime:
             content,
             history=history,
             model_override=resolved_model,
+            temperature_override=temperature_override,
+            max_tokens_override=max_tokens_override,
+            max_iterations_override=max_iterations_override,
+            system_prompt_override=system_prompt_override,
+            disabled_tools=disabled_tools,
             on_event=event_callback,
         )
         await self._save_history_async(session_id, result.messages)
@@ -307,6 +317,11 @@ class LocalAgentRuntime:
         *,
         on_delta: Callable[[str], None] | None = None,
         model_override: str | None = None,
+        temperature_override: float | None = None,
+        max_tokens_override: int | None = None,
+        max_iterations_override: int | None = None,
+        system_prompt_override: str | None = None,
+        disabled_tools: list[str] | None = None,
         on_event: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> RunResult:
         event_callback = _build_runtime_event_callback(session_id, on_event)
@@ -323,6 +338,11 @@ class LocalAgentRuntime:
             history=history,
             on_delta=on_delta,
             model_override=resolved_model,
+            temperature_override=temperature_override,
+            max_tokens_override=max_tokens_override,
+            max_iterations_override=max_iterations_override,
+            system_prompt_override=system_prompt_override,
+            disabled_tools=disabled_tools,
             on_event=event_callback,
         )
         await self._save_history_async(session_id, result.messages)
@@ -898,6 +918,11 @@ class LocalAgentRuntime:
         history: list[Message],
         model_override: str | None,
         on_event: Callable[[str, dict[str, Any]], None] | None,
+        temperature_override: float | None = None,
+        max_tokens_override: int | None = None,
+        max_iterations_override: int | None = None,
+        system_prompt_override: str | None = None,
+        disabled_tools: list[str] | None = None,
     ) -> RunResult:
         chatbot = self._get_chatbot_for_session(session_id)
         run_async = getattr(chatbot, "run_async", None)
@@ -907,19 +932,22 @@ class LocalAgentRuntime:
                 message,
                 history=history,
                 model_override=model_override,
+                temperature_override=temperature_override,
+                max_tokens_override=max_tokens_override,
+                max_iterations_override=max_iterations_override,
+                system_prompt_override=system_prompt_override,
+                disabled_tools=disabled_tools,
                 on_event=on_event,
             )
             if inspect.isawaitable(result):
                 return await result
             return result
-        if model_override is not None:
-            return await asyncio.to_thread(
-                chatbot.run,
-                message,
-                history=history,
-                model_override=model_override,
-            )
-        return await asyncio.to_thread(chatbot.run, message, history=history)
+        return await asyncio.to_thread(
+            chatbot.run,
+            message,
+            history=history,
+            model_override=model_override,
+        )
 
     async def _run_chat_stream_async(
         self,
@@ -930,6 +958,11 @@ class LocalAgentRuntime:
         on_delta: Callable[[str], None] | None,
         model_override: str | None,
         on_event: Callable[[str, dict[str, Any]], None] | None,
+        temperature_override: float | None = None,
+        max_tokens_override: int | None = None,
+        max_iterations_override: int | None = None,
+        system_prompt_override: str | None = None,
+        disabled_tools: list[str] | None = None,
     ) -> RunResult:
         chatbot = self._get_chatbot_for_session(session_id)
         run_stream_async = getattr(chatbot, "run_stream_async", None)
@@ -940,24 +973,22 @@ class LocalAgentRuntime:
                 history=history,
                 on_delta=on_delta,
                 model_override=model_override,
+                temperature_override=temperature_override,
+                max_tokens_override=max_tokens_override,
+                max_iterations_override=max_iterations_override,
+                system_prompt_override=system_prompt_override,
+                disabled_tools=disabled_tools,
                 on_event=on_event,
             )
             if inspect.isawaitable(result):
                 return await result
             return result
-        if model_override is not None:
-            return await asyncio.to_thread(
-                chatbot.run_stream,
-                message,
-                history,
-                on_delta=on_delta,
-                model_override=model_override,
-            )
         return await asyncio.to_thread(
             chatbot.run_stream,
             message,
             history,
             on_delta=on_delta,
+            model_override=model_override,
         )
 
     def _get_chatbot_for_session(self, session_id: str) -> Any:
@@ -1234,6 +1265,11 @@ def _invoke_chatbot_method(
     history: list[Message],
     on_delta: Callable[[str], None] | None = None,
     model_override: str | None = None,
+    temperature_override: float | None = None,
+    max_tokens_override: int | None = None,
+    max_iterations_override: int | None = None,
+    system_prompt_override: str | None = None,
+    disabled_tools: list[str] | None = None,
     on_event: Callable[[str, dict[str, Any]], None] | None = None,
 ) -> Any:
     kwargs: dict[str, Any] = {"history": history}
@@ -1242,6 +1278,16 @@ def _invoke_chatbot_method(
         kwargs["on_delta"] = on_delta
     if model_override is not None and "model_override" in signature.parameters:
         kwargs["model_override"] = model_override
+    if temperature_override is not None and "temperature_override" in signature.parameters:
+        kwargs["temperature_override"] = temperature_override
+    if max_tokens_override is not None and "max_tokens_override" in signature.parameters:
+        kwargs["max_tokens_override"] = max_tokens_override
+    if max_iterations_override is not None and "max_iterations_override" in signature.parameters:
+        kwargs["max_iterations_override"] = max_iterations_override
+    if system_prompt_override is not None and "system_prompt_override" in signature.parameters:
+        kwargs["system_prompt_override"] = system_prompt_override
+    if disabled_tools is not None and "disabled_tools" in signature.parameters:
+        kwargs["disabled_tools"] = disabled_tools
     if on_event is not None and "on_event" in signature.parameters:
         kwargs["on_event"] = on_event
     return method(*args, **kwargs)

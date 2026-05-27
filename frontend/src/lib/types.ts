@@ -24,6 +24,17 @@ export interface Capabilities {
   max_iterations: number
   tools: ToolCapability[]
   features: CapabilityFeatures
+  default_system_prompt: string
+  default_temperature: number
+  default_max_tokens: number | null
+}
+
+export interface ChatOverrides {
+  system_prompt?: string
+  temperature?: number
+  max_tokens?: number
+  max_iterations?: number
+  disabled_tools?: string[]
 }
 
 export interface SessionSummary {

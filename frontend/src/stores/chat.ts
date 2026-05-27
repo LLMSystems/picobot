@@ -5,6 +5,7 @@ import { ApiError, isAbortError } from '@/lib/errors'
 import { runStream } from '@/composables/useChatStream'
 import { useSessionsStore } from '@/stores/sessions'
 import { useCapabilitiesStore } from '@/stores/capabilities'
+import { useSettingsStore } from '@/stores/settings'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useNotifications } from '@/composables/useNotifications'
 import type {
@@ -254,6 +255,7 @@ export const useChatStore = defineStore('chat', () => {
     text = rewriteMentions(text)
 
     const caps = useCapabilitiesStore()
+    const settings = useSettingsStore()
     const sessions = useSessionsStore()
 
     runStatus.value = 'streaming'
@@ -299,6 +301,7 @@ export const useChatStore = defineStore('chat', () => {
             message: text,
             ...(images.length ? { images } : {}),
             ...(model ? { model } : {}),
+            ...settings.chatOverrides,
           },
           abortController.signal,
           {
@@ -362,6 +365,7 @@ export const useChatStore = defineStore('chat', () => {
           message: text,
           ...(images.length ? { images } : {}),
           ...(model ? { model } : {}),
+          ...settings.chatOverrides,
         })
         assistantMsg.content = resp.content
         if (resp.content) {
