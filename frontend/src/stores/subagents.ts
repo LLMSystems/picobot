@@ -81,7 +81,10 @@ export const useSubagentStore = defineStore('subagents', () => {
   const timelines = ref<Map<string, SubagentTimelineEvent[]>>(new Map())
   const streaming = ref<Map<string, SubagentStreamingState>>(new Map())
   const loadedTimelines = ref<Set<string>>(new Set())
-  const selectedTaskId = ref<string | null>(null)
+  // Ordered list of subagent task_ids currently pinned open in the panel.
+  // Wide layout renders these side-by-side; narrow layout shows only the last.
+  const openTaskIds = ref<string[]>([])
+  const MAX_OPEN_TASKS = 3
   const loadingSummaries = ref(false)
   const loadingTimeline = ref<string | null>(null)
   const lastError = ref<ApiError | null>(null)
@@ -100,7 +103,7 @@ export const useSubagentStore = defineStore('subagents', () => {
     timelines.value = new Map()
     streaming.value = new Map()
     loadedTimelines.value = new Set()
-    selectedTaskId.value = null
+    openTaskIds.value = []
     lastError.value = null
   }
 
@@ -173,13 +176,43 @@ export const useSubagentStore = defineStore('subagents', () => {
     }
   }
 
-  function selectTask(taskId: string | null): void {
-    selectedTaskId.value = taskId
-    if (!taskId) return
+  function openTask(taskId: string): void {
+    const idx = openTaskIds.value.indexOf(taskId)
+    if (idx >= 0) {
+      // Already open — move to the end so it becomes the "most recently opened"
+      // (which is what narrow mode renders).
+      openTaskIds.value.splice(idx, 1)
+      openTaskIds.value.push(taskId)
+    } else {
+      // Cap the number of simultaneously open panels — drop the oldest.
+      while (openTaskIds.value.length >= MAX_OPEN_TASKS) {
+        openTaskIds.value.shift()
+      }
+      openTaskIds.value.push(taskId)
+    }
     const summary = summaries.value.get(taskId)
     if (!summary) return
     if (isTerminal(summary.phase) && !loadedTimelines.value.has(taskId)) {
       void loadTimeline(taskId)
+    }
+  }
+
+  function closeTask(taskId: string): void {
+    const idx = openTaskIds.value.indexOf(taskId)
+    if (idx >= 0) openTaskIds.value.splice(idx, 1)
+  }
+
+  function closeAllTasks(): void {
+    openTaskIds.value = []
+  }
+
+  // Back-compat shim: callers that used selectTask(taskId) or selectTask(null)
+  // continue to work. null clears all open panels.
+  function selectTask(taskId: string | null): void {
+    if (taskId === null) {
+      closeAllTasks()
+    } else {
+      openTask(taskId)
     }
   }
 
@@ -458,10 +491,29 @@ export const useSubagentStore = defineStore('subagents', () => {
 
   const totalCount = computed<number>(() => summaries.value.size)
 
+  // Most-recently-opened summary (used by narrow layout and by callers that
+  // still think in single-selection terms).
+  const selectedTaskId = computed<string | null>(() =>
+    openTaskIds.value.length > 0
+      ? (openTaskIds.value[openTaskIds.value.length - 1] ?? null)
+      : null,
+  )
+
   const selectedSummary = computed<SubagentSummary | null>(() => {
     const id = selectedTaskId.value
     if (!id) return null
     return summaries.value.get(id) ?? null
+  })
+
+  // Ordered SubagentSummary objects for the currently-pinned panels.
+  // Wide layout iterates over this to render columns side-by-side.
+  const openSummaries = computed<SubagentSummary[]>(() => {
+    const out: SubagentSummary[] = []
+    for (const id of openTaskIds.value) {
+      const s = summaries.value.get(id)
+      if (s) out.push(s)
+    }
+    return out
   })
 
   function getStreaming(taskId: string): SubagentStreamingState | undefined {
@@ -478,6 +530,7 @@ export const useSubagentStore = defineStore('subagents', () => {
     streaming,
     timelines,
     loadedTimelines,
+    openTaskIds,
     selectedTaskId,
     loadingSummaries,
     loadingTimeline,
@@ -486,10 +539,14 @@ export const useSubagentStore = defineStore('subagents', () => {
     runningCount,
     totalCount,
     selectedSummary,
+    openSummaries,
     bind,
     clear,
     loadForSession,
     loadTimeline,
+    openTask,
+    closeTask,
+    closeAllTasks,
     selectTask,
     connectSSE,
     disconnectSSE,

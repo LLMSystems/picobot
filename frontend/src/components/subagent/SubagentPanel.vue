@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { Bot, Loader2 } from 'lucide-vue-next'
 import SubagentListItem from './SubagentListItem.vue'
 import SubagentDetail from './SubagentDetail.vue'
@@ -64,7 +64,6 @@ const filtered = computed<SubagentSummary[]>(() => {
   }
 })
 
-// Group "all" view: running first, then everything else, ordered by started_at desc.
 const groupedAll = computed(() => {
   if (activeFilter.value !== 'all') {
     return [{ key: 'all', label: '', items: filtered.value }]
@@ -85,16 +84,96 @@ const groupedAll = computed(() => {
   return groups
 })
 
-const selectedSummary = computed(() => subagents.selectedSummary)
-const showDetail = computed(() => selectedSummary.value !== null)
+// Wide layout renders every pinned subagent side-by-side.
+// Narrow layout shows just the most-recently-opened one.
+const openSet = computed(() => new Set(subagents.openTaskIds))
+const wideOpenSummaries = computed(() => subagents.openSummaries)
+const narrowOpenSummary = computed(() =>
+  wideOpenSummaries.value.length > 0
+    ? wideOpenSummaries.value[wideOpenSummaries.value.length - 1]
+    : null,
+)
+
+const showDetail = computed(() =>
+  isNarrow.value
+    ? narrowOpenSummary.value !== null
+    : wideOpenSummaries.value.length > 0,
+)
 const showList = computed(() => !isNarrow.value || !showDetail.value)
 
 function onSelect(taskId: string) {
-  subagents.selectTask(taskId)
+  subagents.openTask(taskId)
 }
 
-function onBack() {
-  subagents.selectTask(null)
+function onClose(taskId: string) {
+  subagents.closeTask(taskId)
+}
+
+// Column width overrides (px) keyed by task_id.
+// Empty → all columns share equally via flex-1.
+// Whenever the set of open tasks changes, reset to equal share.
+const COLUMN_MIN_WIDTH = 240
+const columnWidths = ref<Map<string, number>>(new Map())
+
+watch(
+  () => subagents.openTaskIds.slice().join('|'),
+  () => {
+    columnWidths.value = new Map()
+  },
+)
+
+function columnStyle(taskId: string): Record<string, string> {
+  const w = columnWidths.value.get(taskId)
+  if (w !== undefined) {
+    return { width: `${w}px`, flex: '0 0 auto' }
+  }
+  return { flex: '1 1 0%' }
+}
+
+function startColumnResize(e: PointerEvent, leftId: string, rightId: string) {
+  const handle = e.currentTarget
+  if (!(handle instanceof HTMLElement)) return
+  const leftEl = handle.previousElementSibling
+  const rightEl = handle.nextElementSibling
+  if (!(leftEl instanceof HTMLElement) || !(rightEl instanceof HTMLElement)) return
+  e.preventDefault()
+
+  const startX = e.clientX
+  const startLeftW = leftEl.offsetWidth
+  const startRightW = rightEl.offsetWidth
+
+  document.body.style.cursor = 'col-resize'
+  document.body.style.userSelect = 'none'
+
+  function onMove(ev: PointerEvent) {
+    const delta = ev.clientX - startX
+    let newLeft = startLeftW + delta
+    let newRight = startRightW - delta
+    if (newLeft < COLUMN_MIN_WIDTH) {
+      newRight -= COLUMN_MIN_WIDTH - newLeft
+      newLeft = COLUMN_MIN_WIDTH
+    }
+    if (newRight < COLUMN_MIN_WIDTH) {
+      newLeft -= COLUMN_MIN_WIDTH - newRight
+      newRight = COLUMN_MIN_WIDTH
+    }
+    const next = new Map(columnWidths.value)
+    next.set(leftId, newLeft)
+    next.set(rightId, newRight)
+    columnWidths.value = next
+  }
+
+  function onUp() {
+    document.body.style.cursor = ''
+    document.body.style.userSelect = ''
+    window.removeEventListener('pointermove', onMove)
+    window.removeEventListener('pointerup', onUp)
+    window.removeEventListener('pointercancel', onUp)
+  }
+
+  window.addEventListener('pointermove', onMove)
+  window.addEventListener('pointerup', onUp)
+  window.addEventListener('pointercancel', onUp)
 }
 
 function chipClass(f: Filter): string {
@@ -114,23 +193,17 @@ function chipClass(f: Filter): string {
     <!-- List column -->
     <div
       v-if="showList"
-      class="flex min-h-0 flex-col border-r bg-background"
+      class="flex min-h-0 shrink-0 flex-col border-r bg-background"
       :class="
         isNarrow ? 'w-full' : 'w-[42%] max-w-[320px] min-w-[200px]'
       "
     >
-      <!-- Filter chips -->
       <div
         v-if="subagents.sortedSummaries.length > 0"
         class="flex shrink-0 items-center gap-1 overflow-x-auto border-b px-2 py-1.5"
       >
-        <button
-          type="button"
-          :class="chipClass('all')"
-          @click="activeFilter = 'all'"
-        >
-          全部
-          <span class="text-[10px] opacity-70">{{ counts.all }}</span>
+        <button type="button" :class="chipClass('all')" @click="activeFilter = 'all'">
+          全部 <span class="text-[10px] opacity-70">{{ counts.all }}</span>
         </button>
         <button
           type="button"
@@ -144,11 +217,7 @@ function chipClass(f: Filter): string {
           進行中
           <span class="text-[10px] opacity-70">{{ counts.running }}</span>
         </button>
-        <button
-          type="button"
-          :class="chipClass('done')"
-          @click="activeFilter = 'done'"
-        >
+        <button type="button" :class="chipClass('done')" @click="activeFilter = 'done'">
           已完成
           <span class="text-[10px] opacity-70">{{ counts.done }}</span>
         </button>
@@ -162,7 +231,6 @@ function chipClass(f: Filter): string {
         </button>
       </div>
 
-      <!-- Body -->
       <div
         v-if="subagents.loadingSummaries"
         class="flex items-center justify-center gap-2 py-6 text-xs text-muted-foreground"
@@ -174,9 +242,7 @@ function chipClass(f: Filter): string {
         v-else-if="subagents.sortedSummaries.length === 0"
         class="flex h-full flex-col items-center justify-center gap-3 px-6 text-center"
       >
-        <span
-          class="inline-flex size-12 items-center justify-center rounded-full bg-brand/10"
-        >
+        <span class="inline-flex size-12 items-center justify-center rounded-full bg-brand/10">
           <Bot class="size-6 text-brand" />
         </span>
         <div class="space-y-1">
@@ -186,10 +252,7 @@ function chipClass(f: Filter): string {
           </div>
         </div>
       </div>
-      <div
-        v-else
-        class="min-h-0 flex-1 space-y-3 overflow-y-auto p-2"
-      >
+      <div v-else class="min-h-0 flex-1 space-y-3 overflow-y-auto p-2">
         <template v-for="group in groupedAll" :key="group.key">
           <div v-if="group.items.length > 0" class="space-y-1.5">
             <div
@@ -204,7 +267,7 @@ function chipClass(f: Filter): string {
               v-for="s in group.items"
               :key="s.task_id"
               :summary="s"
-              :selected="subagents.selectedTaskId === s.task_id"
+              :selected="openSet.has(s.task_id)"
               @select="onSelect"
             />
           </div>
@@ -218,24 +281,69 @@ function chipClass(f: Filter): string {
       </div>
     </div>
 
-    <!-- Detail column -->
-    <div
-      v-if="showDetail || !isNarrow"
-      class="min-h-0 flex-1 bg-background"
-    >
-      <SubagentDetail
-        v-if="selectedSummary"
-        :summary="selectedSummary"
-        :show-back="isNarrow"
-        @back="onBack"
-      />
+    <!-- Detail area -->
+    <div v-if="showDetail || !isNarrow" class="min-h-0 min-w-0 flex-1 bg-background">
+      <!-- Wide: multi-column side-by-side -->
       <div
-        v-else
-        class="flex h-full flex-col items-center justify-center gap-2 px-6 text-center text-xs text-muted-foreground"
+        v-if="!isNarrow"
+        class="flex h-full min-h-0 w-full overflow-x-auto"
       >
-        <Bot class="size-8 opacity-40" />
-        <div>從左側選擇一個任務以查看詳情</div>
+        <template v-if="wideOpenSummaries.length === 0">
+          <div
+            class="flex h-full w-full flex-col items-center justify-center gap-2 px-6 text-center text-xs text-muted-foreground"
+          >
+            <Bot class="size-8 opacity-40" />
+            <div>從左側選擇一個任務以查看詳情</div>
+            <div class="text-[10px]">最多可同時開啟 3 個</div>
+          </div>
+        </template>
+        <template v-else>
+          <template
+            v-for="(summary, i) in wideOpenSummaries"
+            :key="summary.task_id"
+          >
+            <!-- Drag handle between columns -->
+            <div
+              v-if="i > 0"
+              class="group relative h-full w-1.5 shrink-0 cursor-col-resize bg-border/60 transition-colors hover:bg-primary/40"
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="拖曳調整欄寬"
+              @pointerdown="
+                startColumnResize(
+                  $event,
+                  wideOpenSummaries[i - 1]!.task_id,
+                  summary.task_id,
+                )
+              "
+            >
+              <span
+                class="pointer-events-none absolute inset-y-0 left-1/2 -translate-x-1/2 block w-px bg-transparent group-hover:bg-primary/60"
+              />
+            </div>
+            <div
+              class="flex h-full min-w-[240px] flex-col"
+              :style="columnStyle(summary.task_id)"
+            >
+              <SubagentDetail
+                :summary="summary"
+                closable
+                @close="onClose(summary.task_id)"
+              />
+            </div>
+          </template>
+        </template>
       </div>
+
+      <!-- Narrow: only the most-recently-opened -->
+      <template v-else>
+        <SubagentDetail
+          v-if="narrowOpenSummary"
+          :summary="narrowOpenSummary"
+          closable
+          @close="subagents.closeAllTasks()"
+        />
+      </template>
     </div>
   </section>
 </template>

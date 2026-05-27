@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Loader2, ArrowLeft, Timer, Coins, Hash, Wrench } from 'lucide-vue-next'
+import { Loader2, X, Timer, Coins, Hash, Wrench } from 'lucide-vue-next'
 import SubagentAvatar from './SubagentAvatar.vue'
 import SubagentTimeline from './SubagentTimeline.vue'
 import { Button } from '@/components/ui/button'
@@ -16,10 +16,10 @@ import type {
 
 const props = defineProps<{
   summary: SubagentSummary
-  showBack?: boolean
+  closable?: boolean
 }>()
 
-defineEmits<{ (e: 'back'): void }>()
+defineEmits<{ (e: 'close'): void }>()
 
 const subagents = useSubagentStore()
 
@@ -180,16 +180,6 @@ const toolsCount = computed(
   <div class="flex h-full min-h-0 flex-col">
     <div class="shrink-0 border-b bg-background/80 px-3 py-2 backdrop-blur">
       <div class="flex items-start gap-2">
-        <Button
-          v-if="showBack"
-          variant="ghost"
-          size="icon"
-          class="size-7"
-          aria-label="返回任務列表"
-          @click="$emit('back')"
-        >
-          <ArrowLeft class="size-4" />
-        </Button>
         <SubagentAvatar
           :task-id="summary.task_id"
           :running="isLive"
@@ -215,6 +205,16 @@ const toolsCount = computed(
             </span>
           </div>
         </div>
+        <Button
+          v-if="closable"
+          variant="ghost"
+          size="icon"
+          class="size-7 shrink-0"
+          aria-label="關閉此任務"
+          @click="$emit('close')"
+        >
+          <X class="size-4" />
+        </Button>
       </div>
 
       <!-- Stats strip -->
