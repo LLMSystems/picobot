@@ -55,7 +55,7 @@ const { targetRef, width, onPointerDown: onWidthPointerDown } =
     storageKey: 'picobot:workspace:width',
     initial: 320,
     min: 240,
-    max: 720,
+    max: 1200,
     edge: 'left',
   })
 

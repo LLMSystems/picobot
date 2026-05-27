@@ -20,7 +20,15 @@ import { useCapabilitiesStore } from '@/stores/capabilities'
 import { formatToolResult } from '@/lib/format'
 import { toolDisplayName } from '@/lib/toolDisplay'
 import { toolSummary, toolErrorSummary } from '@/lib/toolSummary'
+import PicobotIcon from '@/components/common/PicobotIcon.vue'
 import type { DisplayToolCall } from '@/lib/types'
+
+const SUBAGENT_TOOLS = new Set([
+  'spawn',
+  'list_subagents',
+  'subagent_status',
+  'subagent_wait',
+])
 
 const props = defineProps<{ toolCall: DisplayToolCall }>()
 const caps = useCapabilitiesStore()
@@ -54,12 +62,20 @@ const summaryLine = computed<string | null>(() => {
 
 const isLongResult = computed(() => resultText.value.split('\n').length > 50)
 
+const isSubagentTool = computed(() => SUBAGENT_TOOLS.has(props.toolCall.name))
+
 const categoryIcon = computed(() => {
   const c = meta.value?.category
   if (c === 'filesystem') return FileText
   if (c === 'shell') return Terminal
   if (c === 'search') return Search
   return Wrench
+})
+
+const picobotState = computed<'idle' | 'running' | 'failed'>(() => {
+  if (props.toolCall.status === 'running') return 'running'
+  if (props.toolCall.status === 'failed') return 'failed'
+  return 'idle'
 })
 </script>
 
@@ -70,7 +86,16 @@ const categoryIcon = computed(() => {
     <CollapsibleTrigger
       class="flex w-full items-center gap-2 px-4 py-2 text-left"
     >
-      <component :is="categoryIcon" class="size-4 shrink-0 text-muted-foreground" />
+      <PicobotIcon
+        v-if="isSubagentTool"
+        :size="20"
+        :state="picobotState"
+      />
+      <component
+        v-else
+        :is="categoryIcon"
+        class="size-4 shrink-0 text-muted-foreground"
+      />
       <Loader2
         v-if="toolCall.status === 'running'"
         class="size-4 shrink-0 animate-spin text-muted-foreground"

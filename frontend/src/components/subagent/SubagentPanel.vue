@@ -99,7 +99,7 @@ function onBack() {
 
 function chipClass(f: Filter): string {
   const base =
-    'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] transition-colors'
+    'inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] transition-colors'
   return activeFilter.value === f
     ? `${base} bg-brand/15 text-brand border border-brand/30`
     : `${base} border border-transparent text-muted-foreground hover:bg-muted/60`
