@@ -1,13 +1,13 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import { Button } from '@/components/ui/button'
-import { Copy, AlertCircle, CircleStop, RefreshCw } from 'lucide-vue-next'
-import { toast } from 'vue-sonner'
 import MarkdownView from '@/components/common/MarkdownView.vue'
+import { Button } from '@/components/ui/button'
+import type { DisplayMessage } from '@/lib/types'
+import { useChatStore } from '@/stores/chat'
+import { AlertCircle, CircleStop, Copy, RefreshCw } from 'lucide-vue-next'
+import { computed } from 'vue'
+import { toast } from 'vue-sonner'
 import StreamingCursor from './StreamingCursor.vue'
 import ToolCallCard from './ToolCallCard.vue'
-import { useChatStore } from '@/stores/chat'
-import type { DisplayMessage } from '@/lib/types'
 
 const props = defineProps<{ message: DisplayMessage }>()
 const chat = useChatStore()
@@ -106,49 +106,50 @@ async function copy() {
         產生回應時發生錯誤
       </div>
 
-      <div
-        v-if="message.status === 'complete' && (message.usage || message.toolsUsed?.length)"
-        class="hidden items-center gap-2 text-[11px] text-muted-foreground group-hover:flex"
-      >
-        <span v-if="message.usage">
-          tokens: {{ message.usage.total_tokens }}
-        </span>
-        <span v-if="message.toolsUsed?.length">
-          tools: {{ message.toolsUsed.join(', ') }}
-        </span>
-      </div>
+    </div>
 
-      <div
-        v-if="
-          hasTextContent &&
-          (message.status === 'complete' ||
-            message.status === 'aborted' ||
-            message.status === 'error')
-        "
-        class="flex items-center gap-1 opacity-0 transition group-hover:opacity-100"
+    <div
+      v-if="message.status === 'complete' && (message.usage || message.toolsUsed?.length)"
+      class="hidden items-center gap-2 text-[11px] text-muted-foreground group-hover:flex"
+    >
+      <span v-if="message.usage">
+        tokens: {{ message.usage.total_tokens }}
+      </span>
+      <span v-if="message.toolsUsed?.length">
+        tools: {{ message.toolsUsed.join(', ') }}
+      </span>
+    </div>
+
+    <div
+      v-if="
+        hasTextContent &&
+        (message.status === 'complete' ||
+          message.status === 'aborted' ||
+          message.status === 'error')
+      "
+      class="hidden items-center gap-1 group-hover:flex"
+    >
+      <Button
+        v-if="message.status === 'complete'"
+        variant="ghost"
+        size="icon"
+        class="size-7"
+        aria-label="複製"
+        @click="copy"
       >
-        <Button
-          v-if="message.status === 'complete'"
-          variant="ghost"
-          size="icon"
-          class="size-7"
-          aria-label="複製"
-          @click="copy"
-        >
-          <Copy class="size-3.5" />
-        </Button>
-        <Button
-          v-if="canRegenerate"
-          variant="ghost"
-          size="icon"
-          class="size-7"
-          aria-label="重新產生"
-          title="重新產生"
-          @click="regenerate"
-        >
-          <RefreshCw class="size-3.5" />
-        </Button>
-      </div>
+        <Copy class="size-3.5" />
+      </Button>
+      <Button
+        v-if="canRegenerate"
+        variant="ghost"
+        size="icon"
+        class="size-7"
+        aria-label="重新產生"
+        title="重新產生"
+        @click="regenerate"
+      >
+        <RefreshCw class="size-3.5" />
+      </Button>
     </div>
   </div>
 </template>
