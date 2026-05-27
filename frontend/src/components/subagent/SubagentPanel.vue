@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
-import { Bot, Loader2 } from 'lucide-vue-next'
-import SubagentListItem from './SubagentListItem.vue'
-import SubagentDetail from './SubagentDetail.vue'
-import { useSubagentStore } from '@/stores/subagents'
 import type { SubagentSummary } from '@/lib/types'
+import { useSubagentStore } from '@/stores/subagents'
+import { Bot, ChevronLeft, ChevronRight, Loader2 } from 'lucide-vue-next'
+import { computed, onMounted, ref, watch } from 'vue'
+import SubagentDetail from './SubagentDetail.vue'
+import SubagentListItem from './SubagentListItem.vue'
 
 const subagents = useSubagentStore()
 
@@ -101,6 +101,9 @@ const showDetail = computed(() =>
 )
 const showList = computed(() => !isNarrow.value || !showDetail.value)
 
+// Wide-mode list column can be collapsed to a thin strip to save space.
+const listCollapsed = ref(false)
+
 function onSelect(taskId: string) {
   subagents.openTask(taskId)
 }
@@ -109,7 +112,8 @@ function onClose(taskId: string) {
   subagents.closeTask(taskId)
 }
 
-// Column width overrides (px) keyed by task_id.
+// Column widths stored as flex-grow proportions (e.g. 0.6 + 0.4 = 1.0 for 2 cols).
+// Using proportions instead of px ensures the total never exceeds the container.
 // Empty → all columns share equally via flex-1.
 // Whenever the set of open tasks changes, reset to equal share.
 const COLUMN_MIN_WIDTH = 240
@@ -125,7 +129,8 @@ watch(
 function columnStyle(taskId: string): Record<string, string> {
   const w = columnWidths.value.get(taskId)
   if (w !== undefined) {
-    return { width: `${w}px`, flex: '0 0 auto' }
+    // flex-grow: w (proportional share), flex-shrink: 1 (can shrink if panel narrows)
+    return { flex: `${w} 1 0%` }
   }
   return { flex: '1 1 0%' }
 }
@@ -133,31 +138,56 @@ function columnStyle(taskId: string): Record<string, string> {
 function startColumnResize(e: PointerEvent, leftId: string, rightId: string) {
   const handle = e.currentTarget
   if (!(handle instanceof HTMLElement)) return
-  const leftEl = handle.previousElementSibling
-  const rightEl = handle.nextElementSibling
-  if (!(leftEl instanceof HTMLElement) || !(rightEl instanceof HTMLElement)) return
+  const container = handle.parentElement
+  if (!container) return
   e.preventDefault()
 
+  // Measure the total width taken by separator handles so we can compute
+  // percentages relative to actual column space only.
+  let totalHandleWidth = 0
+  for (const child of Array.from(container.children)) {
+    const el = child as HTMLElement
+    if (el.getAttribute('role') === 'separator') totalHandleWidth += el.offsetWidth
+  }
+  const availableWidth = container.offsetWidth - totalHandleWidth
+  if (availableWidth <= 0) return
+
+  // Snapshot ALL columns as proportions at drag-start so that every column
+  // gets an explicit value after the first drag (prevents the 3rd column
+  // from using flex:1 and causing overflow).
+  const startPcts = new Map<string, number>()
+  let colIndex = 0
+  for (const child of Array.from(container.children)) {
+    const el = child as HTMLElement
+    if (el.getAttribute('role') === 'separator') continue
+    const taskId = wideOpenSummaries.value[colIndex]?.task_id
+    if (taskId) startPcts.set(taskId, el.offsetWidth / availableWidth)
+    colIndex++
+  }
+
   const startX = e.clientX
-  const startLeftW = leftEl.offsetWidth
-  const startRightW = rightEl.offsetWidth
+  const minPct = COLUMN_MIN_WIDTH / availableWidth
+  const startLeftPct = startPcts.get(leftId) ?? 1 / wideOpenSummaries.value.length
+  const startRightPct = startPcts.get(rightId) ?? 1 / wideOpenSummaries.value.length
 
   document.body.style.cursor = 'col-resize'
   document.body.style.userSelect = 'none'
 
   function onMove(ev: PointerEvent) {
-    const delta = ev.clientX - startX
-    let newLeft = startLeftW + delta
-    let newRight = startRightW - delta
-    if (newLeft < COLUMN_MIN_WIDTH) {
-      newRight -= COLUMN_MIN_WIDTH - newLeft
-      newLeft = COLUMN_MIN_WIDTH
+    const deltaPct = (ev.clientX - startX) / availableWidth
+    let newLeft = startLeftPct + deltaPct
+    let newRight = startRightPct - deltaPct
+    if (newLeft < minPct) {
+      newRight -= minPct - newLeft
+      newLeft = minPct
     }
-    if (newRight < COLUMN_MIN_WIDTH) {
-      newLeft -= COLUMN_MIN_WIDTH - newRight
-      newRight = COLUMN_MIN_WIDTH
+    if (newRight < minPct) {
+      newLeft -= minPct - newRight
+      newRight = minPct
     }
-    const next = new Map(columnWidths.value)
+    newLeft = Math.max(newLeft, minPct)
+    newRight = Math.max(newRight, minPct)
+    const next = new Map(startPcts)
     next.set(leftId, newLeft)
     next.set(rightId, newRight)
     columnWidths.value = next
@@ -188,16 +218,49 @@ function chipClass(f: Filter): string {
 <template>
   <section
     ref="panelRef"
-    class="flex min-h-0 w-full overflow-hidden"
+    class="flex min-h-0 min-w-0 w-full overflow-hidden"
   >
-    <!-- List column -->
+    <!-- List column: collapsed strip (wide mode only) -->
     <div
-      v-if="showList"
-      class="flex min-h-0 shrink-0 flex-col border-r bg-background"
-      :class="
-        isNarrow ? 'w-full' : 'w-[42%] max-w-[320px] min-w-[200px]'
-      "
+      v-if="!isNarrow && listCollapsed"
+      class="flex w-8 shrink-0 flex-col items-center gap-1.5 border-r bg-background pt-1.5"
     >
+      <button
+        type="button"
+        class="flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+        title="展開任務列表"
+        @click="listCollapsed = false"
+      >
+        <ChevronRight class="size-3.5" />
+      </button>
+      <span
+        v-if="counts.running > 0"
+        class="size-1.5 animate-pulse rounded-full bg-amber-500"
+      />
+    </div>
+
+    <!-- List column: full -->
+    <div
+      v-if="isNarrow ? showList : !listCollapsed"
+      class="flex min-h-0 min-w-0 shrink-0 flex-col overflow-hidden border-r bg-background"
+      :class="isNarrow ? 'w-full' : 'w-[42%] max-w-[320px] min-w-[200px]'"
+    >
+      <!-- Header bar with collapse toggle (wide mode only) -->
+      <div
+        v-if="!isNarrow"
+        class="flex shrink-0 items-center border-b px-2 py-0.5"
+      >
+        <span class="flex-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">任務列表</span>
+        <button
+          type="button"
+          class="flex size-5 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+          title="收起任務列表"
+          @click="listCollapsed = true"
+        >
+          <ChevronLeft class="size-3.5" />
+        </button>
+      </div>
+
       <div
         v-if="subagents.sortedSummaries.length > 0"
         class="flex shrink-0 items-center gap-1 overflow-x-auto border-b px-2 py-1.5"
@@ -286,7 +349,7 @@ function chipClass(f: Filter): string {
       <!-- Wide: multi-column side-by-side -->
       <div
         v-if="!isNarrow"
-        class="flex h-full min-h-0 w-full overflow-x-auto"
+        class="flex h-full min-h-0 min-w-0 w-full overflow-x-auto overflow-y-hidden"
       >
         <template v-if="wideOpenSummaries.length === 0">
           <div
@@ -322,7 +385,7 @@ function chipClass(f: Filter): string {
               />
             </div>
             <div
-              class="flex h-full min-w-[240px] flex-col"
+              class="flex h-full flex-col overflow-hidden"
               :style="columnStyle(summary.task_id)"
             >
               <SubagentDetail

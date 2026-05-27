@@ -1,27 +1,27 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from '@/components/ui/collapsible'
+import PicobotIcon from '@/components/common/PicobotIcon.vue'
 import { Badge } from '@/components/ui/badge'
 import {
-  CircleCheck,
-  ChevronDown,
-  Loader2,
-  X,
-  FileText,
-  Terminal,
-  Search,
-  Wrench,
-} from 'lucide-vue-next'
-import { useCapabilitiesStore } from '@/stores/capabilities'
+    Collapsible,
+    CollapsibleContent,
+    CollapsibleTrigger,
+} from '@/components/ui/collapsible'
 import { formatToolResult } from '@/lib/format'
 import { toolDisplayName } from '@/lib/toolDisplay'
-import { toolSummary, toolErrorSummary } from '@/lib/toolSummary'
-import PicobotIcon from '@/components/common/PicobotIcon.vue'
+import { toolErrorSummary, toolSummary } from '@/lib/toolSummary'
 import type { DisplayToolCall } from '@/lib/types'
+import { useCapabilitiesStore } from '@/stores/capabilities'
+import {
+    ChevronDown,
+    CircleCheck,
+    FileText,
+    Loader2,
+    Search,
+    Terminal,
+    Wrench,
+    X,
+} from 'lucide-vue-next'
+import { computed } from 'vue'
 
 const SUBAGENT_TOOLS = new Set([
   'spawn',
@@ -81,7 +81,7 @@ const picobotState = computed<'idle' | 'running' | 'failed'>(() => {
 
 <template>
   <Collapsible
-    class="max-w-[calc(100%-3rem)] overflow-hidden rounded-2xl rounded-bl-md border border-border/50 bg-muted/50 text-sm"
+    class="min-w-0 max-w-full overflow-hidden rounded-2xl rounded-bl-md border border-border/50 bg-muted/50 text-sm"
   >
     <CollapsibleTrigger
       class="flex w-full items-center gap-2 px-4 py-2 text-left"

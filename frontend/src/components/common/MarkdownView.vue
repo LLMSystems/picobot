@@ -4,10 +4,10 @@ let mermaidReady = false
 </script>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
-import mermaid from 'mermaid'
-import { renderMarkdown } from '@/lib/markdown'
 import { useTheme } from '@/composables/useTheme'
+import { renderMarkdown } from '@/lib/markdown'
+import mermaid from 'mermaid'
+import { computed, onMounted, ref, watch } from 'vue'
 
 const props = defineProps<{ content: string }>()
 
@@ -102,12 +102,16 @@ watch(theme, () => {
 <template>
   <div
     ref="rootRef"
-    class="markdown-body text-sm leading-relaxed"
+    class="markdown-body min-w-0 max-w-full text-sm leading-relaxed"
     v-html="html"
   />
 </template>
 
 <style>
+.markdown-body {
+  min-width: 0;
+  max-width: 100%;
+}
 .markdown-body p {
   margin: 0 0 0.75em;
 }
@@ -184,6 +188,9 @@ watch(theme, () => {
   border-collapse: collapse;
   margin: 0 0 0.75em;
   font-size: 0.9em;
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
 }
 .markdown-body th,
 .markdown-body td {

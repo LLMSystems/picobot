@@ -1,21 +1,21 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import {
-  Play,
-  Brain,
-  Wrench,
-  Check,
-  X,
-  CircleSlash,
-  Loader2,
-} from 'lucide-vue-next'
-import MarkdownView from '@/components/common/MarkdownView.vue'
 import StreamingCursor from '@/components/chat/StreamingCursor.vue'
 import ToolCallCard from '@/components/chat/ToolCallCard.vue'
+import MarkdownView from '@/components/common/MarkdownView.vue'
 import type {
-  DisplayMessageSegment,
-  SubagentSummary,
+    DisplayMessageSegment,
+    SubagentSummary,
 } from '@/lib/types'
+import {
+    Brain,
+    Check,
+    CircleSlash,
+    Loader2,
+    Play,
+    Wrench,
+    X,
+} from 'lucide-vue-next'
+import { computed } from 'vue'
 
 const props = defineProps<{
   summary: SubagentSummary
@@ -70,7 +70,7 @@ const terminalConfig = computed(() => {
 </script>
 
 <template>
-  <ol class="relative space-y-3 pl-7">
+  <ol class="relative min-w-0 space-y-3 pl-7">
     <!-- Vertical guide line -->
     <span
       class="pointer-events-none absolute bottom-2 left-3 top-2 w-px bg-border"
@@ -112,7 +112,7 @@ const terminalConfig = computed(() => {
         >
           <Brain class="size-3 text-sky-500" />
         </span>
-        <div class="space-y-1">
+        <div class="min-w-0 space-y-1">
           <div class="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
             思考
           </div>
@@ -141,7 +141,7 @@ const terminalConfig = computed(() => {
             "
           />
         </span>
-        <div class="space-y-1">
+        <div class="min-w-0 space-y-1">
           <div class="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
             工具呼叫
           </div>

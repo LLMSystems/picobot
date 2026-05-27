@@ -1,18 +1,18 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import { Loader2, X, Timer, Coins, Hash, Wrench } from 'lucide-vue-next'
-import SubagentAvatar from './SubagentAvatar.vue'
-import SubagentTimeline from './SubagentTimeline.vue'
-import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { useSubagentStore } from '@/stores/subagents'
+import { Button } from '@/components/ui/button'
 import { useElapsed } from '@/composables/useElapsed'
 import type {
-  DisplayMessageSegment,
-  DisplayToolCall,
-  SubagentSummary,
-  SubagentTimelineEvent,
+    DisplayMessageSegment,
+    DisplayToolCall,
+    SubagentSummary,
+    SubagentTimelineEvent,
 } from '@/lib/types'
+import { useSubagentStore } from '@/stores/subagents'
+import { Coins, Hash, Loader2, Timer, Wrench, X } from 'lucide-vue-next'
+import { computed } from 'vue'
+import SubagentAvatar from './SubagentAvatar.vue'
+import SubagentTimeline from './SubagentTimeline.vue'
 
 const props = defineProps<{
   summary: SubagentSummary
@@ -177,7 +177,7 @@ const toolsCount = computed(
 </script>
 
 <template>
-  <div class="flex h-full min-h-0 flex-col">
+  <div class="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
     <div class="shrink-0 border-b bg-background/80 px-3 py-2 backdrop-blur">
       <div class="flex items-start gap-2">
         <SubagentAvatar
@@ -248,7 +248,7 @@ const toolsCount = computed(
       </div>
     </div>
 
-    <div class="min-h-0 flex-1 overflow-y-auto px-3 py-3">
+    <div class="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-3 py-3">
       <div
         v-if="historyLoading"
         class="flex items-center justify-center gap-2 py-6 text-xs text-muted-foreground"
