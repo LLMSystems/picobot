@@ -7,14 +7,18 @@ from pathlib import Path
 from typing import Any
 
 from simplified_chatbot.agent.loop import AgentLoop
+from simplified_chatbot.agent.subagent import SubagentManager
 from simplified_chatbot.agent.types import Message, MessageContent, RunResult
 from simplified_chatbot.config.loader import load_config, resolve_config_path
 from simplified_chatbot.config.schema import ChatbotConfig
-from simplified_chatbot.prompts.loader import load_system_prompt
+from simplified_chatbot.prompts.loader import (
+    load_subagent_system_prompt,
+    load_system_prompt,
+)
 from simplified_chatbot.providers.base import ChatProvider
 from simplified_chatbot.providers.factory import build_provider
-from simplified_chatbot.tools.registry import ToolRegistry
 from simplified_chatbot.tools.filesystem import build_default_tool_registry
+from simplified_chatbot.tools.registry import ToolRegistry
 
 
 class SimplifiedChatbot:
@@ -30,18 +34,23 @@ class SimplifiedChatbot:
         tool_factory: Callable[[Path], ToolRegistry] | None = None,
         default_workspace: Path | None = None,
         system_prompt_factory: Callable[[Path | None], str] | None = None,
+        subagent_manager: SubagentManager | None = None,
     ) -> None:
         self.config = config
         self.provider = provider
         self.system_prompt = system_prompt
         self._tool_factory = tool_factory
         self._system_prompt_factory = system_prompt_factory
+        self.subagent_manager = subagent_manager
         self._default_workspace = (
             default_workspace.expanduser().resolve()
             if default_workspace is not None
             else None
         )
-        self.tools = tools or build_default_tool_registry(workspace=self._default_workspace)
+        self.tools = tools or build_default_tool_registry(
+            workspace=self._default_workspace,
+            subagent_manager=subagent_manager,
+        )
         self._loop = AgentLoop(
             provider=provider,
             config=config,
@@ -68,18 +77,58 @@ class SimplifiedChatbot:
             workspace=workspace or default_workspace,
         )
         system_prompt = system_prompt_factory(default_workspace)
-        resolved_tools = tools or build_default_tool_registry(
-            workspace=default_workspace,
-            skills_dir=resolved_skills_dir,
-        )
-        tool_factory = (
-            None
-            if tools is not None
-            else lambda workspace: build_default_tool_registry(
+        subagent_manager = None
+        tool_factory = None
+        if tools is None:
+            subagent_system_prompt_factory = lambda workspace: load_subagent_system_prompt(
+                config,
+                config_path=resolved_path,
+                workspace=workspace or default_workspace,
+            )
+
+            def build_subagent_chatbot(
+                workspace: Path | None,
+                model_override: str | None,
+            ) -> "SimplifiedChatbot":
+                resolved_workspace = (
+                    workspace.expanduser().resolve()
+                    if workspace is not None
+                    else default_workspace
+                )
+                return cls(
+                    config=config,
+                    provider=provider,
+                    system_prompt=subagent_system_prompt_factory(resolved_workspace),
+                    tools=build_default_tool_registry(
+                        workspace=resolved_workspace,
+                        skills_dir=resolved_skills_dir,
+                        profile="subagent",
+                    ),
+                    tool_factory=lambda next_workspace: build_default_tool_registry(
+                        workspace=next_workspace,
+                        skills_dir=resolved_skills_dir,
+                        profile="subagent",
+                    ),
+                    default_workspace=resolved_workspace,
+                    system_prompt_factory=subagent_system_prompt_factory,
+                    subagent_manager=None,
+                )
+
+            subagent_manager = SubagentManager(build_subagent_chatbot)
+            resolved_tools = build_default_tool_registry(
+                workspace=default_workspace,
+                skills_dir=resolved_skills_dir,
+                profile="main",
+                subagent_manager=subagent_manager,
+            )
+            tool_factory = lambda workspace: build_default_tool_registry(
                 workspace=workspace,
                 skills_dir=resolved_skills_dir,
+                profile="main",
+                subagent_manager=subagent_manager,
             )
-        )
+        else:
+            resolved_tools = tools
         return cls(
             config=config,
             provider=provider,
@@ -88,6 +137,7 @@ class SimplifiedChatbot:
             tool_factory=tool_factory,
             default_workspace=default_workspace,
             system_prompt_factory=system_prompt_factory,
+            subagent_manager=subagent_manager,
         )
 
     @property
@@ -112,6 +162,7 @@ class SimplifiedChatbot:
             tool_factory=self._tool_factory,
             default_workspace=resolved_workspace,
             system_prompt_factory=self._system_prompt_factory,
+            subagent_manager=self.subagent_manager,
         )
 
     def build_messages(

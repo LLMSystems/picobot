@@ -47,6 +47,38 @@ def load_system_prompt(
     return "\n\n---\n\n".join(parts)
 
 
+def load_subagent_system_prompt(
+    config: ChatbotConfig,
+    *,
+    config_path: str | Path | None = None,
+    workspace: str | Path | None = None,
+) -> str:
+    """Build the focused system prompt used by background subagents."""
+    base_prompt = _built_in_subagent_prompt_path().read_text(encoding="utf-8").strip()
+    resolved_workspace = _resolve_workspace(workspace, config_path=config_path)
+    loader = SkillsLoader(
+        skills_dir=_resolve_skills_dir(config, config_path=config_path),
+        disabled_skills=set(config.disabled_skills),
+    )
+    summary = loader.build_skills_summary()
+
+    parts = [
+        base_prompt,
+        _build_runtime_context(
+            workspace=resolved_workspace,
+            skills_dir=_resolve_skills_dir(config, config_path=config_path),
+        ),
+        _build_subagent_policy(),
+    ]
+    if summary:
+        parts.append(
+            "# Available Skills\n\n"
+            "Load a skill with `read_skill(name)` when the task clearly benefits from it.\n\n"
+            + summary,
+        )
+    return "\n\n---\n\n".join(parts)
+
+
 def _resolve_base_prompt(
     config: ChatbotConfig,
     *,
@@ -83,6 +115,10 @@ def _resolve_prompt_path(
 
 def _built_in_prompt_path() -> Path:
     return Path(__file__).with_name("system.md")
+
+
+def _built_in_subagent_prompt_path() -> Path:
+    return Path(__file__).with_name("subagent_system.md")
 
 
 def _resolve_workspace(
@@ -161,3 +197,16 @@ def _build_platform_policy() -> str:
             "- Prefer simple UTF-8-safe shell commands when shell execution is necessary.",
         ]
     return "\n".join(lines)
+
+
+def _build_subagent_policy() -> str:
+    return "\n".join(
+        [
+            "## Subagent Policy",
+            "",
+            "- Return results to the main agent rather than writing for the end user.",
+            "- Do not spawn another subagent.",
+            "- Prefer working inside the current subagent workspace unless the task clearly requires reading parent files.",
+            "- Keep outputs concise, concrete, and easy for the main agent to reuse.",
+        ],
+    )
