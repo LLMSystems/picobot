@@ -18,6 +18,9 @@ from simplified_chatbot.agent.types import Message, MessageContent, RunResult
 from simplified_chatbot.chatbot import SimplifiedChatbot
 from simplified_chatbot.config.loader import load_config
 from simplified_chatbot.runtime.session_store import (
+    AioSQLiteSubagentEventStore,
+    AioSQLiteSessionStore,
+    AioSQLiteSubagentStore,
     AsyncSessionStore,
     InMemorySessionStore,
     JsonlSessionStore,
@@ -40,21 +43,36 @@ class LocalAgentRuntime:
         store: SessionStore | AsyncSessionStore | None = None,
         workspace_root_dir: str | Path | None = None,
         *,
+        subagent_store: AioSQLiteSubagentStore | None = None,
+        subagent_event_store: AioSQLiteSubagentEventStore | None = None,
         max_upload_file_bytes: int = _DEFAULT_MAX_UPLOAD_FILE_BYTES,
         max_upload_files_per_request: int = _DEFAULT_MAX_UPLOAD_FILES_PER_REQUEST,
         chrome_debugging_port: int | None = None,
     ) -> None:
         self.chatbot = chatbot
         self.store = store or InMemorySessionStore()
+        self.subagent_store = subagent_store or _build_default_subagent_store(self.store)
+        self.subagent_event_store = (
+            subagent_event_store or _build_default_subagent_event_store(self.store)
+        )
         self.workspace_manager = (
             SessionWorkspaceManager(workspace_root_dir)
             if workspace_root_dir is not None
             else None
         )
         self._session_chatbots: dict[str, Any] = {}
+        self._session_locks: dict[str, asyncio.Lock] = {}
+        self._session_event_subscribers: dict[str, list[asyncio.Queue[dict[str, object]]]] = {}
+        self._pending_internal_messages: dict[str, list[Message]] = {}
+        self._subagent_event_seq: dict[str, int] = {}
+        self._recent_subagent_events: dict[str, list[dict[str, object]]] = {}
+        self._resume_requested: set[str] = set()
+        self._background_tasks: dict[str, asyncio.Task[None]] = {}
         self.max_upload_file_bytes = max_upload_file_bytes
         self.max_upload_files_per_request = max_upload_files_per_request
         self.chrome_debugging_port = chrome_debugging_port
+        self._bind_subagent_manager_callback()
+        self._bind_subagent_tools(self.chatbot)
     @classmethod
     def from_config(
         cls,
@@ -94,6 +112,8 @@ class LocalAgentRuntime:
         return cls(
             chatbot=bot,
             store=store,
+            subagent_store=_build_default_subagent_store(store),
+            subagent_event_store=_build_default_subagent_event_store(store),
             workspace_root_dir=resolved_workspace_root,
             max_upload_file_bytes=(
                 loaded_config.max_upload_file_bytes
@@ -270,28 +290,32 @@ class LocalAgentRuntime:
         disabled_tools: list[str] | None = None,
         on_event: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> RunResult:
-        event_callback = _build_runtime_event_callback(session_id, on_event)
-        _emit_runtime_event(
-            event_callback,
-            "run_started",
-            _build_run_started_payload(session_id, content),
-        )
-        resolved_model = self._resolve_model_override(model_override)
-        history = await self._load_history_async(session_id)
-        result = await self._run_chat_async(
-            session_id,
-            content,
-            history=history,
-            model_override=resolved_model,
-            temperature_override=temperature_override,
-            max_tokens_override=max_tokens_override,
-            max_iterations_override=max_iterations_override,
-            system_prompt_override=system_prompt_override,
-            disabled_tools=disabled_tools,
-            on_event=event_callback,
-        )
-        await self._save_history_async(session_id, result.messages)
-        return result
+        async def runner() -> RunResult:
+            event_callback = _build_runtime_event_callback(session_id, on_event)
+            _emit_runtime_event(
+                event_callback,
+                "run_started",
+                _build_run_started_payload(session_id, content),
+            )
+            resolved_model = self._resolve_model_override(model_override)
+            history = await self._load_history_async(session_id)
+            injected = self._pop_pending_internal_messages(session_id)
+            effective_history = [*history, *injected]
+            try:
+                result = await self._run_chat_async(
+                    session_id,
+                    content,
+                    history=effective_history,
+                    model_override=resolved_model,
+                    on_event=event_callback,
+                )
+            except Exception:
+                self._restore_pending_internal_messages(session_id, injected)
+                raise
+            await self._save_history_async(session_id, result.messages)
+            return result
+
+        return await self._run_with_session_lock(session_id, runner)
 
     async def handle_message_stream_async(
         self,
@@ -324,29 +348,33 @@ class LocalAgentRuntime:
         disabled_tools: list[str] | None = None,
         on_event: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> RunResult:
-        event_callback = _build_runtime_event_callback(session_id, on_event)
-        _emit_runtime_event(
-            event_callback,
-            "run_started",
-            _build_run_started_payload(session_id, content),
-        )
-        resolved_model = self._resolve_model_override(model_override)
-        history = await self._load_history_async(session_id)
-        result = await self._run_chat_stream_async(
-            session_id,
-            content,
-            history=history,
-            on_delta=on_delta,
-            model_override=resolved_model,
-            temperature_override=temperature_override,
-            max_tokens_override=max_tokens_override,
-            max_iterations_override=max_iterations_override,
-            system_prompt_override=system_prompt_override,
-            disabled_tools=disabled_tools,
-            on_event=event_callback,
-        )
-        await self._save_history_async(session_id, result.messages)
-        return result
+        async def runner() -> RunResult:
+            event_callback = _build_runtime_event_callback(session_id, on_event)
+            _emit_runtime_event(
+                event_callback,
+                "run_started",
+                _build_run_started_payload(session_id, content),
+            )
+            resolved_model = self._resolve_model_override(model_override)
+            history = await self._load_history_async(session_id)
+            injected = self._pop_pending_internal_messages(session_id)
+            effective_history = [*history, *injected]
+            try:
+                result = await self._run_chat_stream_async(
+                    session_id,
+                    content,
+                    history=effective_history,
+                    on_delta=on_delta,
+                    model_override=resolved_model,
+                    on_event=event_callback,
+                )
+            except Exception:
+                self._restore_pending_internal_messages(session_id, injected)
+                raise
+            await self._save_history_async(session_id, result.messages)
+            return result
+
+        return await self._run_with_session_lock(session_id, runner)
 
     def reset_session(self, session_id: str) -> None:
         if isinstance(self.store, AsyncSessionStore):
@@ -356,6 +384,11 @@ class LocalAgentRuntime:
             )
         self.store.delete_session(session_id)
         self._session_chatbots.pop(session_id, None)
+        self._session_locks.pop(session_id, None)
+        self._session_event_subscribers.pop(session_id, None)
+        self._pending_internal_messages.pop(session_id, None)
+        self._resume_requested.discard(session_id)
+        self._background_tasks.pop(session_id, None)
 
     def list_sessions(self) -> list[str]:
         if isinstance(self.store, AsyncSessionStore):
@@ -419,11 +452,22 @@ class LocalAgentRuntime:
         )
 
     async def reset_session_async(self, session_id: str) -> None:
+        background_task = self._background_tasks.pop(session_id, None)
+        if background_task is not None and not background_task.done():
+            background_task.cancel()
+            try:
+                await background_task
+            except asyncio.CancelledError:
+                pass
         if isinstance(self.store, AsyncSessionStore):
             await self.store.delete_session(session_id)
         else:
             await asyncio.to_thread(self.store.delete_session, session_id)
         self._session_chatbots.pop(session_id, None)
+        self._session_locks.pop(session_id, None)
+        self._session_event_subscribers.pop(session_id, None)
+        self._pending_internal_messages.pop(session_id, None)
+        self._resume_requested.discard(session_id)
 
     async def list_sessions_async(self) -> list[str]:
         if isinstance(self.store, AsyncSessionStore):
@@ -445,6 +489,50 @@ class LocalAgentRuntime:
         if not history and metadata is None:
             return None
         return self._build_session_summary(session_id, history, metadata)
+
+    async def list_subagent_runs_async(
+        self,
+        session_id: str,
+        *,
+        phase: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, object]]:
+        if self.subagent_store is None:
+            return []
+        return await self.subagent_store.list_runs(
+            parent_session_id=session_id,
+            phase=phase,
+            limit=limit,
+        )
+
+    async def get_subagent_run_async(
+        self,
+        session_id: str,
+        task_id: str,
+    ) -> dict[str, object] | None:
+        if self.subagent_store is None:
+            return None
+        payload = await self.subagent_store.get_run(task_id)
+        if payload is None:
+            return None
+        return payload if payload.get("parent_session_id") == session_id else None
+
+    async def list_subagent_events_async(
+        self,
+        session_id: str,
+        task_id: str,
+        *,
+        after_seq: int | None = None,
+        limit: int = 500,
+    ) -> list[dict[str, object]]:
+        if self.subagent_event_store is None:
+            return []
+        return await self.subagent_event_store.list_events(
+            task_id,
+            parent_session_id=session_id,
+            after_seq=after_seq,
+            limit=limit,
+        )
 
     async def get_workspace_root_async(self, session_id: str) -> Path:
         """Return the resolved workspace root for one existing session."""
@@ -991,6 +1079,27 @@ class LocalAgentRuntime:
             model_override=model_override,
         )
 
+    async def _continue_chat_async(
+        self,
+        session_id: str,
+        *,
+        history: list[Message],
+        model_override: str | None = None,
+        on_event: Callable[[str, dict[str, Any]], None] | None = None,
+    ) -> RunResult:
+        chatbot = self._get_chatbot_for_session(session_id)
+        continue_async = getattr(chatbot, "continue_async", None)
+        if not callable(continue_async):
+            raise RuntimeError("Chatbot does not support continue_async(...)")
+        result = continue_async(
+            history,
+            model_override=model_override,
+            on_event=on_event,
+        )
+        if inspect.isawaitable(result):
+            return await result
+        return result
+
     def _get_chatbot_for_session(self, session_id: str) -> Any:
         if self.workspace_manager is None:
             return self.chatbot
@@ -1004,10 +1113,354 @@ class LocalAgentRuntime:
             return cached
 
         workspace = self.workspace_manager.ensure_workspace(session_id)
-        session_chatbot = self.chatbot.for_workspace(workspace)
+        session_chatbot = self.chatbot.for_workspace(
+            workspace,
+            session_id=session_id,
+        )
         self._bind_chrome_port(session_chatbot)
+        self._bind_subagent_tools(session_chatbot)
         self._session_chatbots[session_id] = session_chatbot
         return session_chatbot
+
+    def _bind_subagent_manager_callback(self) -> None:
+        manager = getattr(self.chatbot, "subagent_manager", None)
+        bind_spawn_callback = getattr(manager, "bind_spawn_callback", None)
+        if callable(bind_spawn_callback):
+            bind_spawn_callback(self._handle_subagent_spawn)
+        bind_event_callback = getattr(manager, "bind_event_callback", None)
+        if callable(bind_event_callback):
+            bind_event_callback(self._handle_subagent_event)
+        bind_callback = getattr(manager, "bind_result_callback", None)
+        if callable(bind_callback):
+            bind_callback(self._handle_subagent_result)
+
+    def _bind_subagent_tools(self, chatbot: Any) -> None:
+        tools = getattr(chatbot, "tools", None)
+        if tools is None or self.subagent_store is None:
+            return
+        for tool_name in ("list_subagents", "subagent_status", "subagent_wait"):
+            tool = tools.get(tool_name) if hasattr(tools, "get") else None
+            bind_store = getattr(tool, "bind_store", None)
+            if callable(bind_store):
+                bind_store(self.subagent_store)
+
+    def _get_session_lock(self, session_id: str) -> asyncio.Lock:
+        lock = self._session_locks.get(session_id)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._session_locks[session_id] = lock
+        return lock
+
+    def subscribe_session_events(
+        self,
+        session_id: str,
+    ) -> asyncio.Queue[dict[str, object]]:
+        queue: asyncio.Queue[dict[str, object]] = asyncio.Queue()
+        subscribers = self._session_event_subscribers.setdefault(session_id, [])
+        subscribers.append(queue)
+        return queue
+
+    def unsubscribe_session_events(
+        self,
+        session_id: str,
+        queue: asyncio.Queue[dict[str, object]],
+    ) -> None:
+        subscribers = self._session_event_subscribers.get(session_id)
+        if not subscribers:
+            return
+        try:
+            subscribers.remove(queue)
+        except ValueError:
+            return
+        if not subscribers:
+            self._session_event_subscribers.pop(session_id, None)
+
+    def publish_session_event(
+        self,
+        session_id: str,
+        event_payload: dict[str, object],
+    ) -> int:
+        subscribers = self._session_event_subscribers.get(session_id, [])
+        delivered = 0
+        for queue in list(subscribers):
+            queue.put_nowait(dict(event_payload))
+            delivered += 1
+        return delivered
+
+    async def _run_with_session_lock(
+        self,
+        session_id: str,
+        runner: Callable[[], Any],
+    ) -> Any:
+        async with self._get_session_lock(session_id):
+            result = runner()
+            if inspect.isawaitable(result):
+                return await result
+            return result
+
+    def _enqueue_internal_message(self, session_id: str, message: Message) -> int:
+        queue = self._pending_internal_messages.setdefault(session_id, [])
+        queue.append(dict(message))
+        return len(queue)
+
+    def _pop_pending_internal_messages(self, session_id: str) -> list[Message]:
+        items = self._pending_internal_messages.pop(session_id, [])
+        return [dict(item) for item in items]
+
+    def _peek_pending_internal_messages(self, session_id: str) -> list[Message]:
+        items = self._pending_internal_messages.get(session_id, [])
+        return [dict(item) for item in items]
+
+    def _schedule_background_session_task(
+        self,
+        session_id: str,
+        task_factory: Callable[[], Any],
+    ) -> bool:
+        existing = self._background_tasks.get(session_id)
+        if existing is not None and not existing.done():
+            return False
+        if session_id in self._resume_requested:
+            return False
+
+        self._resume_requested.add(session_id)
+
+        async def run_background() -> None:
+            try:
+                result = task_factory()
+                if inspect.isawaitable(result):
+                    await result
+            finally:
+                self._resume_requested.discard(session_id)
+
+        task = asyncio.create_task(
+            run_background(),
+            name=f"runtime-background:{session_id}",
+        )
+        self._background_tasks[session_id] = task
+        task.add_done_callback(
+            lambda finished, sid=session_id: self._cleanup_background_task(sid, finished),
+        )
+        return True
+
+    def _cleanup_background_task(
+        self,
+        session_id: str,
+        task: asyncio.Task[None],
+    ) -> None:
+        if not task.cancelled():
+            try:
+                task.exception()
+            except Exception:
+                pass
+        current = self._background_tasks.get(session_id)
+        if current is task:
+            self._background_tasks.pop(session_id, None)
+
+    def _restore_pending_internal_messages(
+        self,
+        session_id: str,
+        messages: list[Message],
+    ) -> None:
+        if not messages:
+            return
+        queue = self._pending_internal_messages.setdefault(session_id, [])
+        queue[:0] = [dict(item) for item in messages]
+
+    async def _handle_subagent_spawn(self, status) -> None:
+        await self._persist_subagent_spawn(status)
+
+    async def _handle_subagent_event(self, status, event: str, payload: dict[str, Any]) -> None:
+        session_id = getattr(status, "parent_session_id", None)
+        if not isinstance(session_id, str) or not session_id.strip():
+            return
+        task_id = getattr(status, "task_id", None)
+        if not isinstance(task_id, str) or not task_id.strip():
+            return
+        persisted_event = await self._persist_subagent_event(status, event, payload)
+        seq = (
+            int(persisted_event["seq"])
+            if persisted_event is not None and "seq" in persisted_event
+            else self._next_subagent_event_seq(task_id)
+        )
+        created_at = (
+            str(persisted_event["created_at"])
+            if persisted_event is not None and "created_at" in persisted_event
+            else _utc_timestamp()
+        )
+        queue = self._recent_subagent_events.setdefault(session_id, [])
+        queue.append(
+            {
+                "session_id": session_id,
+                "task_id": task_id,
+                "label": getattr(status, "label", None),
+                "event": event,
+                "data": dict(payload),
+                "seq": seq,
+                "created_at": created_at,
+            },
+        )
+        self.publish_session_event(session_id, queue[-1])
+        if len(queue) > 200:
+            del queue[:-200]
+
+    def _next_subagent_event_seq(self, task_id: str) -> int:
+        next_seq = self._subagent_event_seq.get(task_id, 0) + 1
+        self._subagent_event_seq[task_id] = next_seq
+        return next_seq
+
+    async def _handle_subagent_result(self, status, result) -> None:
+        await self._persist_subagent_result(status, result)
+        session_id = getattr(status, "parent_session_id", None)
+        if not isinstance(session_id, str) or not session_id.strip():
+            return
+        self._enqueue_internal_message(
+            session_id,
+            self._build_subagent_internal_message(status, result),
+        )
+        self._schedule_background_session_task(
+            session_id,
+            lambda: self._drain_auto_resume_loop(session_id),
+        )
+
+    async def _drain_auto_resume_loop(self, session_id: str) -> None:
+        while True:
+            processed = await self._continue_session_from_internal_messages(session_id)
+            if not processed:
+                return
+
+    async def _continue_session_from_internal_messages(self, session_id: str) -> bool:
+        async def runner() -> bool:
+            history = await self._load_history_async(session_id)
+            injected = self._pop_pending_internal_messages(session_id)
+            if not injected:
+                return False
+            effective_history = [*history, *injected]
+            try:
+                result = await self._continue_chat_async(
+                    session_id,
+                    history=effective_history,
+                    model_override=None,
+                    on_event=None,
+                )
+            except Exception:
+                self._restore_pending_internal_messages(session_id, injected)
+                raise
+            await self._save_history_async(session_id, result.messages)
+            return True
+
+        return await self._run_with_session_lock(session_id, runner)
+
+    @staticmethod
+    def _build_subagent_internal_message(status, result) -> Message:
+        workspace = getattr(result, "workspace", None) or getattr(status, "workspace", None)
+        workspace_text = str(workspace) if workspace is not None else "(unknown)"
+        label = getattr(status, "label", "") or getattr(result, "task_id", "subagent")
+        task = getattr(status, "task", "")
+        stop_reason = getattr(result, "stop_reason", "unknown")
+        content = "\n".join(
+            [
+                f"Subagent [{label}] has finished.",
+                "",
+                "Task:",
+                task,
+                "",
+                "Outcome:",
+                f"- status: {stop_reason}",
+                f"- workspace: {workspace_text}",
+                "",
+                "Result:",
+                getattr(result, "content", "") or "(no result content)",
+                "",
+                "Use this result as internal work output for the same session. Summarize or continue the task as appropriate.",
+            ]
+        )
+        return {
+            "role": "system",
+            "content": content,
+            "metadata": {
+                "internal": True,
+                "source": "subagent",
+                "kind": "subagent_result",
+                "task_id": getattr(status, "task_id", None),
+                "parent_session_id": getattr(status, "parent_session_id", None),
+                "ok": getattr(result, "ok", None),
+                "stop_reason": stop_reason,
+            },
+        }
+
+    async def _persist_subagent_spawn(self, status) -> None:
+        if self.subagent_store is None:
+            return
+        session_id = getattr(status, "parent_session_id", None)
+        if not isinstance(session_id, str) or not session_id.strip():
+            return
+        await self.subagent_store.upsert_run(
+            {
+                "task_id": getattr(status, "task_id"),
+                "parent_session_id": session_id,
+                "label": getattr(status, "label"),
+                "task": getattr(status, "task"),
+                "workspace": getattr(status, "workspace", None),
+                "phase": getattr(status, "phase", "initializing"),
+                "started_at": getattr(status, "started_at_utc", _utc_timestamp()),
+                "finished_at": None,
+                "stop_reason": getattr(status, "stop_reason", None),
+                "ok": None,
+                "error": getattr(status, "error", None),
+                "usage": dict(getattr(status, "usage", {}) or {}),
+                "tool_events": list(getattr(status, "tool_events", []) or []),
+                "final_content": None,
+            },
+        )
+
+    async def _persist_subagent_result(self, status, result) -> None:
+        if self.subagent_store is None:
+            return
+        session_id = getattr(status, "parent_session_id", None)
+        if not isinstance(session_id, str) or not session_id.strip():
+            return
+        await self.subagent_store.upsert_run(
+            {
+                "task_id": getattr(status, "task_id"),
+                "parent_session_id": session_id,
+                "label": getattr(status, "label"),
+                "task": getattr(status, "task"),
+                "workspace": getattr(result, "workspace", None) or getattr(status, "workspace", None),
+                "phase": getattr(status, "phase", getattr(result, "stop_reason", "done")),
+                "started_at": getattr(status, "started_at_utc", _utc_timestamp()),
+                "finished_at": _utc_timestamp(),
+                "stop_reason": getattr(result, "stop_reason", None),
+                "ok": getattr(result, "ok", None),
+                "error": getattr(result, "error", None) or getattr(status, "error", None),
+                "usage": dict(getattr(result, "usage", {}) or {}),
+                "tool_events": list(getattr(result, "tool_events", []) or []),
+                "final_content": getattr(result, "content", None),
+            },
+        )
+
+    async def _persist_subagent_event(
+        self,
+        status,
+        event: str,
+        payload: dict[str, Any],
+    ) -> dict[str, object] | None:
+        if self.subagent_event_store is None:
+            return None
+        session_id = getattr(status, "parent_session_id", None)
+        if not isinstance(session_id, str) or not session_id.strip():
+            return None
+        task_id = getattr(status, "task_id", None)
+        if not isinstance(task_id, str) or not task_id.strip():
+            return None
+        return await self.subagent_event_store.append_event(
+            task_id=task_id,
+            parent_session_id=session_id,
+            event_type=event,
+            payload={
+                "label": getattr(status, "label", None),
+                "data": dict(payload),
+            },
+        )
 
     def _resolve_model_override(self, model_override: str | None) -> str | None:
         if model_override is None:
@@ -1114,6 +1567,22 @@ def _resolve_workspace_root_dir(
         else:
             path = Path.cwd() / path
     return path.resolve()
+
+
+def _build_default_subagent_store(
+    store: SessionStore | AsyncSessionStore | None,
+) -> AioSQLiteSubagentStore | None:
+    if isinstance(store, AioSQLiteSessionStore):
+        return AioSQLiteSubagentStore(store.db_path)
+    return None
+
+
+def _build_default_subagent_event_store(
+    store: SessionStore | AsyncSessionStore | None,
+) -> AioSQLiteSubagentEventStore | None:
+    if isinstance(store, AioSQLiteSessionStore):
+        return AioSQLiteSubagentEventStore(store.db_path)
+    return None
 
 
 def _resolve_workspace_relative_path(workspace: Path, raw_path: str | None) -> tuple[str, Path]:

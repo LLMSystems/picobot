@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Request
+import asyncio
+from typing import Any
+
+from fastapi import APIRouter, Query, Request
+from fastapi.responses import StreamingResponse
 
 from simplified_chatbot.server.common import error_response, get_runtime
 from simplified_chatbot.server.schemas import (
@@ -12,7 +16,12 @@ from simplified_chatbot.server.schemas import (
     SessionMessagesResponse,
     SessionRenameRequest,
     SessionSummary,
+    SubagentEvent,
+    SubagentEventsResponse,
+    SubagentRun,
+    SubagentRunListResponse,
 )
+from simplified_chatbot.server.sse import encode_sse
 
 router = APIRouter()
 
@@ -62,6 +71,151 @@ async def get_session_messages(
             message=f"Session '{session_id}' not found",
         )
     return SessionMessagesResponse(session_id=session_id, messages=messages)
+
+
+@router.get(
+    "/sessions/{session_id}/subagents",
+    response_model=SubagentRunListResponse,
+)
+async def list_session_subagents(
+    request: Request,
+    session_id: str,
+    phase: str | None = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=500),
+) -> SubagentRunListResponse:
+    """List persisted subagent runs for one session."""
+    runtime = get_runtime(request)
+    summary = await runtime.get_session_summary_async(session_id)
+    if summary is None:
+        return error_response(
+            request,
+            status_code=404,
+            code="SESSION_NOT_FOUND",
+            message=f"Session '{session_id}' not found",
+        )
+    items = [
+        SubagentRun.model_validate(item)
+        for item in await runtime.list_subagent_runs_async(
+            session_id,
+            phase=phase,
+            limit=limit,
+        )
+    ]
+    return SubagentRunListResponse(session_id=session_id, items=items)
+
+
+@router.get(
+    "/sessions/{session_id}/subagents/{task_id}",
+    response_model=SubagentRun,
+)
+async def get_session_subagent(
+    request: Request,
+    session_id: str,
+    task_id: str,
+) -> SubagentRun:
+    """Load one persisted subagent run for one session."""
+    runtime = get_runtime(request)
+    summary = await runtime.get_session_summary_async(session_id)
+    if summary is None:
+        return error_response(
+            request,
+            status_code=404,
+            code="SESSION_NOT_FOUND",
+            message=f"Session '{session_id}' not found",
+        )
+    payload = await runtime.get_subagent_run_async(session_id, task_id)
+    if payload is None:
+        return error_response(
+            request,
+            status_code=404,
+            code="SUBAGENT_NOT_FOUND",
+            message=f"Subagent '{task_id}' not found in session '{session_id}'",
+        )
+    return SubagentRun.model_validate(payload)
+
+
+@router.get(
+    "/sessions/{session_id}/subagents/{task_id}/events",
+    response_model=SubagentEventsResponse,
+)
+async def get_session_subagent_events(
+    request: Request,
+    session_id: str,
+    task_id: str,
+    after_seq: int | None = Query(default=None, ge=0),
+    limit: int = Query(default=500, ge=1, le=2000),
+) -> SubagentEventsResponse:
+    """Load persisted timeline events for one subagent."""
+    runtime = get_runtime(request)
+    summary = await runtime.get_session_summary_async(session_id)
+    if summary is None:
+        return error_response(
+            request,
+            status_code=404,
+            code="SESSION_NOT_FOUND",
+            message=f"Session '{session_id}' not found",
+        )
+    payload = await runtime.get_subagent_run_async(session_id, task_id)
+    if payload is None:
+        return error_response(
+            request,
+            status_code=404,
+            code="SUBAGENT_NOT_FOUND",
+            message=f"Subagent '{task_id}' not found in session '{session_id}'",
+        )
+    events = [
+        SubagentEvent.model_validate(item)
+        for item in await runtime.list_subagent_events_async(
+            session_id,
+            task_id,
+            after_seq=after_seq,
+            limit=limit,
+        )
+    ]
+    return SubagentEventsResponse(
+        session_id=session_id,
+        task_id=task_id,
+        events=events,
+    )
+
+
+@router.get("/sessions/{session_id}/events/stream")
+async def stream_session_events(
+    request: Request,
+    session_id: str,
+) -> StreamingResponse:
+    """Stream live background session events such as subagent progress."""
+    runtime = get_runtime(request)
+    summary = await runtime.get_session_summary_async(session_id)
+    if summary is None:
+        return error_response(
+            request,
+            status_code=404,
+            code="SESSION_NOT_FOUND",
+            message=f"Session '{session_id}' not found",
+        )
+
+    queue = runtime.subscribe_session_events(session_id)
+
+    async def stream() -> Any:
+        try:
+            while True:
+                if await request.is_disconnected():
+                    return
+                try:
+                    item = await asyncio.wait_for(queue.get(), timeout=1.0)
+                except asyncio.TimeoutError:
+                    continue
+                if item.get("event") == "__close__":
+                    return
+                yield encode_sse(event=str(item["event"]), data=item)
+        finally:
+            runtime.unsubscribe_session_events(session_id, queue)
+
+    return StreamingResponse(
+        stream(),
+        media_type="text/event-stream",
+    )
 
 
 @router.patch("/sessions/{session_id}", response_model=SessionSummary)

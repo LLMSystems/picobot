@@ -19,6 +19,12 @@ from simplified_chatbot.tools.search import GlobTool, GrepTool
 from simplified_chatbot.tools.registry import ToolRegistry
 from simplified_chatbot.tools.shell import ExecTool
 from simplified_chatbot.tools.skills import ReadSkillTool
+from simplified_chatbot.tools.spawn import SpawnTool
+from simplified_chatbot.tools.subagents import (
+    ListSubagentsTool,
+    SubagentStatusTool,
+    SubagentWaitTool,
+)
 from simplified_chatbot.tools.tavily import TavilySearchTool
 
 __all__ = [
@@ -29,6 +35,7 @@ __all__ = [
     "GlobTool",
     "GrepTool",
     "ListDirTool",
+    "ListSubagentsTool",
     "ReadDocxTool",
     "Tool",
     "ToolRegistry",
@@ -37,6 +44,9 @@ __all__ = [
     "ReadPdfTool",
     "ReadSkillTool",
     "ReadXlsxTool",
+    "SpawnTool",
+    "SubagentStatusTool",
+    "SubagentWaitTool",
     "TavilySearchTool",
     "WriteFileTool",
     "tool_parameters",

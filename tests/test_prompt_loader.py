@@ -1,5 +1,8 @@
 from simplified_chatbot.config.schema import ChatbotConfig
-from simplified_chatbot.prompts.loader import load_system_prompt
+from simplified_chatbot.prompts.loader import (
+    load_subagent_system_prompt,
+    load_system_prompt,
+)
 
 
 def test_system_prompt_override_wins():
@@ -86,5 +89,52 @@ def test_system_prompt_mentions_read_skill_tool_rules():
     assert "`read_docx(path)`" in prompt
     assert "`read_xlsx(path, sheet, range)`" in prompt
     assert "`tavily_search(query, topic, search_depth, max_results" in prompt
+    assert "`spawn(task, label, temperature)`" in prompt
+    assert "`list_subagents(phase, limit, include_completed)`" in prompt
+    assert "`subagent_status(task_id, include_result, tail_tool_events)`" in prompt
+    assert "`subagent_wait(task_id, timeout_seconds)`" in prompt
+    assert "background subagent" in prompt
+    assert "`.subagents/<task_id>/`" in prompt
     assert "Do not try to force binary office/document formats through `read_file`." in prompt
     assert "Do not use `read_file` to access `SKILL.md` files" in prompt
+
+
+def test_system_prompt_includes_subagent_delegation_policy():
+    config = ChatbotConfig(model="gpt-4.1-mini")
+
+    prompt = load_system_prompt(config)
+
+    assert "## Subagent Delegation Policy" in prompt
+    assert "remember the returned `task_id`" in prompt
+    assert "Do not tell the user that a subagent completed the task unless you have actually checked its result." in prompt
+    assert "If `subagent_wait(...)` returns `completed=false`, treat that as still in progress rather than failure." in prompt
+
+
+def test_subagent_system_prompt_includes_runtime_context_and_policy(tmp_path):
+    config = ChatbotConfig(model="gpt-4.1-mini")
+    config_path = tmp_path / "config.json"
+    config_path.write_text("{}", encoding="utf-8")
+    sub_workspace = tmp_path / "workspaces" / "session-1" / ".subagents" / "sub_1234"
+    sub_workspace.mkdir(parents=True)
+
+    prompt = load_subagent_system_prompt(
+        config,
+        config_path=config_path,
+        workspace=sub_workspace,
+    )
+
+    assert "You are a subagent working for the main Picobot agent." in prompt
+    assert f"Current workspace: `{sub_workspace.resolve()}`" in prompt
+    assert "## Subagent Policy" in prompt
+    assert "Do not spawn another subagent." in prompt
+    assert "Your final response is for the main agent, not the end user." in prompt
+
+
+def test_subagent_system_prompt_includes_available_skills():
+    config = ChatbotConfig(model="gpt-4.1-mini")
+
+    prompt = load_subagent_system_prompt(config)
+
+    assert "# Available Skills" in prompt
+    assert "`read_skill(name)`" in prompt
+    assert "**tool-use-reminder**" in prompt

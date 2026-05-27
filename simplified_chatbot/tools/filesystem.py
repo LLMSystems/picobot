@@ -7,7 +7,7 @@ import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from simplified_chatbot.tools.base import Tool, tool_parameters
 from simplified_chatbot.tools.file_state import FileStates
@@ -756,8 +756,12 @@ def build_default_tool_registry(
     restrict_to_workspace: bool = True,
     skills_dir: Path | None = None,
     builtin_skills_dir: Path | None = None,
+    profile: Literal["main", "subagent"] = "main",
+    subagent_manager: Any | None = None,
+    subagent_store: Any | None = None,
+    session_id: str | None = None,
 ) -> ToolRegistry:
-    """Create a default tool registry with V1 filesystem tools."""
+    """Create a default tool registry for the requested execution profile."""
     from simplified_chatbot.tools.document_readers import (
         ReadDocxTool,
         ReadPdfTool,
@@ -766,27 +770,73 @@ def build_default_tool_registry(
     from simplified_chatbot.tools.search import GlobTool, GrepTool
     from simplified_chatbot.tools.shell import ExecTool
     from simplified_chatbot.tools.skills import ReadSkillTool
+    from simplified_chatbot.tools.spawn import SpawnTool
+    from simplified_chatbot.tools.subagents import (
+        ListSubagentsTool,
+        SubagentStatusTool,
+        SubagentWaitTool,
+    )
     from simplified_chatbot.tools.tavily import TavilySearchTool
 
     ws = workspace.resolve() if workspace is not None else Path.cwd().resolve()
     allowed = ws if restrict_to_workspace else None
     file_states = FileStates()
     registry = ToolRegistry()
-    registry.register(ExecTool(workspace=ws, allowed_dir=allowed))
-    registry.register(
-        ReadSkillTool(
-            skills_dir=skills_dir,
-            builtin_skills_dir=builtin_skills_dir,
-        ),
-    )
-    registry.register(TavilySearchTool())
-    registry.register(ReadFileTool(workspace=ws, allowed_dir=allowed, file_states=file_states))
-    registry.register(ReadPdfTool(workspace=ws, allowed_dir=allowed))
-    registry.register(ReadDocxTool(workspace=ws, allowed_dir=allowed))
-    registry.register(ReadXlsxTool(workspace=ws, allowed_dir=allowed))
-    registry.register(WriteFileTool(workspace=ws, allowed_dir=allowed, file_states=file_states))
-    registry.register(EditFileTool(workspace=ws, allowed_dir=allowed, file_states=file_states))
-    registry.register(ListDirTool(workspace=ws, allowed_dir=allowed))
-    registry.register(GlobTool(workspace=ws, allowed_dir=allowed))
-    registry.register(GrepTool(workspace=ws, allowed_dir=allowed))
+
+    if profile not in {"main", "subagent"}:
+        raise ValueError(f"Unsupported tool registry profile: {profile}")
+
+    def register_shared_tools() -> None:
+        registry.register(ExecTool(workspace=ws, allowed_dir=allowed))
+        registry.register(
+            ReadSkillTool(
+                skills_dir=skills_dir,
+                builtin_skills_dir=builtin_skills_dir,
+            ),
+        )
+        registry.register(TavilySearchTool())
+        registry.register(ReadFileTool(workspace=ws, allowed_dir=allowed, file_states=file_states))
+        registry.register(ReadPdfTool(workspace=ws, allowed_dir=allowed))
+        registry.register(ReadDocxTool(workspace=ws, allowed_dir=allowed))
+        registry.register(ReadXlsxTool(workspace=ws, allowed_dir=allowed))
+        registry.register(WriteFileTool(workspace=ws, allowed_dir=allowed, file_states=file_states))
+        registry.register(EditFileTool(workspace=ws, allowed_dir=allowed, file_states=file_states))
+        registry.register(ListDirTool(workspace=ws, allowed_dir=allowed))
+        registry.register(GlobTool(workspace=ws, allowed_dir=allowed))
+        registry.register(GrepTool(workspace=ws, allowed_dir=allowed))
+
+    if profile == "main":
+        register_shared_tools()
+        if subagent_manager is not None:
+            registry.register(
+                SpawnTool(
+                    subagent_manager,
+                    workspace=ws,
+                    parent_session_id=session_id,
+                ),
+            )
+            registry.register(
+                ListSubagentsTool(
+                    subagent_manager,
+                    session_id=session_id,
+                    store=subagent_store,
+                ),
+            )
+            registry.register(
+                SubagentStatusTool(
+                    subagent_manager,
+                    session_id=session_id,
+                    store=subagent_store,
+                ),
+            )
+            registry.register(
+                SubagentWaitTool(
+                    subagent_manager,
+                    session_id=session_id,
+                    store=subagent_store,
+                ),
+            )
+    elif profile == "subagent":
+        register_shared_tools()
+
     return registry

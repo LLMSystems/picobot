@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from typing import Literal, NotRequired, TypeAlias, TypedDict
 
 Role = Literal["system", "user", "assistant", "tool"]
-HistoryRole = Literal["user", "assistant", "tool"]
+HistoryRole = Literal["system", "user", "assistant", "tool"]
 
 
 class ToolFunctionCall(TypedDict):
@@ -53,6 +53,9 @@ class Message(TypedDict):
     tool_calls: NotRequired[list[ToolCallPayload]]
     tool_call_id: NotRequired[str]
     name: NotRequired[str]
+    metadata: NotRequired[dict[str, object]]
+    id: NotRequired[str]
+    created_at: NotRequired[str]
 
 
 @dataclass(slots=True)

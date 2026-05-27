@@ -4,6 +4,8 @@ from pathlib import Path
 import pytest
 
 from simplified_chatbot.runtime.session_store import (
+    AioSQLiteSubagentEventStore,
+    AioSQLiteSubagentStore,
     AioSQLiteSessionStore,
     InMemorySessionStore,
     JsonlSessionStore,
@@ -186,3 +188,164 @@ def test_aiosqlite_store_create_and_update_metadata(tmp_path: Path):
     assert metadata is not None
     assert metadata["title"] == "Renamed"
     assert sessions == ["chat-1"]
+
+
+def test_aiosqlite_subagent_store_upsert_and_get_run(tmp_path: Path):
+    pytest.importorskip("aiosqlite")
+    store = AioSQLiteSubagentStore(tmp_path / "subagents_async.db")
+
+    async def _run():
+        await store.ensure_schema()
+        await store.upsert_run(
+            {
+                "task_id": "sub_1234",
+                "parent_session_id": "session_a",
+                "label": "collect refs",
+                "task": "Collect references",
+                "workspace": "D:/tmp/sub_1234",
+                "phase": "initializing",
+                "started_at": "2026-05-27T12:00:00Z",
+                "finished_at": None,
+                "stop_reason": None,
+                "ok": None,
+                "error": None,
+                "usage": {},
+                "tool_events": [],
+                "final_content": None,
+            }
+        )
+        await store.upsert_run(
+            {
+                "task_id": "sub_1234",
+                "parent_session_id": "session_a",
+                "label": "collect refs",
+                "task": "Collect references",
+                "workspace": "D:/tmp/sub_1234",
+                "phase": "done",
+                "started_at": "2026-05-27T12:00:00Z",
+                "finished_at": "2026-05-27T12:00:05Z",
+                "stop_reason": "completed",
+                "ok": True,
+                "error": None,
+                "usage": {"prompt_tokens": 12},
+                "tool_events": [{"id": "tc1", "name": "glob", "status": "ok"}],
+                "final_content": "Found files",
+            }
+        )
+        return await store.get_run("sub_1234")
+
+    payload = asyncio.run(_run())
+    assert payload is not None
+    assert payload["task_id"] == "sub_1234"
+    assert payload["phase"] == "done"
+    assert payload["ok"] is True
+    assert payload["usage"] == {"prompt_tokens": 12}
+    assert payload["tool_events"][0]["name"] == "glob"
+    assert payload["final_content"] == "Found files"
+
+
+def test_aiosqlite_subagent_store_lists_runs_by_session_and_phase(tmp_path: Path):
+    pytest.importorskip("aiosqlite")
+    store = AioSQLiteSubagentStore(tmp_path / "subagents_async.db")
+
+    async def _run():
+        await store.upsert_run(
+            {
+                "task_id": "sub_done",
+                "parent_session_id": "session_a",
+                "label": "done task",
+                "task": "Done task",
+                "workspace": None,
+                "phase": "done",
+                "started_at": "2026-05-27T12:00:05Z",
+                "finished_at": "2026-05-27T12:00:06Z",
+                "stop_reason": "completed",
+                "ok": True,
+                "error": None,
+                "usage": {},
+                "tool_events": [],
+                "final_content": "done",
+            }
+        )
+        await store.upsert_run(
+            {
+                "task_id": "sub_running",
+                "parent_session_id": "session_a",
+                "label": "running task",
+                "task": "Running task",
+                "workspace": None,
+                "phase": "running",
+                "started_at": "2026-05-27T12:00:10Z",
+                "finished_at": None,
+                "stop_reason": None,
+                "ok": None,
+                "error": None,
+                "usage": {},
+                "tool_events": [],
+                "final_content": None,
+            }
+        )
+        await store.upsert_run(
+            {
+                "task_id": "sub_other",
+                "parent_session_id": "session_b",
+                "label": "other task",
+                "task": "Other task",
+                "workspace": None,
+                "phase": "done",
+                "started_at": "2026-05-27T12:00:03Z",
+                "finished_at": "2026-05-27T12:00:04Z",
+                "stop_reason": "completed",
+                "ok": True,
+                "error": None,
+                "usage": {},
+                "tool_events": [],
+                "final_content": "other",
+            }
+        )
+        session_a = await store.list_runs(parent_session_id="session_a")
+        running = await store.list_runs(parent_session_id="session_a", phase="running")
+        return session_a, running
+
+    session_a, running = asyncio.run(_run())
+    assert [item["task_id"] for item in session_a] == ["sub_running", "sub_done"]
+    assert [item["task_id"] for item in running] == ["sub_running"]
+
+
+def test_aiosqlite_subagent_event_store_appends_and_lists_events(tmp_path: Path):
+    pytest.importorskip("aiosqlite")
+    store = AioSQLiteSubagentEventStore(tmp_path / "subagent_events.db")
+
+    async def _run():
+        first = await store.append_event(
+            task_id="sub_1",
+            parent_session_id="session_a",
+            event_type="subagent_spawned",
+            payload={"label": "scan", "data": {"task": "scan repo"}},
+        )
+        second = await store.append_event(
+            task_id="sub_1",
+            parent_session_id="session_a",
+            event_type="subagent_completed",
+            payload={"label": "scan", "data": {"ok": True}},
+        )
+        third = await store.append_event(
+            task_id="sub_2",
+            parent_session_id="session_b",
+            event_type="subagent_spawned",
+            payload={"label": "other", "data": {}},
+        )
+        sub1 = await store.list_events("sub_1")
+        sub1_after = await store.list_events("sub_1", after_seq=1)
+        return first, second, third, sub1, sub1_after
+
+    first, second, third, sub1, sub1_after = asyncio.run(_run())
+    assert first["seq"] == 1
+    assert second["seq"] == 2
+    assert third["seq"] == 1
+    assert [item["event_type"] for item in sub1] == [
+        "subagent_spawned",
+        "subagent_completed",
+    ]
+    assert [item["seq"] for item in sub1] == [1, 2]
+    assert [item["event_type"] for item in sub1_after] == ["subagent_completed"]

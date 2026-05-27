@@ -2,13 +2,18 @@ import asyncio
 import json
 from pathlib import Path
 
+import pytest
+
 from simplified_chatbot.agent.types import Message, MessageContent
 from simplified_chatbot.chatbot import SimplifiedChatbot
 from simplified_chatbot.config.schema import ChatbotConfig
 from simplified_chatbot.providers.base import ProviderResponse, ToolCallRequest
 from simplified_chatbot.runtime.local_runtime import LocalAgentRuntime
 from simplified_chatbot.runtime.session_store import (
+    AioSQLiteSubagentEventStore,
+    AioSQLiteSubagentStore,
     AsyncSessionStore,
+    AioSQLiteSessionStore,
     InMemorySessionStore,
     JsonlSessionStore,
 )
@@ -734,3 +739,67 @@ def test_local_runtime_from_config_explicit_workspace_root_overrides_config(tmp_
 
     assert runtime.workspace_manager is not None
     assert runtime.workspace_manager.root_dir == override_root.resolve()
+
+
+def test_local_runtime_constructor_auto_wires_aiosqlite_subagent_store(tmp_path: Path):
+    pytest.importorskip("aiosqlite")
+    store = AioSQLiteSessionStore(tmp_path / "runtime.db")
+
+    runtime = LocalAgentRuntime(
+        chatbot=_DummyChatbot(),
+        store=store,
+    )
+
+    assert isinstance(runtime.subagent_store, AioSQLiteSubagentStore)
+    assert runtime.subagent_store.db_path == store.db_path
+    assert isinstance(runtime.subagent_event_store, AioSQLiteSubagentEventStore)
+    assert runtime.subagent_event_store.db_path == store.db_path
+
+
+def test_local_runtime_from_config_uses_same_db_for_subagent_store(tmp_path: Path):
+    pytest.importorskip("aiosqlite")
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "provider": "openai_compat",
+                "model": "gpt-4.1-mini",
+                "apiKey": "test-key",
+            },
+        ),
+        encoding="utf-8",
+    )
+    store = AioSQLiteSessionStore(tmp_path / "runtime.db")
+
+    runtime = LocalAgentRuntime.from_config(
+        config_path,
+        store=store,
+    )
+
+    assert isinstance(runtime.subagent_store, AioSQLiteSubagentStore)
+    assert runtime.subagent_store.db_path == store.db_path
+    assert isinstance(runtime.subagent_event_store, AioSQLiteSubagentEventStore)
+    assert runtime.subagent_event_store.db_path == store.db_path
+
+
+def test_local_runtime_binds_subagent_store_into_retrieval_tools(tmp_path: Path):
+    pytest.importorskip("aiosqlite")
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "provider": "openai_compat",
+                "model": "gpt-4.1-mini",
+                "apiKey": "test-key",
+            },
+        ),
+        encoding="utf-8",
+    )
+    store = AioSQLiteSessionStore(tmp_path / "runtime.db")
+    runtime = LocalAgentRuntime.from_config(config_path, store=store)
+
+    assert runtime.chatbot.tools.get("list_subagents")._store is runtime.subagent_store
+    session_chatbot = runtime._get_chatbot_for_session("session-tools")
+    assert session_chatbot.tools.get("list_subagents")._store is runtime.subagent_store
+    assert session_chatbot.tools.get("subagent_status")._store is runtime.subagent_store
+    assert session_chatbot.tools.get("subagent_wait")._store is runtime.subagent_store
