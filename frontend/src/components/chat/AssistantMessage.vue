@@ -41,6 +41,15 @@ const isStreaming = computed(() => props.message.status === 'streaming')
 
 const lastSegmentIndex = computed(() => props.message.segments.length - 1)
 
+// Whether this message has any displayable text (vs. tool-only). When false,
+// the action toolbar would only show a regenerate button on the very last
+// message, and otherwise just reserves blank space — so hide it entirely.
+const hasTextContent = computed(() =>
+  props.message.segments.some(
+    (s) => s.type === 'text' && s.content.trim() !== '',
+  ),
+)
+
 async function copy() {
   try {
     await navigator.clipboard.writeText(props.message.content)
@@ -111,9 +120,10 @@ async function copy() {
 
       <div
         v-if="
-          message.status === 'complete' ||
-          message.status === 'aborted' ||
-          message.status === 'error'
+          hasTextContent &&
+          (message.status === 'complete' ||
+            message.status === 'aborted' ||
+            message.status === 'error')
         "
         class="flex items-center gap-1 opacity-0 transition group-hover:opacity-100"
       >

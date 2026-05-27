@@ -7,7 +7,7 @@ import {
 } from '@/components/ui/collapsible'
 import { Badge } from '@/components/ui/badge'
 import {
-  Check,
+  CircleCheck,
   ChevronDown,
   Loader2,
   X,
@@ -19,6 +19,7 @@ import {
 import { useCapabilitiesStore } from '@/stores/capabilities'
 import { formatToolResult } from '@/lib/format'
 import { toolDisplayName } from '@/lib/toolDisplay'
+import { toolSummary, toolErrorSummary } from '@/lib/toolSummary'
 import type { DisplayToolCall } from '@/lib/types'
 
 const props = defineProps<{ toolCall: DisplayToolCall }>()
@@ -39,6 +40,18 @@ const argsText = computed(() => {
 
 const resultText = computed(() => formatToolResult(props.toolCall.result))
 
+const summaryLine = computed<string | null>(() => {
+  if (props.toolCall.status === 'running') return null
+  if (props.toolCall.status === 'failed') {
+    return toolErrorSummary(props.toolCall.result)
+  }
+  return toolSummary(
+    props.toolCall.name,
+    props.toolCall.arguments,
+    props.toolCall.result,
+  )
+})
+
 const isLongResult = computed(() => resultText.value.split('\n').length > 50)
 
 const categoryIcon = computed(() => {
@@ -51,45 +64,67 @@ const categoryIcon = computed(() => {
 </script>
 
 <template>
-  <Collapsible class="rounded-md border bg-muted/30 text-sm">
+  <Collapsible
+    class="max-w-[calc(100%-3rem)] overflow-hidden rounded-2xl rounded-bl-md border border-border/50 bg-muted/50 text-sm"
+  >
     <CollapsibleTrigger
-      class="flex w-full items-center gap-2 px-3 py-2 text-left"
+      class="flex w-full items-center gap-2 px-4 py-2 text-left"
     >
-      <component :is="categoryIcon" class="size-4 text-muted-foreground" />
+      <component :is="categoryIcon" class="size-4 shrink-0 text-muted-foreground" />
       <Loader2
         v-if="toolCall.status === 'running'"
-        class="size-4 animate-spin text-muted-foreground"
+        class="size-4 shrink-0 animate-spin text-muted-foreground"
       />
-      <Check
+      <CircleCheck
         v-else-if="toolCall.status === 'ok'"
-        class="size-4 text-emerald-500"
+        class="size-4 shrink-0 text-emerald-500"
       />
-      <X v-else class="size-4 text-red-500" />
-      <span class="text-xs">{{ displayName }}</span>
+      <X v-else class="size-4 shrink-0 text-red-500" />
+      <span class="shrink-0 text-sm">{{ displayName }}</span>
       <span
         v-if="displayName !== toolCall.name"
-        class="font-mono text-[10px] text-muted-foreground/70"
+        class="shrink-0 font-mono text-[10px] text-muted-foreground/70"
       >
         {{ toolCall.name }}
       </span>
-      <Badge v-if="meta?.dangerous" variant="destructive" class="h-5 px-1.5 text-[10px]">
-        危險
+      <Badge
+        v-if="meta?.dangerous"
+        variant="outline"
+        class="h-5 shrink-0 border-amber-500/40 bg-amber-500/15 px-1.5 text-[10px] text-amber-700 dark:text-amber-400"
+      >
+        高權限
       </Badge>
-      <span class="ml-auto flex items-center gap-1 text-xs text-muted-foreground">
-        <span v-if="toolCall.status === 'running'">執行中…</span>
-        <span v-else-if="toolCall.status === 'failed'">失敗</span>
-        <ChevronDown
-          class="size-4 transition-transform [&[data-state=open]]:rotate-180"
-        />
+      <span
+        v-if="toolCall.status === 'running'"
+        class="ml-auto shrink-0 text-xs text-muted-foreground"
+      >
+        執行中…
       </span>
+      <span
+        v-else-if="summaryLine"
+        class="ml-auto min-w-0 truncate text-xs"
+        :class="toolCall.status === 'failed' ? 'text-red-500' : 'text-muted-foreground'"
+        :title="summaryLine"
+      >
+        {{ summaryLine }}
+      </span>
+      <span
+        v-else-if="toolCall.status === 'failed'"
+        class="ml-auto shrink-0 text-xs text-red-500"
+      >
+        失敗
+      </span>
+      <ChevronDown
+        class="ml-1 size-4 shrink-0 text-muted-foreground transition-transform [&[data-state=open]]:rotate-180"
+      />
     </CollapsibleTrigger>
-    <CollapsibleContent class="space-y-2 border-t px-3 py-2">
+    <CollapsibleContent class="space-y-2 border-t border-border/50 px-4 py-2.5">
       <div>
         <div class="mb-1 text-[11px] uppercase tracking-wide text-muted-foreground">
           Arguments
         </div>
         <pre
-          class="whitespace-pre-wrap break-words rounded border bg-background/60 p-2 font-mono text-xs"
+          class="whitespace-pre-wrap break-words rounded-lg border border-border/50 bg-background/80 p-3 font-mono text-xs"
           >{{ argsText }}</pre
         >
       </div>
@@ -98,7 +133,7 @@ const categoryIcon = computed(() => {
           Result
         </div>
         <pre
-          class="whitespace-pre-wrap break-words rounded border bg-background/60 p-2 font-mono text-xs"
+          class="whitespace-pre-wrap break-words rounded-lg border border-border/50 bg-background/80 p-3 font-mono text-xs"
           :class="isLongResult ? 'max-h-80 overflow-auto' : ''"
           >{{ resultText }}</pre
         >

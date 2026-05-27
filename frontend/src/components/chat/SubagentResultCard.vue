@@ -6,7 +6,7 @@ import {
   CollapsibleTrigger,
 } from '@/components/ui/collapsible'
 import { Button } from '@/components/ui/button'
-import { Bot, Check, X, ChevronDown, ArrowRight } from 'lucide-vue-next'
+import { Bot, CircleCheck, X, ChevronDown, ArrowRight } from 'lucide-vue-next'
 import MarkdownView from '@/components/common/MarkdownView.vue'
 import { useSubagentStore } from '@/stores/subagents'
 import { useWorkspaceStore } from '@/stores/workspace'
@@ -28,39 +28,36 @@ function openInPanel() {
 </script>
 
 <template>
-  <div v-if="payload" class="flex w-full justify-center">
-    <Collapsible
-      class="w-full max-w-2xl rounded-md border bg-muted/30 text-sm"
-    >
-      <div class="flex items-center gap-2 px-3 py-2">
-        <Bot class="size-4 text-muted-foreground" />
-        <Check
-          v-if="payload.ok"
-          class="size-4 text-emerald-500"
+  <Collapsible
+    v-if="payload"
+    class="w-full max-w-[calc(100%-3rem)] overflow-hidden rounded-2xl rounded-bl-md border border-border/50 bg-muted/50 text-sm"
+  >
+    <div class="flex items-center gap-2 px-4 py-2">
+      <Bot class="size-4 text-muted-foreground" />
+      <CircleCheck v-if="payload.ok" class="size-4 text-emerald-500" />
+      <X v-else class="size-4 text-red-500" />
+      <span class="min-w-0 flex-1 truncate text-sm">
+        子任務完成：<span class="font-medium">{{ payload.label }}</span>
+      </span>
+      <Button
+        variant="ghost"
+        size="sm"
+        class="h-6 gap-1 px-2 text-[11px]"
+        @click="openInPanel"
+      >
+        查看
+        <ArrowRight class="size-3" />
+      </Button>
+      <CollapsibleTrigger
+        class="inline-flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-muted"
+        aria-label="展開／收合"
+      >
+        <ChevronDown
+          class="size-4 transition-transform [&[data-state=open]]:rotate-180"
         />
-        <X v-else class="size-4 text-red-500" />
-        <span class="min-w-0 flex-1 truncate text-xs">
-          子任務完成：<span class="font-medium">{{ payload.label }}</span>
-        </span>
-        <Button
-          variant="ghost"
-          size="sm"
-          class="h-6 gap-1 px-2 text-[11px]"
-          @click="openInPanel"
-        >
-          查看
-          <ArrowRight class="size-3" />
-        </Button>
-        <CollapsibleTrigger
-          class="inline-flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-muted"
-          aria-label="展開／收合"
-        >
-          <ChevronDown
-            class="size-4 transition-transform [&[data-state=open]]:rotate-180"
-          />
-        </CollapsibleTrigger>
-      </div>
-      <CollapsibleContent class="space-y-2 border-t px-3 py-2">
+      </CollapsibleTrigger>
+    </div>
+    <CollapsibleContent class="space-y-2 border-t border-border/50 px-4 py-2.5">
         <div v-if="payload.task">
           <div
             class="mb-1 text-[11px] uppercase tracking-wide text-muted-foreground"
@@ -85,7 +82,6 @@ function openInPanel() {
         >
           stop_reason: <span class="font-mono">{{ payload.stopReason }}</span>
         </div>
-      </CollapsibleContent>
-    </Collapsible>
-  </div>
+    </CollapsibleContent>
+  </Collapsible>
 </template>

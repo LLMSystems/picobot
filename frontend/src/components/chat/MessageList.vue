@@ -9,6 +9,7 @@ import EmptyState from './EmptyState.vue'
 import ScrollToBottom from '@/components/common/ScrollToBottom.vue'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useComposerBus } from '@/composables/useComposerBus'
+import type { DisplayMessage } from '@/lib/types'
 
 const chat = useChatStore()
 const { containerRef, pinnedToBottom, scrollToBottom, maintain } =
@@ -24,6 +25,31 @@ const items = computed(() => {
   if (chat.deferredMessages.length > 0) result.push(...chat.deferredMessages)
   return result
 })
+
+function isToolOnlyAssistant(m: DisplayMessage): boolean {
+  if (m.role !== 'assistant') return false
+  if (m.segments.length === 0) return false
+  return !m.segments.some(
+    (s) => s.type === 'text' && s.content.trim() !== '',
+  )
+}
+
+// Any card-style message: tool-only assistant or subagent_result card.
+// Adjacent compact cards should sit ~8px apart instead of the default 16px.
+function isCompactCard(m: DisplayMessage): boolean {
+  return m.role === 'subagent_result' || isToolOnlyAssistant(m)
+}
+
+// Tighten the gap between adjacent compact cards so that cross-message
+// spacing (~8px) matches the within-message segment spacing.
+// Parent uses gap-4 (16px); -mt-2 (-8px) bridges the difference.
+const itemsWithFlags = computed(() =>
+  items.value.map((m, i) => {
+    const prev = i > 0 ? items.value[i - 1] : null
+    const tighten = isCompactCard(m) && !!prev && isCompactCard(prev)
+    return { message: m, tighten }
+  }),
+)
 
 const isEmpty = computed(
   () => items.value.length === 0 && !chat.loadingHistory,
@@ -67,7 +93,7 @@ watch(
       role="log"
       aria-live="polite"
     >
-      <div class="mx-auto flex w-full max-w-3xl flex-col gap-5 px-4 py-6">
+      <div class="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 py-6">
         <template v-if="chat.loadingHistory">
           <div class="space-y-4">
             <Skeleton class="h-12 w-2/3" />
@@ -83,13 +109,24 @@ watch(
           />
         </template>
         <template v-else>
-          <template v-for="m in items" :key="m.id">
-            <UserMessage v-if="m.role === 'user'" :message="m" />
-            <SubagentResultCard
-              v-else-if="m.role === 'subagent_result'"
-              :message="m"
+          <template
+            v-for="entry in itemsWithFlags"
+            :key="entry.message.id"
+          >
+            <UserMessage
+              v-if="entry.message.role === 'user'"
+              :message="entry.message"
             />
-            <AssistantMessage v-else :message="m" />
+            <SubagentResultCard
+              v-else-if="entry.message.role === 'subagent_result'"
+              :message="entry.message"
+              :class="entry.tighten ? '-mt-2' : ''"
+            />
+            <AssistantMessage
+              v-else
+              :message="entry.message"
+              :class="entry.tighten ? '-mt-2' : ''"
+            />
           </template>
         </template>
       </div>
