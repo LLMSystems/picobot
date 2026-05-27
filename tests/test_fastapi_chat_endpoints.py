@@ -760,6 +760,242 @@ def test_get_session_messages_returns_404_for_unknown_session(tmp_path):
     }
 
 
+def test_get_session_events_stream_returns_404_for_unknown_session(tmp_path):
+    client, _store = _build_client(tmp_path)
+
+    response = client.get("/sessions/missing/events/stream")
+
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "SESSION_NOT_FOUND"
+
+
+def test_get_session_events_stream_emits_live_subagent_event_and_unsubscribes(tmp_path):
+    client, runtime, _store = _build_client(tmp_path, with_runtime=True)
+    created = client.post(
+        "/sessions",
+        json={"title": "Live session", "session_id": "sse1"},
+    )
+    assert created.status_code == 200
+
+    preloaded: asyncio.Queue[dict[str, object]] = asyncio.Queue()
+    preloaded.put_nowait(
+        {
+            "session_id": "sse1",
+            "task_id": "sub_1234",
+            "label": "collect refs",
+            "event": "subagent_delta",
+            "data": {"delta": "Scanning files..."},
+            "seq": 1,
+            "created_at": "2026-05-27T12:00:00Z",
+        },
+    )
+    preloaded.put_nowait({"event": "__close__"})
+
+    calls: dict[str, object] = {"unsubscribed": False}
+
+    def fake_subscribe(session_id: str):
+        assert session_id == "sse1"
+        return preloaded
+
+    def fake_unsubscribe(session_id: str, queue):
+        assert session_id == "sse1"
+        assert queue is preloaded
+        calls["unsubscribed"] = True
+
+    runtime.subscribe_session_events = fake_subscribe  # type: ignore[method-assign]
+    runtime.unsubscribe_session_events = fake_unsubscribe  # type: ignore[method-assign]
+
+    with client.stream("GET", "/sessions/sse1/events/stream") as response:
+        iterator = response.iter_text()
+        first_chunk = next(iterator)
+
+    assert response.status_code == 200
+    assert "event: subagent_delta" in first_chunk
+    assert '"session_id": "sse1"' in first_chunk
+    assert '"task_id": "sub_1234"' in first_chunk
+    assert '"delta": "Scanning files..."' in first_chunk
+    assert calls["unsubscribed"] is True
+
+
+def test_get_session_subagents_lists_persisted_runs(tmp_path):
+    client, runtime, _store = _build_client(tmp_path, with_runtime=True)
+    created = client.post(
+        "/sessions",
+        json={"title": "Reload session", "session_id": "subsess1"},
+    )
+    assert created.status_code == 200
+    asyncio.run(
+        runtime.subagent_store.upsert_run(
+            {
+                "task_id": "sub_1",
+                "parent_session_id": "subsess1",
+                "label": "collect refs",
+                "task": "Collect references",
+                "workspace": "D:/tmp/sub_1",
+                "phase": "done",
+                "started_at": "2026-05-27T12:00:00Z",
+                "finished_at": "2026-05-27T12:00:10Z",
+                "stop_reason": "stop",
+                "ok": True,
+                "error": None,
+                "usage": {"prompt_tokens": 10},
+                "tool_events": [],
+                "final_content": "done",
+            },
+        ),
+    )
+
+    response = client.get("/sessions/subsess1/subagents")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "session_id": "subsess1",
+        "items": [
+            {
+                "task_id": "sub_1",
+                "parent_session_id": "subsess1",
+                "label": "collect refs",
+                "task": "Collect references",
+                "workspace": "D:/tmp/sub_1",
+                "phase": "done",
+                "started_at": "2026-05-27T12:00:00Z",
+                "finished_at": "2026-05-27T12:00:10Z",
+                "stop_reason": "stop",
+                "ok": True,
+                "error": None,
+                "usage": {"prompt_tokens": 10},
+                "tool_events": [],
+                "final_content": "done",
+            },
+        ],
+    }
+
+
+def test_get_session_subagent_returns_single_persisted_run(tmp_path):
+    client, runtime, _store = _build_client(tmp_path, with_runtime=True)
+    created = client.post(
+        "/sessions",
+        json={"title": "Reload session", "session_id": "subsess2"},
+    )
+    assert created.status_code == 200
+    asyncio.run(
+        runtime.subagent_store.upsert_run(
+            {
+                "task_id": "sub_2",
+                "parent_session_id": "subsess2",
+                "label": "scan",
+                "task": "Scan repository",
+                "workspace": None,
+                "phase": "running",
+                "started_at": "2026-05-27T12:01:00Z",
+                "finished_at": None,
+                "stop_reason": None,
+                "ok": None,
+                "error": None,
+                "usage": {},
+                "tool_events": [],
+                "final_content": None,
+            },
+        ),
+    )
+
+    response = client.get("/sessions/subsess2/subagents/sub_2")
+
+    assert response.status_code == 200
+    assert response.json()["task_id"] == "sub_2"
+    assert response.json()["parent_session_id"] == "subsess2"
+    assert response.json()["phase"] == "running"
+
+
+def test_get_session_subagent_events_returns_persisted_timeline(tmp_path):
+    client, runtime, _store = _build_client(tmp_path, with_runtime=True)
+    created = client.post(
+        "/sessions",
+        json={"title": "Reload session", "session_id": "subsess3"},
+    )
+    assert created.status_code == 200
+    asyncio.run(
+        runtime.subagent_store.upsert_run(
+            {
+                "task_id": "sub_3",
+                "parent_session_id": "subsess3",
+                "label": "stream",
+                "task": "Stream task",
+                "workspace": None,
+                "phase": "done",
+                "started_at": "2026-05-27T12:02:00Z",
+                "finished_at": "2026-05-27T12:02:10Z",
+                "stop_reason": "completed",
+                "ok": True,
+                "error": None,
+                "usage": {},
+                "tool_events": [],
+                "final_content": "done",
+            },
+        ),
+    )
+    asyncio.run(
+        runtime.subagent_event_store.append_event(
+            task_id="sub_3",
+            parent_session_id="subsess3",
+            event_type="subagent_spawned",
+            payload={"label": "stream", "data": {"task": "Stream task"}},
+            created_at="2026-05-27T12:02:00Z",
+        ),
+    )
+    asyncio.run(
+        runtime.subagent_event_store.append_event(
+            task_id="sub_3",
+            parent_session_id="subsess3",
+            event_type="subagent_completed",
+            payload={"label": "stream", "data": {"ok": True}},
+            created_at="2026-05-27T12:02:10Z",
+        ),
+    )
+
+    response = client.get("/sessions/subsess3/subagents/sub_3/events")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "session_id": "subsess3",
+        "task_id": "sub_3",
+        "events": [
+            {
+                "id": 1,
+                "task_id": "sub_3",
+                "parent_session_id": "subsess3",
+                "seq": 1,
+                "event_type": "subagent_spawned",
+                "created_at": "2026-05-27T12:02:00Z",
+                "payload": {"label": "stream", "data": {"task": "Stream task"}},
+            },
+            {
+                "id": 2,
+                "task_id": "sub_3",
+                "parent_session_id": "subsess3",
+                "seq": 2,
+                "event_type": "subagent_completed",
+                "created_at": "2026-05-27T12:02:10Z",
+                "payload": {"label": "stream", "data": {"ok": True}},
+            },
+        ],
+    }
+
+
+def test_get_session_subagent_returns_404_for_missing_task(tmp_path):
+    client, _runtime, _store = _build_client(tmp_path, with_runtime=True)
+    created = client.post(
+        "/sessions",
+        json={"title": "Reload session", "session_id": "subsess4"},
+    )
+    assert created.status_code == 200
+
+    response = client.get("/sessions/subsess4/subagents/missing")
+
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "SUBAGENT_NOT_FOUND"
+
+
 def test_delete_session_removes_history(tmp_path):
     client, store = _build_client(tmp_path)
 

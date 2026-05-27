@@ -38,6 +38,37 @@ class _FakeSubagentChatbot:
         )
 
 
+class _FakeStreamingSubagentChatbot(_FakeSubagentChatbot):
+    def __init__(
+        self,
+        *,
+        content: str = "subagent done",
+        delay: float = 0.0,
+        deltas: list[str] | None = None,
+        event_script: list[tuple[str, dict[str, object]]] | None = None,
+    ) -> None:
+        super().__init__(content=content, delay=delay)
+        self._deltas = deltas or []
+        self._event_script = event_script or []
+
+    async def run_stream_async(self, message: str, **kwargs):
+        on_delta = kwargs.get("on_delta")
+        on_event = kwargs.get("on_event")
+        for delta in self._deltas:
+            if on_delta is not None:
+                on_delta(delta)
+        for event, data in self._event_script:
+            if on_event is not None:
+                on_event(event, data)
+        if self._delay:
+            await asyncio.sleep(self._delay)
+        return SimpleNamespace(
+            content=self._content,
+            stop_reason="completed",
+            usage={"prompt_tokens": 3},
+        )
+
+
 class _AutoResumeChatbot:
     def __init__(self, manager: SubagentManager) -> None:
         self.subagent_manager = manager
@@ -166,6 +197,31 @@ async def test_user_run_consumes_pending_internal_messages_before_reply():
 
 
 @pytest.mark.asyncio
+async def test_runtime_observes_live_subagent_events_in_process(tmp_path):
+    manager = SubagentManager(
+        lambda _workspace, _model: _FakeSubagentChatbot(delay=0.01),
+    )
+    bot = _AutoResumeChatbot(manager)
+    runtime = LocalAgentRuntime(chatbot=bot, store=InMemorySessionStore())
+
+    task_id = await manager.spawn(
+        SubagentSpec(
+            task="live background work",
+            parent_session_id="session-live",
+        ),
+        parent_workspace=tmp_path,
+    )
+    await manager.wait(task_id)
+    await asyncio.sleep(0)
+
+    events = runtime._recent_subagent_events["session-live"]
+    event_names = [item["event"] for item in events]
+    assert "subagent_spawned" in event_names
+    assert "subagent_phase_changed" in event_names
+    assert "subagent_completed" in event_names
+
+
+@pytest.mark.asyncio
 async def test_subagent_spawn_and_completion_are_persisted(tmp_path):
     pytest.importorskip("aiosqlite")
     store = AioSQLiteSessionStore(tmp_path / "runtime.db")
@@ -209,3 +265,118 @@ async def test_subagent_spawn_and_completion_are_persisted(tmp_path):
     assert completed["final_content"] == "created scratch notes"
     assert completed["finished_at"].endswith("Z")
     assert completed["started_at"] == persisted["started_at"]
+
+
+@pytest.mark.asyncio
+async def test_subagent_live_events_are_persisted_to_sqlite(tmp_path):
+    pytest.importorskip("aiosqlite")
+    store = AioSQLiteSessionStore(tmp_path / "runtime.db")
+    manager = SubagentManager(
+        lambda _workspace, _model: _FakeStreamingSubagentChatbot(
+            content="streamed result",
+            deltas=["hello", " world"],
+            event_script=[
+                ("tool_call_started", {"id": "tc1", "name": "glob", "arguments": {"path": "."}}),
+                ("tool_call_finished", {"id": "tc1", "name": "glob", "ok": True, "result": ["a.py"]}),
+                ("iteration_completed", {"iteration": 1, "usage": {"prompt_tokens": 3}}),
+            ],
+        ),
+    )
+    bot = _AutoResumeChatbot(manager)
+    runtime = LocalAgentRuntime(chatbot=bot, store=store)
+
+    task_id = await manager.spawn(
+        SubagentSpec(
+            task="stream and inspect",
+            parent_session_id="session-events",
+        ),
+        parent_workspace=tmp_path,
+    )
+    await manager.wait(task_id)
+    await asyncio.sleep(0)
+
+    persisted = await runtime.subagent_event_store.list_events(
+        task_id,
+        parent_session_id="session-events",
+    )
+
+    assert [item["seq"] for item in persisted] == list(range(1, len(persisted) + 1))
+    event_types = [item["event_type"] for item in persisted]
+    assert event_types[0] == "subagent_spawned"
+    assert "subagent_delta" in event_types
+    assert "subagent_tool_call_started" in event_types
+    assert "subagent_tool_call_finished" in event_types
+    assert "subagent_iteration_completed" in event_types
+    assert "subagent_completed" in event_types
+    delta_payloads = [
+        item["payload"]["data"]["delta"]
+        for item in persisted
+        if item["event_type"] == "subagent_delta"
+    ]
+    assert delta_payloads == ["hello", " world"]
+
+
+@pytest.mark.asyncio
+async def test_session_event_subscriber_receives_live_subagent_events(tmp_path):
+    manager = SubagentManager(
+        lambda _workspace, _model: _FakeStreamingSubagentChatbot(
+            content="streamed result",
+            deltas=["hi"],
+            event_script=[
+                ("tool_call_started", {"id": "tc1", "name": "glob", "arguments": {"path": "."}}),
+                ("tool_call_finished", {"id": "tc1", "name": "glob", "ok": True, "result": ["a.py"]}),
+            ],
+        ),
+    )
+    bot = _AutoResumeChatbot(manager)
+    runtime = LocalAgentRuntime(chatbot=bot, store=InMemorySessionStore())
+    subscriber = runtime.subscribe_session_events("session-sse")
+
+    task_id = await manager.spawn(
+        SubagentSpec(
+            task="stream live events",
+            parent_session_id="session-sse",
+        ),
+        parent_workspace=tmp_path,
+    )
+    await manager.wait(task_id)
+
+    seen: list[dict[str, object]] = []
+    while True:
+        item = await asyncio.wait_for(subscriber.get(), timeout=0.5)
+        seen.append(item)
+        if item["event"] == "subagent_completed":
+            break
+
+    event_names = [item["event"] for item in seen]
+    assert seen[0]["session_id"] == "session-sse"
+    assert seen[0]["task_id"] == task_id
+    assert "subagent_spawned" in event_names
+    assert "subagent_delta" in event_names
+    assert "subagent_tool_call_started" in event_names
+    assert "subagent_tool_call_finished" in event_names
+    assert "subagent_completed" in event_names
+    assert [item["seq"] for item in seen] == list(range(1, len(seen) + 1))
+
+
+@pytest.mark.asyncio
+async def test_unsubscribed_session_event_queue_stops_receiving_updates(tmp_path):
+    manager = SubagentManager(
+        lambda _workspace, _model: _FakeSubagentChatbot(delay=0.01),
+    )
+    bot = _AutoResumeChatbot(manager)
+    runtime = LocalAgentRuntime(chatbot=bot, store=InMemorySessionStore())
+    subscriber = runtime.subscribe_session_events("session-unsub")
+    runtime.unsubscribe_session_events("session-unsub", subscriber)
+
+    task_id = await manager.spawn(
+        SubagentSpec(
+            task="should not be delivered",
+            parent_session_id="session-unsub",
+        ),
+        parent_workspace=tmp_path,
+    )
+    await manager.wait(task_id)
+    await asyncio.sleep(0)
+
+    assert subscriber.empty()

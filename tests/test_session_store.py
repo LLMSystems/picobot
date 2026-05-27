@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from simplified_chatbot.runtime.session_store import (
+    AioSQLiteSubagentEventStore,
     AioSQLiteSubagentStore,
     AioSQLiteSessionStore,
     InMemorySessionStore,
@@ -309,3 +310,42 @@ def test_aiosqlite_subagent_store_lists_runs_by_session_and_phase(tmp_path: Path
     session_a, running = asyncio.run(_run())
     assert [item["task_id"] for item in session_a] == ["sub_running", "sub_done"]
     assert [item["task_id"] for item in running] == ["sub_running"]
+
+
+def test_aiosqlite_subagent_event_store_appends_and_lists_events(tmp_path: Path):
+    pytest.importorskip("aiosqlite")
+    store = AioSQLiteSubagentEventStore(tmp_path / "subagent_events.db")
+
+    async def _run():
+        first = await store.append_event(
+            task_id="sub_1",
+            parent_session_id="session_a",
+            event_type="subagent_spawned",
+            payload={"label": "scan", "data": {"task": "scan repo"}},
+        )
+        second = await store.append_event(
+            task_id="sub_1",
+            parent_session_id="session_a",
+            event_type="subagent_completed",
+            payload={"label": "scan", "data": {"ok": True}},
+        )
+        third = await store.append_event(
+            task_id="sub_2",
+            parent_session_id="session_b",
+            event_type="subagent_spawned",
+            payload={"label": "other", "data": {}},
+        )
+        sub1 = await store.list_events("sub_1")
+        sub1_after = await store.list_events("sub_1", after_seq=1)
+        return first, second, third, sub1, sub1_after
+
+    first, second, third, sub1, sub1_after = asyncio.run(_run())
+    assert first["seq"] == 1
+    assert second["seq"] == 2
+    assert third["seq"] == 1
+    assert [item["event_type"] for item in sub1] == [
+        "subagent_spawned",
+        "subagent_completed",
+    ]
+    assert [item["seq"] for item in sub1] == [1, 2]
+    assert [item["event_type"] for item in sub1_after] == ["subagent_completed"]

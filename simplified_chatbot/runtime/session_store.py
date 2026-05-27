@@ -969,6 +969,171 @@ class AioSQLiteSubagentStore:
         }
 
 
+class AioSQLiteSubagentEventStore:
+    """Async SQLite-backed append-only event store for subagent timelines."""
+
+    def __init__(self, db_path: str | Path) -> None:
+        if aiosqlite is None:
+            raise ImportError(
+                "AioSQLiteSubagentEventStore requires 'aiosqlite'. Install with: pip install aiosqlite",
+            )
+        self.db_path = Path(db_path).expanduser().resolve()
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._initialized = False
+        self._init_lock: Any = None
+
+    async def ensure_schema(self) -> None:
+        await self._ensure_initialized()
+
+    async def _ensure_initialized(self) -> None:
+        if self._initialized:
+            return
+        if self._init_lock is None:
+            import asyncio
+
+            self._init_lock = asyncio.Lock()
+        async with self._init_lock:
+            if self._initialized:
+                return
+            async with aiosqlite.connect(str(self.db_path)) as conn:
+                await conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS subagent_events (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        task_id TEXT NOT NULL,
+                        parent_session_id TEXT NOT NULL,
+                        seq INTEGER NOT NULL,
+                        event_type TEXT NOT NULL,
+                        created_at TEXT NOT NULL,
+                        payload_json TEXT NOT NULL
+                    )
+                    """,
+                )
+                await conn.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_subagent_events_task_seq
+                    ON subagent_events(task_id, seq)
+                    """,
+                )
+                await conn.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_subagent_events_parent_session
+                    ON subagent_events(parent_session_id, created_at)
+                    """,
+                )
+                await conn.commit()
+            self._initialized = True
+
+    async def append_event(
+        self,
+        *,
+        task_id: str,
+        parent_session_id: str,
+        event_type: str,
+        payload: dict[str, object],
+        created_at: str | None = None,
+    ) -> dict[str, object]:
+        await self._ensure_initialized()
+        created = created_at or _utc_timestamp()
+        payload_json = json.dumps(payload, ensure_ascii=False)
+        async with aiosqlite.connect(str(self.db_path)) as conn:
+            await conn.execute("BEGIN IMMEDIATE")
+            cursor = await conn.execute(
+                """
+                SELECT COALESCE(MAX(seq), 0)
+                FROM subagent_events
+                WHERE task_id = ?
+                """,
+                (task_id,),
+            )
+            row = await cursor.fetchone()
+            await cursor.close()
+            next_seq = int(row[0]) + 1 if row is not None else 1
+            insert = await conn.execute(
+                """
+                INSERT INTO subagent_events (
+                    task_id,
+                    parent_session_id,
+                    seq,
+                    event_type,
+                    created_at,
+                    payload_json
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    task_id,
+                    parent_session_id,
+                    next_seq,
+                    event_type,
+                    created,
+                    payload_json,
+                ),
+            )
+            await conn.commit()
+            event_id = int(insert.lastrowid)
+        return {
+            "id": event_id,
+            "task_id": task_id,
+            "parent_session_id": parent_session_id,
+            "seq": next_seq,
+            "event_type": event_type,
+            "created_at": created,
+            "payload": dict(payload),
+        }
+
+    async def list_events(
+        self,
+        task_id: str,
+        *,
+        parent_session_id: str | None = None,
+        after_seq: int | None = None,
+        limit: int = 500,
+    ) -> list[dict[str, object]]:
+        await self._ensure_initialized()
+        query = [
+            """
+            SELECT
+                id,
+                task_id,
+                parent_session_id,
+                seq,
+                event_type,
+                created_at,
+                payload_json
+            FROM subagent_events
+            WHERE task_id = ?
+            """
+        ]
+        params: list[object] = [task_id]
+        if parent_session_id is not None:
+            query.append("AND parent_session_id = ?")
+            params.append(parent_session_id)
+        if after_seq is not None:
+            query.append("AND seq > ?")
+            params.append(after_seq)
+        query.append("ORDER BY seq ASC")
+        query.append("LIMIT ?")
+        params.append(limit)
+        async with aiosqlite.connect(str(self.db_path)) as conn:
+            cursor = await conn.execute("\n".join(query), tuple(params))
+            rows = await cursor.fetchall()
+            await cursor.close()
+        return [self._row_to_payload(row) for row in rows]
+
+    @staticmethod
+    def _row_to_payload(row: tuple[object, ...]) -> dict[str, object]:
+        event_id, task_id, parent_session_id, seq, event_type, created_at, payload_json = row
+        return {
+            "id": int(event_id),
+            "task_id": str(task_id),
+            "parent_session_id": str(parent_session_id),
+            "seq": int(seq),
+            "event_type": str(event_type),
+            "created_at": str(created_at),
+            "payload": _safe_load_json_dict(payload_json),
+        }
+
+
 def _utc_timestamp() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 

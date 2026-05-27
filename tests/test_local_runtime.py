@@ -10,6 +10,7 @@ from simplified_chatbot.config.schema import ChatbotConfig
 from simplified_chatbot.providers.base import ProviderResponse, ToolCallRequest
 from simplified_chatbot.runtime.local_runtime import LocalAgentRuntime
 from simplified_chatbot.runtime.session_store import (
+    AioSQLiteSubagentEventStore,
     AioSQLiteSubagentStore,
     AsyncSessionStore,
     AioSQLiteSessionStore,
@@ -751,6 +752,8 @@ def test_local_runtime_constructor_auto_wires_aiosqlite_subagent_store(tmp_path:
 
     assert isinstance(runtime.subagent_store, AioSQLiteSubagentStore)
     assert runtime.subagent_store.db_path == store.db_path
+    assert isinstance(runtime.subagent_event_store, AioSQLiteSubagentEventStore)
+    assert runtime.subagent_event_store.db_path == store.db_path
 
 
 def test_local_runtime_from_config_uses_same_db_for_subagent_store(tmp_path: Path):
@@ -775,6 +778,8 @@ def test_local_runtime_from_config_uses_same_db_for_subagent_store(tmp_path: Pat
 
     assert isinstance(runtime.subagent_store, AioSQLiteSubagentStore)
     assert runtime.subagent_store.db_path == store.db_path
+    assert isinstance(runtime.subagent_event_store, AioSQLiteSubagentEventStore)
+    assert runtime.subagent_event_store.db_path == store.db_path
 
 
 def test_local_runtime_binds_subagent_store_into_retrieval_tools(tmp_path: Path):

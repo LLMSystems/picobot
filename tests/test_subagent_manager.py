@@ -43,6 +43,40 @@ class _FakeChatbot:
         return self._result
 
 
+class _FakeStreamingChatbot(_FakeChatbot):
+    def __init__(
+        self,
+        *,
+        deltas: list[str] | None = None,
+        result: object | None = None,
+        delay: float = 0.0,
+        event_script: list[tuple[str, dict]] | None = None,
+    ) -> None:
+        super().__init__(
+            result=result,
+            delay=delay,
+            event_script=event_script,
+        )
+        self._deltas = deltas or []
+        self.used_stream = False
+
+    async def run_stream_async(self, message: str, **kwargs):
+        self.used_stream = True
+        on_event = kwargs.get("on_event")
+        on_delta = kwargs.get("on_delta")
+        for delta in self._deltas:
+            if on_delta is not None:
+                on_delta(delta)
+        for event, data in self._event_script:
+            if on_event is not None:
+                on_event(event, data)
+        if self._delay:
+            await asyncio.sleep(self._delay)
+        if self._error is not None:
+            raise self._error
+        return self._result
+
+
 @pytest.mark.asyncio
 async def test_spawn_returns_task_id_and_result():
     manager = SubagentManager(lambda _workspace, _model: _FakeChatbot())
@@ -343,3 +377,53 @@ async def test_spawn_callback_receives_initializing_status(tmp_path: Path):
     assert status["workspace"] == (tmp_path / ".subagents" / task_id).resolve()
     assert isinstance(status["started_at_utc"], str)
     assert status["started_at_utc"].endswith("Z")
+
+
+@pytest.mark.asyncio
+async def test_event_callback_receives_streaming_and_terminal_events(tmp_path: Path):
+    seen: list[tuple[str, dict[str, object]]] = []
+    chatbot = _FakeStreamingChatbot(
+        deltas=["hello", " world"],
+        event_script=[
+            ("tool_call_started", {"id": "tc1", "name": "read_file", "arguments": {"path": "a.txt"}}),
+            ("tool_call_finished", {"id": "tc1", "name": "read_file", "ok": True, "result": "content"}),
+            ("iteration_completed", {"iteration": 1, "usage": {"prompt_tokens": 5}}),
+        ],
+    )
+
+    async def event_callback(status, event, payload):
+        seen.append((event, dict(payload)))
+
+    manager = SubagentManager(
+        lambda _workspace, _model: chatbot,
+        event_callback=event_callback,
+    )
+
+    task_id = await manager.spawn(
+        SubagentSpec(task="stream task"),
+        parent_workspace=tmp_path,
+    )
+    await manager.wait(task_id)
+    await asyncio.sleep(0)
+
+    event_names = [name for name, _payload in seen]
+    assert chatbot.used_stream is True
+    assert event_names[0] == "subagent_spawned"
+    assert "subagent_phase_changed" in event_names
+    assert ("subagent_delta", {"delta": "hello"}) in seen
+    assert ("subagent_delta", {"delta": " world"}) in seen
+    assert any(name == "subagent_tool_call_started" for name in event_names)
+    assert any(name == "subagent_tool_call_finished" for name in event_names)
+    assert any(name == "subagent_iteration_completed" for name in event_names)
+    assert any(name == "subagent_completed" for name in event_names)
+
+
+@pytest.mark.asyncio
+async def test_streaming_subagent_falls_back_to_run_async_when_stream_not_supported():
+    manager = SubagentManager(lambda _workspace, _model: _FakeChatbot())
+
+    task_id = await manager.spawn(SubagentSpec(task="fallback task"))
+    result = await manager.wait(task_id)
+
+    assert result.ok is True
+    assert result.content == "done"

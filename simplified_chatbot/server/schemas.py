@@ -116,6 +116,52 @@ class SessionMessagesResponse(BaseModel):
     messages: list[dict[str, object]] = Field(default_factory=list)
 
 
+class SubagentRun(BaseModel):
+    """Persisted summary for one subagent task."""
+
+    task_id: str
+    parent_session_id: str
+    label: str
+    task: str
+    workspace: str | None = None
+    phase: str
+    started_at: str
+    finished_at: str | None = None
+    stop_reason: str | None = None
+    ok: bool | None = None
+    error: str | None = None
+    usage: dict[str, object] = Field(default_factory=dict)
+    tool_events: list[dict[str, object]] = Field(default_factory=list)
+    final_content: str | None = None
+
+
+class SubagentRunListResponse(BaseModel):
+    """Response body for listing persisted subagent runs in one session."""
+
+    session_id: str
+    items: list[SubagentRun] = Field(default_factory=list)
+
+
+class SubagentEvent(BaseModel):
+    """Persisted timeline event for one subagent."""
+
+    id: int
+    task_id: str
+    parent_session_id: str
+    seq: int
+    event_type: str
+    created_at: str
+    payload: dict[str, object] = Field(default_factory=dict)
+
+
+class SubagentEventsResponse(BaseModel):
+    """Response body for listing persisted events for one subagent."""
+
+    session_id: str
+    task_id: str
+    events: list[SubagentEvent] = Field(default_factory=list)
+
+
 class DeleteSessionResponse(BaseModel):
     """Response body for deleting one session."""
 

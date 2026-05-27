@@ -24,10 +24,25 @@ class SupportsAsyncRun(Protocol):
     ) -> Any:
         """Execute one async agent run."""
 
+    async def run_stream_async(
+        self,
+        message: str,
+        *args: Any,
+        history: list[dict[str, Any]] | None = None,
+        on_delta: Callable[[str], None] | None = None,
+        model_override: str | None = None,
+        on_event: Callable[[str, dict[str, Any]], None] | None = None,
+    ) -> Any:
+        """Execute one streamed async agent run when supported."""
+
 
 ChatbotFactory = Callable[[Path | None, str | None], SupportsAsyncRun]
 SubagentResultCallback = Callable[
     ["SubagentStatus", "SubagentResult"],
+    Awaitable[None] | None,
+]
+SubagentEventCallback = Callable[
+    ["SubagentStatus", str, dict[str, Any]],
     Awaitable[None] | None,
 ]
 SubagentSpawnCallback = Callable[
@@ -90,6 +105,7 @@ class SubagentManager:
         *,
         max_concurrent_subagents: int = 1,
         spawn_callback: SubagentSpawnCallback | None = None,
+        event_callback: SubagentEventCallback | None = None,
         result_callback: SubagentResultCallback | None = None,
     ) -> None:
         if max_concurrent_subagents < 1:
@@ -97,6 +113,7 @@ class SubagentManager:
         self._chatbot_factory = chatbot_factory
         self.max_concurrent_subagents = max_concurrent_subagents
         self._spawn_callback = spawn_callback
+        self._event_callback = event_callback
         self._result_callback = result_callback
         self._running_tasks: dict[str, asyncio.Task[None]] = {}
         self._statuses: dict[str, SubagentStatus] = {}
@@ -137,6 +154,16 @@ class SubagentManager:
         self._done_events[task_id] = asyncio.Event()
         try:
             await self._invoke_spawn_callback(status)
+            await self._emit_event(
+                status,
+                "subagent_spawned",
+                {
+                    "task_id": status.task_id,
+                    "label": status.label,
+                    "task": status.task,
+                    "workspace": str(status.workspace) if status.workspace is not None else None,
+                },
+            )
         except Exception:
             self._statuses.pop(task_id, None)
             self._done_events.pop(task_id, None)
@@ -250,6 +277,30 @@ class SubagentManager:
 
         self._spawn_callback = chained
 
+    def bind_event_callback(
+        self,
+        callback: SubagentEventCallback,
+    ) -> None:
+        """Append one event callback while preserving any existing callback."""
+        existing = self._event_callback
+        if existing is None:
+            self._event_callback = callback
+            return
+
+        async def chained(
+            status: SubagentStatus,
+            event: str,
+            payload: dict[str, Any],
+        ) -> None:
+            first = existing(status, event, payload)
+            if asyncio.iscoroutine(first):
+                await first
+            second = callback(status, event, payload)
+            if asyncio.iscoroutine(second):
+                await second
+
+        self._event_callback = chained
+
     async def wait_for(
         self,
         task_id: str,
@@ -309,16 +360,59 @@ class SubagentManager:
         status = self._statuses[task_id]
         status.phase = "running"
         chatbot = self._chatbot_factory(spec.workspace, spec.model_override)
+        pending_event_tasks: set[asyncio.Task[None]] = set()
+        event_chain: asyncio.Task[None] | None = None
+
+        def schedule_event(event: str, payload: dict[str, Any]) -> None:
+            nonlocal event_chain
+            previous = event_chain
+
+            async def emit_in_order() -> None:
+                if previous is not None:
+                    await previous
+                await self._emit_event(status, event, payload)
+
+            task = asyncio.create_task(emit_in_order())
+            pending_event_tasks.add(task)
+            task.add_done_callback(lambda finished: pending_event_tasks.discard(finished))
+            event_chain = task
+
+        async def drain_pending_events() -> None:
+            if not pending_event_tasks:
+                return
+            await asyncio.gather(*list(pending_event_tasks), return_exceptions=True)
+
+        await self._emit_event(
+            status,
+            "subagent_phase_changed",
+            {"phase": "running"},
+        )
 
         def on_event(event: str, data: dict[str, Any]) -> None:
             self._update_status_from_event(status, event, data)
+            event_name = _SUBAGENT_EVENT_MAP.get(event)
+            if event_name is None:
+                return
+            schedule_event(event_name, dict(data))
+
+        def on_delta(delta: str) -> None:
+            schedule_event("subagent_delta", {"delta": delta})
 
         try:
-            run_result = await chatbot.run_async(
-                spec.task,
-                model_override=spec.model_override,
-                on_event=on_event,
-            )
+            run_stream_async = getattr(chatbot, "run_stream_async", None)
+            if callable(run_stream_async):
+                run_result = await run_stream_async(
+                    spec.task,
+                    model_override=spec.model_override,
+                    on_event=on_event,
+                    on_delta=on_delta,
+                )
+            else:
+                run_result = await chatbot.run_async(
+                    spec.task,
+                    model_override=spec.model_override,
+                    on_event=on_event,
+                )
         except asyncio.CancelledError:
             status.phase = "cancelled"
             status.stop_reason = "cancelled"
@@ -330,6 +424,7 @@ class SubagentManager:
                 workspace=status.workspace,
                 tool_events=list(status.tool_events),
             )
+            await drain_pending_events()
             await self._complete_task(status, result)
             raise
         except Exception as exc:
@@ -345,6 +440,7 @@ class SubagentManager:
                 tool_events=list(status.tool_events),
                 error=str(exc),
             )
+            await drain_pending_events()
             await self._complete_task(status, result)
             return
 
@@ -354,6 +450,7 @@ class SubagentManager:
         if not status.usage:
             status.usage = dict(result.usage)
         status.error = result.error
+        await drain_pending_events()
         await self._complete_task(status, result)
 
     @staticmethod
@@ -423,6 +520,7 @@ class SubagentManager:
         result: SubagentResult,
     ) -> None:
         self._results[status.task_id] = result
+        await self._emit_terminal_event(status, result)
         await self._invoke_result_callback(status, result)
         self._done_events[status.task_id].set()
 
@@ -441,6 +539,49 @@ class SubagentManager:
         if self._spawn_callback is None:
             return
         callback_result = self._spawn_callback(status)
+        if asyncio.iscoroutine(callback_result):
+            await callback_result
+
+    async def _emit_terminal_event(
+        self,
+        status: SubagentStatus,
+        result: SubagentResult,
+    ) -> None:
+        await self._emit_event(
+            status,
+            "subagent_phase_changed",
+            {
+                "phase": status.phase,
+                "stop_reason": status.stop_reason,
+                "ok": result.ok,
+            },
+        )
+        terminal_event = "subagent_completed"
+        if status.phase == "error":
+            terminal_event = "subagent_failed"
+        elif status.phase == "cancelled":
+            terminal_event = "subagent_cancelled"
+        await self._emit_event(
+            status,
+            terminal_event,
+            {
+                "ok": result.ok,
+                "stop_reason": result.stop_reason,
+                "content": result.content,
+                "error": result.error,
+                "usage": dict(result.usage),
+            },
+        )
+
+    async def _emit_event(
+        self,
+        status: SubagentStatus,
+        event: str,
+        payload: dict[str, Any],
+    ) -> None:
+        if self._event_callback is None:
+            return
+        callback_result = self._event_callback(status, event, payload)
         if asyncio.iscoroutine(callback_result):
             await callback_result
 
@@ -495,6 +636,11 @@ class SubagentManager:
 
 _TERMINAL_PHASES = frozenset({"done", "error", "cancelled"})
 _SUCCESS_STOP_REASONS = frozenset({"completed", "stop"})
+_SUBAGENT_EVENT_MAP = {
+    "tool_call_started": "subagent_tool_call_started",
+    "tool_call_finished": "subagent_tool_call_finished",
+    "iteration_completed": "subagent_iteration_completed",
+}
 
 
 def _utc_timestamp() -> str:
