@@ -23,6 +23,62 @@ _FILESYSTEM_TOOLS = frozenset(
 )
 _DANGEROUS_TOOLS = frozenset({"exec", "write_file", "edit_file"})
 
+# Central zh display names + concise descriptions for built-in tools.
+# MCP tools fall through to the per-Tool `display_name` / `description_zh`
+# properties (if defined), then to the raw English name.
+_TOOL_ZH: dict[str, tuple[str, str]] = {
+    # filesystem
+    "read_file": ("讀取檔案", "讀取工作區內的檔案內容"),
+    "write_file": ("寫入檔案", "建立或覆寫工作區檔案"),
+    "edit_file": ("編輯檔案", "對檔案做字串替換式編輯"),
+    "list_dir": ("列出資料夾", "列出資料夾內的檔案"),
+    "glob": ("搜尋路徑", "用萬用字元搜尋檔案路徑"),
+    "grep": ("搜尋內容", "在檔案內容中搜尋關鍵字"),
+    # shell
+    "exec": ("執行指令", "在工作區內執行 shell 指令"),
+    # subagents
+    "spawn": ("派發子代理", "建立並執行一個子代理任務"),
+    "list_subagents": ("列出子代理", "查看目前的子代理列表"),
+    "subagent_status": ("子代理狀態", "查詢單一子代理的執行狀態"),
+    "subagent_wait": ("等待子代理", "等待子代理完成並取得結果"),
+    # search / web
+    "tavily_search": ("Tavily 搜尋", "用 Tavily 搜尋網路資訊"),
+    # skills / docs
+    "read_skill": ("讀取 skill", "讀取技能定義"),
+    "read_pdf": ("讀取 PDF", "解析 PDF 檔案內容"),
+    "read_docx": ("讀取 Word", "解析 .docx 檔案內容"),
+    "read_xlsx": ("讀取 Excel", "解析 .xlsx 試算表內容"),
+    # demo / fake
+    "echo": ("回音", "回傳輸入內容（測試用）"),
+    "get_weather": ("查詢天氣", "查詢城市天氣（範例工具）"),
+    "calculator": ("計算機", "計算數學表達式（範例工具）"),
+}
+
+
+def _tool_zh_lookup(name: str, tool: object) -> tuple[str | None, str | None]:
+    """Resolve zh display_name / description for one tool.
+
+    Order: per-Tool property override → central map → None.
+    """
+    display = getattr(tool, "display_name", None)
+    description_zh = getattr(tool, "description_zh", None)
+    if isinstance(display, str) and display.strip():
+        resolved_display: str | None = display
+    else:
+        resolved_display = None
+    if isinstance(description_zh, str) and description_zh.strip():
+        resolved_desc: str | None = description_zh
+    else:
+        resolved_desc = None
+    if resolved_display is None or resolved_desc is None:
+        mapped = _TOOL_ZH.get(name)
+        if mapped is not None:
+            if resolved_display is None:
+                resolved_display = mapped[0]
+            if resolved_desc is None:
+                resolved_desc = mapped[1]
+    return resolved_display, resolved_desc
+
 
 @router.get("/capabilities", response_model=CapabilitiesResponse)
 async def get_capabilities(request: Request) -> CapabilitiesResponse:
@@ -74,6 +130,7 @@ def _build_tool_capabilities(tools: object) -> list[CapabilitiesToolInfo]:
         return []
 
     items: list[CapabilitiesToolInfo] = []
+    get_tool = getattr(tools, "get", None)
     for schema in tools.get_definitions():
         function = schema.get("function")
         if not isinstance(function, dict):
@@ -82,12 +139,16 @@ def _build_tool_capabilities(tools: object) -> list[CapabilitiesToolInfo]:
         if not isinstance(name, str) or not name:
             continue
         description = function.get("description")
+        tool_obj = get_tool(name) if callable(get_tool) else None
+        display_name, description_zh = _tool_zh_lookup(name, tool_obj)
         items.append(
             CapabilitiesToolInfo(
                 name=name,
                 description=description if isinstance(description, str) else "",
                 category=_tool_category(name),
                 dangerous=name in _DANGEROUS_TOOLS,
+                display_name=display_name,
+                description_zh=description_zh,
             ),
         )
     return items

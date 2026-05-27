@@ -22,6 +22,11 @@ import {
 } from '@/components/ui/collapsible'
 import { useSettingsStore } from '@/stores/settings'
 import { useCapabilitiesStore } from '@/stores/capabilities'
+import {
+  toolDisplayName,
+  toolDescription,
+  toolCategoryLabel,
+} from '@/lib/toolDisplay'
 import type { ToolCapability } from '@/lib/types'
 
 const props = defineProps<{ open: boolean }>()
@@ -126,11 +131,11 @@ function resetAll() {
   settings.resetAll()
 }
 
-const categoryLabel: Record<string, string> = {
-  filesystem: '檔案系統',
-  shell: 'Shell',
-  mcp: 'MCP',
-  other: '其他',
+function toolLabel(tool: { name: string }): string {
+  return toolDisplayName(tool.name, caps.toolMap.get(tool.name))
+}
+function toolDescLabel(tool: { name: string; description?: string }): string {
+  return toolDescription(tool.name, caps.toolMap.get(tool.name))
 }
 </script>
 
@@ -372,7 +377,7 @@ const categoryLabel: Record<string, string> = {
               <div
                 class="border-b bg-muted/40 px-3 py-1.5 text-xs font-medium text-muted-foreground"
               >
-                {{ categoryLabel[cat] ?? cat }}
+                {{ toolCategoryLabel(cat) }}
               </div>
               <div class="divide-y">
                 <div
@@ -383,7 +388,15 @@ const categoryLabel: Record<string, string> = {
                   <div class="min-w-0 flex-1">
                     <div class="flex items-center gap-1.5">
                       <Wrench class="size-3 text-muted-foreground" />
-                      <code class="text-xs font-medium">{{ tool.name }}</code>
+                      <span class="text-xs font-medium">
+                        {{ toolLabel(tool) }}
+                      </span>
+                      <code
+                        v-if="toolLabel(tool) !== tool.name"
+                        class="font-mono text-[10px] text-muted-foreground/70"
+                      >
+                        {{ tool.name }}
+                      </code>
                       <span
                         v-if="tool.dangerous"
                         class="rounded bg-destructive/15 px-1.5 py-0.5 text-[10px] text-destructive"
@@ -393,10 +406,10 @@ const categoryLabel: Record<string, string> = {
                       </span>
                     </div>
                     <p
-                      v-if="tool.description"
+                      v-if="toolDescLabel(tool)"
                       class="mt-0.5 line-clamp-2 text-xs text-muted-foreground"
                     >
-                      {{ tool.description }}
+                      {{ toolDescLabel(tool) }}
                     </p>
                   </div>
                   <Switch

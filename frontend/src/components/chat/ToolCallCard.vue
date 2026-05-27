@@ -18,12 +18,16 @@ import {
 } from 'lucide-vue-next'
 import { useCapabilitiesStore } from '@/stores/capabilities'
 import { formatToolResult } from '@/lib/format'
+import { toolDisplayName } from '@/lib/toolDisplay'
 import type { DisplayToolCall } from '@/lib/types'
 
 const props = defineProps<{ toolCall: DisplayToolCall }>()
 const caps = useCapabilitiesStore()
 
 const meta = computed(() => caps.toolMap.get(props.toolCall.name))
+const displayName = computed(() =>
+  toolDisplayName(props.toolCall.name, meta.value),
+)
 
 const argsText = computed(() => {
   try {
@@ -61,7 +65,13 @@ const categoryIcon = computed(() => {
         class="size-4 text-emerald-500"
       />
       <X v-else class="size-4 text-red-500" />
-      <span class="font-mono text-xs">{{ toolCall.name }}</span>
+      <span class="text-xs">{{ displayName }}</span>
+      <span
+        v-if="displayName !== toolCall.name"
+        class="font-mono text-[10px] text-muted-foreground/70"
+      >
+        {{ toolCall.name }}
+      </span>
       <Badge v-if="meta?.dangerous" variant="destructive" class="h-5 px-1.5 text-[10px]">
         危險
       </Badge>

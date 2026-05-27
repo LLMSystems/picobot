@@ -14,12 +14,12 @@ import type {
 const VISIBLE_STORAGE_KEY = 'picobot:workspace:visible'
 const TAB_STORAGE_KEY = 'picobot:workspace:tab'
 
-export type WorkspaceTab = 'files' | 'browser'
+export type WorkspaceTab = 'files' | 'browser' | 'agents'
 
 function loadTab(): WorkspaceTab {
   try {
     const v = localStorage.getItem(TAB_STORAGE_KEY)
-    if (v === 'files' || v === 'browser') return v
+    if (v === 'files' || v === 'browser' || v === 'agents') return v
   } catch {
     // ignore
   }
@@ -205,6 +205,11 @@ export const useWorkspaceStore = defineStore('workspace', () => {
 
   function focusBrowser() {
     setActiveTab('browser')
+    if (!visible.value) setVisible(true)
+  }
+
+  function focusAgents() {
+    setActiveTab('agents')
     if (!visible.value) setVisible(true)
   }
 
@@ -906,6 +911,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     toggleVisible,
     setActiveTab,
     focusBrowser,
+    focusAgents,
     childrenOf,
     getDir,
     uploadFiles,

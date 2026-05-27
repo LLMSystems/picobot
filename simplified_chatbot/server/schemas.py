@@ -188,6 +188,8 @@ class CapabilitiesToolInfo(BaseModel):
     description: str
     category: str
     dangerous: bool = False
+    display_name: str | None = None
+    description_zh: str | None = None
 
 
 class CapabilitiesFeatures(BaseModel):

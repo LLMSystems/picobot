@@ -1085,17 +1085,27 @@ class LocalAgentRuntime:
         *,
         history: list[Message],
         model_override: str | None = None,
+        on_delta: Callable[[str], None] | None = None,
         on_event: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> RunResult:
         chatbot = self._get_chatbot_for_session(session_id)
-        continue_async = getattr(chatbot, "continue_async", None)
-        if not callable(continue_async):
-            raise RuntimeError("Chatbot does not support continue_async(...)")
-        result = continue_async(
-            history,
-            model_override=model_override,
-            on_event=on_event,
-        )
+        continue_stream_async = getattr(chatbot, "continue_stream_async", None)
+        if callable(continue_stream_async):
+            result = continue_stream_async(
+                history,
+                on_delta=on_delta,
+                model_override=model_override,
+                on_event=on_event,
+            )
+        else:
+            continue_async = getattr(chatbot, "continue_async", None)
+            if not callable(continue_async):
+                raise RuntimeError("Chatbot does not support continue_async(...)")
+            result = continue_async(
+                history,
+                model_override=model_override,
+                on_event=on_event,
+            )
         if inspect.isawaitable(result):
             return await result
         return result
@@ -1335,20 +1345,82 @@ class LocalAgentRuntime:
             if not injected:
                 return False
             effective_history = [*history, *injected]
+            run_id = f"resume_{uuid.uuid4().hex[:12]}"
+            self._publish_auto_resume_event(
+                session_id,
+                run_id,
+                "assistant_started",
+                {"trigger": "subagent_result"},
+            )
+
+            def on_delta(delta: str) -> None:
+                if not delta:
+                    return
+                self._publish_auto_resume_event(
+                    session_id,
+                    run_id,
+                    "assistant_delta",
+                    {"delta": delta},
+                )
+
+            def on_event(event: str, data: dict[str, Any]) -> None:
+                self._publish_auto_resume_event(
+                    session_id,
+                    run_id,
+                    f"assistant_{event}",
+                    dict(data) if isinstance(data, dict) else {"value": data},
+                )
+
             try:
                 result = await self._continue_chat_async(
                     session_id,
                     history=effective_history,
                     model_override=None,
-                    on_event=None,
+                    on_delta=on_delta,
+                    on_event=on_event,
                 )
-            except Exception:
+            except Exception as exc:
                 self._restore_pending_internal_messages(session_id, injected)
+                self._publish_auto_resume_event(
+                    session_id,
+                    run_id,
+                    "assistant_error",
+                    {"message": str(exc)},
+                )
                 raise
             await self._save_history_async(session_id, result.messages)
+            self._publish_auto_resume_event(
+                session_id,
+                run_id,
+                "assistant_done",
+                {
+                    "content": getattr(result, "content", "") or "",
+                    "stop_reason": getattr(result, "stop_reason", "stop"),
+                    "usage": dict(getattr(result, "usage", {}) or {}),
+                    "tools_used": list(getattr(result, "tools_used", []) or []),
+                },
+            )
             return True
 
         return await self._run_with_session_lock(session_id, runner)
+
+    def _publish_auto_resume_event(
+        self,
+        session_id: str,
+        run_id: str,
+        event: str,
+        data: dict[str, Any],
+    ) -> None:
+        self.publish_session_event(
+            session_id,
+            {
+                "session_id": session_id,
+                "run_id": run_id,
+                "event": event,
+                "data": data,
+                "created_at": _utc_timestamp(),
+            },
+        )
 
     @staticmethod
     def _build_subagent_internal_message(status, result) -> Message:

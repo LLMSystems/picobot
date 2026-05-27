@@ -4,6 +4,7 @@ import { useChatStore } from '@/stores/chat'
 import { useAutoScroll } from '@/composables/useAutoScroll'
 import UserMessage from './UserMessage.vue'
 import AssistantMessage from './AssistantMessage.vue'
+import SubagentResultCard from './SubagentResultCard.vue'
 import EmptyState from './EmptyState.vue'
 import ScrollToBottom from '@/components/common/ScrollToBottom.vue'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -15,8 +16,13 @@ const { containerRef, pinnedToBottom, scrollToBottom, maintain } =
 const composerBus = useComposerBus()
 
 const items = computed(() => {
-  const base = chat.messages
-  return chat.streamingMessage ? [...base, chat.streamingMessage] : base
+  const result = [...chat.messages]
+  if (chat.streamingMessage) result.push(chat.streamingMessage)
+  if (chat.autoResumeMessage) result.push(chat.autoResumeMessage)
+  // Cards that arrived mid-stream — they belong after the currently-streaming
+  // bubble, then get flushed into `messages` on commit.
+  if (chat.deferredMessages.length > 0) result.push(...chat.deferredMessages)
+  return result
 })
 
 const isEmpty = computed(
@@ -29,6 +35,18 @@ watch(
 )
 watch(
   () => chat.streamingMessage?.segments.length,
+  () => maintain(),
+)
+watch(
+  () => chat.autoResumeMessage?.content,
+  () => maintain(),
+)
+watch(
+  () => chat.autoResumeMessage?.segments.length,
+  () => maintain(),
+)
+watch(
+  () => chat.deferredMessages.length,
   () => maintain(),
 )
 watch(
@@ -67,6 +85,10 @@ watch(
         <template v-else>
           <template v-for="m in items" :key="m.id">
             <UserMessage v-if="m.role === 'user'" :message="m" />
+            <SubagentResultCard
+              v-else-if="m.role === 'subagent_result'"
+              :message="m"
+            />
             <AssistantMessage v-else :message="m" />
           </template>
         </template>

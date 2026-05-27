@@ -150,6 +150,33 @@ class AgentLoop:
             on_event=on_event,
         )
 
+    async def continue_stream_async(
+        self,
+        history: list[Message],
+        *,
+        on_delta: Callable[[str], None] | None = None,
+        model_override: str | None = None,
+        temperature_override: float | None = None,
+        max_tokens_override: int | None = None,
+        max_iterations_override: int | None = None,
+        system_prompt_override: str | None = None,
+        disabled_tools: list[str] | None = None,
+        on_event: EventCallback | None = None,
+    ) -> RunResult:
+        """Continue from existing history with streamed deltas."""
+        return await self._run_conversation_async(
+            self._normalize_history(history),
+            stream=True,
+            on_delta=on_delta,
+            model_override=model_override,
+            temperature_override=temperature_override,
+            max_tokens_override=max_tokens_override,
+            max_iterations_override=max_iterations_override,
+            system_prompt_override=system_prompt_override,
+            disabled_tools=disabled_tools,
+            on_event=on_event,
+        )
+
     async def run_stream_async(
         self,
         message: MessageContent,

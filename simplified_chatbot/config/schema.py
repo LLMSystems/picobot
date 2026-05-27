@@ -58,6 +58,14 @@ class ChatbotConfig(BaseModel):
         gt=0,
         validation_alias=AliasChoices("max_iterations", "maxIterations"),
     )
+    max_concurrent_subagents: int = Field(
+        default=1,
+        ge=1,
+        validation_alias=AliasChoices(
+            "max_concurrent_subagents",
+            "maxConcurrentSubagents",
+        ),
+    )
     enabled_skills: list[str] = Field(
         default_factory=list,
         validation_alias=AliasChoices("enabled_skills", "enabledSkills"),

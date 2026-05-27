@@ -5,6 +5,7 @@ import WorkspaceHeader from './WorkspaceHeader.vue'
 import WorkspaceTree from './WorkspaceTree.vue'
 import WorkspaceFilePreview from './WorkspaceFilePreview.vue'
 import BrowserScreencast from './BrowserScreencast.vue'
+import SubagentPanel from '@/components/subagent/SubagentPanel.vue'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -306,6 +307,10 @@ function dismissMoveConflict() {
     </div>
     <BrowserScreencast
       v-if="ws.activeTab === 'browser'"
+      class="min-h-0 flex-1"
+    />
+    <SubagentPanel
+      v-if="ws.activeTab === 'agents'"
       class="min-h-0 flex-1"
     />
 

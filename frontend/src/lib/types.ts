@@ -8,6 +8,8 @@ export interface ToolCapability {
   description: string
   category: string
   dangerous: boolean
+  display_name?: string | null
+  description_zh?: string | null
 }
 
 export interface CapabilityFeatures {
@@ -85,6 +87,17 @@ export type SessionMessageContentBlock =
   | SessionMessageContentTextBlock
   | SessionMessageContentImageBlock
 
+export interface SessionMessageMetadata {
+  internal?: boolean
+  source?: string
+  kind?: string
+  task_id?: string
+  parent_session_id?: string
+  ok?: boolean
+  stop_reason?: string | null
+  [key: string]: unknown
+}
+
 export interface SessionMessage {
   id: string
   role: MessageRole
@@ -94,6 +107,7 @@ export interface SessionMessage {
   tool_call_id?: string
   name?: string
   images?: SessionMessageImage[]
+  metadata?: SessionMessageMetadata
 }
 
 export interface ChatUsage {
@@ -173,9 +187,19 @@ export interface DisplayMessageImage {
   detail?: ImageDetail
 }
 
+export interface SubagentResultPayload {
+  taskId: string
+  label: string
+  task: string | null
+  ok: boolean
+  stopReason: string | null
+  result: string
+  workspace: string | null
+}
+
 export interface DisplayMessage {
   id: string
-  role: 'user' | 'assistant'
+  role: 'user' | 'assistant' | 'subagent_result'
   content: string
   created_at: string
   toolCalls: DisplayToolCall[]
@@ -184,6 +208,62 @@ export interface DisplayMessage {
   usage?: ChatUsage
   toolsUsed?: string[]
   images?: DisplayMessageImage[]
+  subagent?: SubagentResultPayload
+}
+
+export type SubagentPhase =
+  | 'spawned'
+  | 'running'
+  | 'done'
+  | 'failed'
+  | 'cancelled'
+
+export interface SubagentSummary {
+  task_id: string
+  parent_session_id: string
+  label: string
+  task: string
+  workspace: string | null
+  phase: SubagentPhase
+  started_at: string
+  finished_at: string | null
+  stop_reason: string | null
+  ok: boolean | null
+  error: string | null
+  usage: Record<string, number>
+  tool_events: Array<Record<string, unknown>>
+  final_content: string | null
+}
+
+export interface SubagentSummaryListResponse {
+  session_id: string
+  items: SubagentSummary[]
+}
+
+export interface SubagentTimelineEvent {
+  id: number
+  task_id: string
+  parent_session_id: string
+  seq: number
+  event_type: string
+  created_at: string
+  payload: Record<string, unknown>
+}
+
+export interface SubagentTimelineResponse {
+  session_id: string
+  task_id: string
+  events: SubagentTimelineEvent[]
+}
+
+export interface SubagentLiveEvent {
+  session_id: string
+  task_id: string
+  label: string
+  event: string
+  data: Record<string, unknown>
+  seq: number
+  created_at: string
 }
 
 export type WorkspaceEntryType = 'file' | 'directory'

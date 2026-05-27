@@ -14,6 +14,7 @@ import {
   Folder,
   Globe,
   Plus,
+  Bot,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import {
@@ -31,6 +32,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useCapabilitiesStore } from '@/stores/capabilities'
+import { useSubagentStore } from '@/stores/subagents'
 import { api } from '@/lib/api'
 
 const props = defineProps<{ tab: WorkspaceTab }>()
@@ -41,6 +43,7 @@ const emit = defineEmits<{
 
 const ws = useWorkspaceStore()
 const caps = useCapabilitiesStore()
+const subagents = useSubagentStore()
 const fileInputRef = ref<HTMLInputElement | null>(null)
 const folderInputRef = ref<HTMLInputElement | null>(null)
 
@@ -110,6 +113,28 @@ const showAddMenu = showUpload || showNew
       >
         <Globe class="size-3.5" />
         瀏覽器
+      </button>
+      <button
+        type="button"
+        role="tab"
+        :aria-selected="tab === 'agents'"
+        :class="tabBtnClass('agents')"
+        @click="emit('update:tab', 'agents')"
+      >
+        <Bot class="size-3.5" />
+        任務
+        <span
+          v-if="subagents.runningCount > 0"
+          class="ml-1 inline-flex items-center gap-1 rounded-full bg-brand/15 px-1.5 py-px text-[10px] leading-none text-brand"
+        >
+          <span class="relative inline-flex size-1.5">
+            <span
+              class="absolute inline-flex size-1.5 animate-ping rounded-full bg-amber-400 opacity-70"
+            />
+            <span class="relative inline-flex size-1.5 rounded-full bg-amber-500" />
+          </span>
+          {{ subagents.runningCount }}
+        </span>
       </button>
     </div>
 

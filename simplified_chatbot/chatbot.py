@@ -118,7 +118,10 @@ class SimplifiedChatbot:
                     subagent_manager=None,
                 )
 
-            subagent_manager = SubagentManager(build_subagent_chatbot)
+            subagent_manager = SubagentManager(
+                build_subagent_chatbot,
+                max_concurrent_subagents=config.max_concurrent_subagents,
+            )
             resolved_tools = build_default_tool_registry(
                 workspace=default_workspace,
                 skills_dir=resolved_skills_dir,
@@ -236,6 +239,22 @@ class SimplifiedChatbot:
         """Continue from existing history without appending a new user message."""
         return await self._loop.continue_async(
             history,
+            model_override=model_override,
+            on_event=on_event,
+        )
+
+    async def continue_stream_async(
+        self,
+        history: list[Message],
+        *,
+        on_delta: Callable[[str], None] | None = None,
+        model_override: str | None = None,
+        on_event: Callable[[str, dict[str, Any]], None] | None = None,
+    ) -> RunResult:
+        """Continue from existing history with streamed deltas."""
+        return await self._loop.continue_stream_async(
+            history,
+            on_delta=on_delta,
             model_override=model_override,
             on_event=on_event,
         )

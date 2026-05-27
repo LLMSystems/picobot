@@ -15,6 +15,8 @@ import type {
   WorkspaceCreateFileResponse,
   WorkspaceDeleteDirectoryResponse,
   WorkspaceSaveFileResponse,
+  SubagentSummaryListResponse,
+  SubagentTimelineResponse,
 } from './types'
 import { ApiError } from './errors'
 
@@ -196,4 +198,26 @@ export const api = {
 
   workspaceDownloadUrl: (id: string, path?: string): string =>
     `${API_BASE}/sessions/${encodeURIComponent(id)}/workspace/download${qs({ path })}`,
+
+  listSubagents: (
+    sessionId: string,
+    params: { phase?: string; limit?: number } = {},
+  ) =>
+    request<SubagentSummaryListResponse>(
+      `/sessions/${encodeURIComponent(sessionId)}/subagents${qs(params)}`,
+    ),
+
+  getSubagentEvents: (
+    sessionId: string,
+    taskId: string,
+    params: { after_seq?: number; limit?: number } = {},
+  ) =>
+    request<SubagentTimelineResponse>(
+      `/sessions/${encodeURIComponent(sessionId)}/subagents/${encodeURIComponent(
+        taskId,
+      )}/events${qs(params)}`,
+    ),
+
+  sessionEventStreamUrl: (sessionId: string): string =>
+    `${API_BASE}/sessions/${encodeURIComponent(sessionId)}/events/stream`,
 }
