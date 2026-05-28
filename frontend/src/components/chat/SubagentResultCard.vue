@@ -31,7 +31,10 @@ function openInPanel() {
 <template>
   <Collapsible
     v-if="payload"
-    class="w-full max-w-[calc(100%-3rem)] overflow-hidden rounded-2xl rounded-bl-md border border-border/50 bg-muted/50 text-sm"
+    :class="[
+      'min-w-0 max-w-full overflow-hidden rounded-2xl rounded-bl-md border border-border/50 text-sm',
+      payload.ok ? 'bg-emerald-500/5' : 'bg-red-500/5'
+    ]"
   >
     <div class="flex items-center gap-2 px-4 py-2">
       <PicobotIcon :size="20" :state="payload.ok ? 'done' : 'failed'" />
