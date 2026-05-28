@@ -37,6 +37,8 @@ _TOOL_ZH: dict[str, tuple[str, str]] = {
     "find_files": ("尋找檔案", "尋找工作區內的相關檔案"),
     # shell
     "exec": ("執行指令", "在工作區內執行 shell 指令"),
+    "write_stdin": ("寫入標準輸入", "用於與已啟動且持續執行的 exec 命令互動"),
+    "list_exec_sessions": ("列出指令執行", "列出目前正在執行的 exec 命令"),
     # subagents
     "spawn": ("派發子代理", "建立並執行一個子代理任務"),
     "list_subagents": ("列出子代理", "查看目前的子代理列表"),
