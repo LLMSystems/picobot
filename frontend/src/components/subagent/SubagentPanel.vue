@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import type { SubagentSummary } from '@/lib/types'
 import { useSubagentStore } from '@/stores/subagents'
-import { Bot, ChevronLeft, ChevronRight, Loader2 } from 'lucide-vue-next'
+import { ChevronLeft, ChevronRight, Loader2 } from 'lucide-vue-next'
+import PicobotIcon from '@/components/common/PicobotIcon.vue'
 import { computed, onMounted, ref, watch } from 'vue'
 import SubagentDetail from './SubagentDetail.vue'
 import SubagentListItem from './SubagentListItem.vue'
@@ -305,9 +306,7 @@ function chipClass(f: Filter): string {
         v-else-if="subagents.sortedSummaries.length === 0"
         class="flex h-full flex-col items-center justify-center gap-3 px-6 text-center"
       >
-        <span class="inline-flex size-12 items-center justify-center rounded-full bg-brand/10">
-          <Bot class="size-6 text-brand" />
-        </span>
+        <PicobotIcon size="lg" />
         <div class="space-y-1">
           <div class="text-sm font-medium">尚未產生子任務</div>
           <div class="text-[11px] text-muted-foreground">

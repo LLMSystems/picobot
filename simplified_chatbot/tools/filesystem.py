@@ -767,7 +767,7 @@ def build_default_tool_registry(
         ReadPdfTool,
         ReadXlsxTool,
     )
-    from simplified_chatbot.tools.search import GlobTool, GrepTool
+    from simplified_chatbot.tools.search import FindFilesTool, GlobTool, GrepTool
     from simplified_chatbot.tools.shell import ExecTool
     from simplified_chatbot.tools.skills import ReadSkillTool
     from simplified_chatbot.tools.spawn import SpawnTool
@@ -803,6 +803,7 @@ def build_default_tool_registry(
         registry.register(WriteFileTool(workspace=ws, allowed_dir=allowed, file_states=file_states))
         registry.register(EditFileTool(workspace=ws, allowed_dir=allowed, file_states=file_states))
         registry.register(ListDirTool(workspace=ws, allowed_dir=allowed))
+        registry.register(FindFilesTool(workspace=ws, allowed_dir=allowed))
         registry.register(GlobTool(workspace=ws, allowed_dir=allowed))
         registry.register(GrepTool(workspace=ws, allowed_dir=allowed))
 

@@ -1,4 +1,4 @@
-"""Search tools: glob and grep (V1)."""
+"""Search tools: find_files, glob, and grep."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from simplified_chatbot.tools.base import Tool, tool_parameters
 from simplified_chatbot.tools.filesystem import _IGNORE_DIRS, _resolve_path
 
 _DEFAULT_HEAD_LIMIT = 250
+_DEFAULT_FILE_HEAD_LIMIT = 200
 _MAX_RESULT_CHARS = 128_000
 _MAX_FILE_BYTES = 2_000_000
 _TYPE_GLOB_MAP = {
@@ -62,6 +63,14 @@ def _matches_type(name: str, file_type: str | None) -> bool:
         return True
     patterns = _TYPE_GLOB_MAP.get(lowered, (f"*.{lowered}",))
     return any(fnmatch.fnmatch(name.lower(), pattern.lower()) for pattern in patterns)
+
+
+def _matches_query(rel_path: str, query: str | None) -> bool:
+    if not query:
+        return True
+    haystack = rel_path.lower()
+    terms = [part for part in query.lower().split() if part]
+    return all(term in haystack for term in terms)
 
 
 def _paginate(items: list[str], limit: int | None, offset: int) -> tuple[list[str], bool]:
@@ -126,6 +135,142 @@ class _SearchTool(Tool):
 
     def _iter_files(self, root: Path):
         yield from self._iter_entries(root, include_files=True, include_dirs=False)
+
+
+@tool_parameters(
+    {
+        "type": "object",
+        "properties": {
+            "path": {
+                "type": "string",
+                "description": "Directory or file to search in (default '.').",
+            },
+            "query": {
+                "type": "string",
+                "description": (
+                    "Optional case-insensitive path fragment search. "
+                    "Whitespace-separated terms must all be present."
+                ),
+            },
+            "glob": {
+                "type": "string",
+                "description": "Optional file filter, e.g. '*.py' or 'tests/**/test_*.py'.",
+            },
+            "type": {
+                "type": "string",
+                "description": "Optional file type shorthand, e.g. 'py', 'ts', 'md', 'json'.",
+            },
+            "include_dirs": {
+                "type": "boolean",
+                "description": "Include matching directories as well as files (default false).",
+                "default": False,
+            },
+            "sort": {
+                "type": "string",
+                "enum": ["path", "modified"],
+                "description": "Sort by path or most recently modified first (default path).",
+            },
+            "head_limit": {
+                "type": "integer",
+                "description": "Maximum number of paths to return (default 200, 0 for all).",
+                "minimum": 0,
+                "maximum": 1000,
+            },
+            "offset": {
+                "type": "integer",
+                "description": "Skip the first N results before applying head_limit.",
+                "minimum": 0,
+                "maximum": 100000,
+            },
+        },
+    },
+)
+class FindFilesTool(_SearchTool):
+    """Find files by path fragment, glob, or file type."""
+
+    @property
+    def name(self) -> str:
+        return "find_files"
+
+    @property
+    def description(self) -> str:
+        return (
+            "Find files by path fragment, glob, or file type. "
+            "Use this before read_file when the path is uncertain. "
+            "Returns workspace-relative paths and skips common noise directories."
+        )
+
+    async def execute(
+        self,
+        path: str = ".",
+        query: str | None = None,
+        glob: str | None = None,
+        type: str | None = None,
+        include_dirs: bool = False,
+        sort: str = "path",
+        head_limit: int | None = None,
+        offset: int = 0,
+        **kwargs: Any,
+    ) -> str:
+        try:
+            target = self._resolve(path or ".")
+            if not target.exists():
+                return f"Error: Path not found: {path}"
+            if not (target.is_dir() or target.is_file()):
+                return f"Error: Unsupported path: {path}"
+            if sort not in {"path", "modified"}:
+                return "Error: sort must be 'path' or 'modified'"
+
+            limit = (
+                _DEFAULT_FILE_HEAD_LIMIT
+                if head_limit is None
+                else None if head_limit == 0 else head_limit
+            )
+            root = target if target.is_dir() else target.parent
+            matches: list[tuple[str, float]] = []
+
+            for candidate in self._iter_entries(
+                target,
+                include_files=True,
+                include_dirs=include_dirs,
+            ):
+                if candidate.is_dir() and not include_dirs:
+                    continue
+                rel_path = candidate.relative_to(root).as_posix()
+                display_path = self._display_path(candidate, root)
+                if glob and not _match_glob(rel_path, candidate.name, glob):
+                    continue
+                if candidate.is_file() and not _matches_type(candidate.name, type):
+                    continue
+                if candidate.is_dir() and type:
+                    continue
+                if not _matches_query(display_path, query):
+                    continue
+                try:
+                    mtime = candidate.stat().st_mtime
+                except OSError:
+                    mtime = 0.0
+                if candidate.is_dir():
+                    display_path += "/"
+                matches.append((display_path, mtime))
+
+            if sort == "modified":
+                matches.sort(key=lambda item: (-item[1], item[0]))
+            else:
+                matches.sort(key=lambda item: item[0])
+
+            ordered = [name for name, _ in matches]
+            paged, truncated = _paginate(ordered, limit, offset)
+            if not paged:
+                return "No files found"
+            result = "\n".join(paged)
+            if note := _pagination_note(limit, offset, truncated):
+                result += f"\n\n{note}"
+            return result
+        except PermissionError as exc:
+            return f"Error: {exc}"
+        except Exception as exc:
+            return f"Error finding files: {exc}"
 
 
 @tool_parameters(
