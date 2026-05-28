@@ -20,10 +20,15 @@
 
 **後端 / Agent**
 
-- 可配置的聊天與 異 agent 執行核心
-- 資料庫以 SQL 為主
+- 可配置的聊天與多輪 agent 執行核心
+- 以 AioSQLite 為主的 session / history / subagent persistence
 - 可調用工具、瀏覽網頁的多輪互動能力
 - session 與 per-session workspace 管理
+- subagent orchestration：`spawn`、`list_subagents`、`subagent_status`、`subagent_wait`、`cancel_subagent`
+- subagent 自動回注與 same-session auto-resume
+- subagent runs / events 持久化，支援 reload 後恢復
+- 長生命週期 exec sessions：`exec(..., yield_time_ms=...)`、`write_stdin`、`list_exec_sessions`
+- 結構化檔案操作工具：`find_files`、`apply_patch`
 - 可直接掛到 FastAPI 的後端 API
 - 可逐步擴充的 skills、prompt、eval 架構
 
@@ -31,6 +36,8 @@
 
 - 多 session 管理（建立、重新命名、刪除）
 - SSE 串流即時顯示 AI 回答
+- Subagent 面板：執行中狀態、事件時間線、結果摘要
+- Subagent reload recovery：先從 DB hydrate，再接 live SSE
 - Markdown 完整渲染（粗體、斜體、程式碼塊、表格、Mermaid 圖表）
 - 工具呼叫視覺化（展示 agent 每次 tool call 的輸入輸出）
 - Workspace 面板（檔案樹 + 檔案預覽，支援語法高亮）
@@ -49,10 +56,10 @@ picobot/
     config/         # config schema / loader / env handling
     prompts/        # system prompt 與 prompt 組裝
     providers/      # OpenAI-compatible provider
-    runtime/        # session runtime, store, workspace 管理
+    runtime/        # session runtime, SQLite store, subagent/event persistence
     server/         # FastAPI endpoints 與 schemas
     skills/         # builtin / workspace skills loader
-    tools/          # file, search, shell, skill tools
+    tools/          # file, patch, search, shell, subagent, skill tools
   frontend/
     src/
       components/   # chat、layout、workspace、common UI 元件
@@ -191,6 +198,18 @@ OPENAI_BASE_URL=http://localhost:11434/v1
 python3 fastapi_server.py --config example_config.json --host 0.0.0.0 --port 8000
 ```
 
+如果要明確指定 SQLite 檔案位置：
+
+```bash
+python3 fastapi_server.py --config example_config.json --db-path sessions_async.db
+```
+
+預設會使用 AioSQLite 儲存：
+
+- session message history
+- subagent runs
+- subagent timeline events
+
 或是
 
 ```sh
@@ -300,7 +319,23 @@ AI 回答支援完整 Markdown，包含：
 
 Agent 每次呼叫工具時，訊息中會顯示 ToolCall 卡片，包含工具名稱、輸入參數、執行結果，可展開查看詳情。
 
-### 5.5 Workspace 面板
+### 5.5 Subagent 面板
+
+Workspace 區域整合了 Subagent Panel，可用來觀察背景子代理的執行狀態：
+
+- 列出目前 session 的 subagent summary
+- 顯示 running / done / failed 數量
+- 顯示子代理最近使用的工具與即時文字輸出
+- 可展開單一 subagent 查看 timeline 與最終結果
+
+Subagent 資料來源分成兩條：
+
+- **reload recovery**：`GET /sessions/{session_id}/subagents` 與 `.../events`
+- **live updates**：`GET /sessions/{session_id}/events/stream`
+
+因此即使重新整理頁面，也能恢復既有 subagent 狀態，再接續即時更新。
+
+### 5.6 Workspace 面板
 
 當後端 capabilities 回傳 `session_workspace: true` 時，右側會出現 Workspace 面板：
 
@@ -314,7 +349,7 @@ Agent 每次呼叫工具時，訊息中會顯示 ToolCall 卡片，包含工具�
 
 Workspace 會監聽串流中的 `workspace_changed` 事件，AI 操作檔案後自動刷新。
 
-### 5.6 可拖拉版面
+### 5.7 可拖拉版面
 
 三欄式版面均可用滑鼠拖拉調整：
 
@@ -326,7 +361,7 @@ Workspace 會監聽串流中的 `workspace_changed` 事件，AI 操作檔案後�
 
 寬度 / 比例會自動儲存至 `localStorage`。
 
-### 5.7 主題切換
+### 5.8 主題切換
 
 右上角提供深色 / 淺色主題切換，設定儲存至 `localStorage`。
 
@@ -346,6 +381,10 @@ Workspace 會監聽串流中的 `workspace_changed` 事件，AI 操作檔案後�
 - `POST /sessions` — 建立空白 session
 - `PATCH /sessions/{session_id}` — 更新 session title
 - `GET /sessions/{session_id}/messages` — 取得完整歷史訊息
+- `GET /sessions/{session_id}/subagents` — 取得該 session 的 subagent runs
+- `GET /sessions/{session_id}/subagents/{task_id}` — 取得單一 subagent summary
+- `GET /sessions/{session_id}/subagents/{task_id}/events` — 取得單一 subagent timeline events
+- `GET /sessions/{session_id}/events/stream` — SSE 推送背景事件（subagent progress 等）
 - `DELETE /sessions/{session_id}` — 刪除 session
 
 ### Workspace
@@ -371,6 +410,38 @@ Workspace 會監聽串流中的 `workspace_changed` 事件，AI 操作檔案後�
 | `delta` | 文字串流片段 |
 | `done` | 串流結束（含完整 usage） |
 | `error` | 發生錯誤 |
+
+`/sessions/{session_id}/events/stream` 會額外推送背景 subagent 事件，例如：
+
+| 事件 | 說明 |
+|------|------|
+| `subagent_spawned` | 子代理建立 |
+| `subagent_phase_changed` | 子代理 phase 更新 |
+| `subagent_delta` | 子代理串流文字片段 |
+| `subagent_tool_call_started` | 子代理工具呼叫開始 |
+| `subagent_tool_call_finished` | 子代理工具呼叫結束 |
+| `subagent_iteration_completed` | 子代理完成一輪 iteration |
+| `subagent_completed` | 子代理成功完成 |
+| `subagent_failed` | 子代理失敗 |
+| `subagent_cancelled` | 子代理被取消 |
+
+## 6.1 目前內建工具能力摘要
+
+目前 `picobot` 內建工具大致分成：
+
+- **檔案 / 搜尋**：`read_file`、`write_file`、`edit_file`、`apply_patch`、`list_dir`、`find_files`、`glob`、`grep`
+- **文件讀取**：`read_pdf`、`read_docx`、`read_xlsx`
+- **Shell / 執行**：`exec`、`write_stdin`、`list_exec_sessions`
+- **Web search**：`tavily_search`
+- **Subagent control**：`spawn`、`list_subagents`、`subagent_status`、`subagent_wait`、`cancel_subagent`
+- **Skills**：`read_skill`
+
+其中：
+
+- `apply_patch` 用於多檔案、結構化批次修改，支援 `dry_run=true`
+- `find_files` 用於在不確定精確路徑時縮小候選檔案
+- `exec(..., yield_time_ms=...)` 可啟動可持續互動的 exec session
+- `write_stdin` / `list_exec_sessions` 用於接續或找回該 session 下的執行中命令
 
 ---
 
