@@ -142,7 +142,7 @@ function onEditKeydown(e: KeyboardEvent) {
             <Button
               size="sm"
               class="h-7 px-3 text-xs"
-              :disabled="!draft.trim()"
+              :disabled="!draft.trim() || draft.trim() === message.content"
               @click="submitEdit"
             >
               重新傳送
