@@ -91,6 +91,7 @@ def test_system_prompt_mentions_read_skill_tool_rules():
     assert "`read_pdf(path, pages)`" in prompt
     assert "`read_docx(path)`" in prompt
     assert "`read_xlsx(path, sheet, range)`" in prompt
+    assert "`apply_patch(edits, dry_run)`" in prompt
     assert "`tavily_search(query, topic, search_depth, max_results" in prompt
     assert "`find_files(path, query, glob, type, include_dirs, sort, head_limit, offset)`" in prompt
     assert "`spawn(task, label, temperature)`" in prompt
@@ -102,6 +103,7 @@ def test_system_prompt_mentions_read_skill_tool_rules():
     assert "`.subagents/<task_id>/`" in prompt
     assert "Use `exec(...)` without `yield_time_ms` for ordinary one-shot commands." in prompt
     assert "Use `write_stdin(...)` to continue, poll, close stdin, or terminate an existing exec session." in prompt
+    assert "Prefer `apply_patch` for multi-file changes" in prompt
     assert "Do not try to force binary office/document formats through `read_file`." in prompt
     assert "Do not use `read_file` to access `SKILL.md` files" in prompt
 

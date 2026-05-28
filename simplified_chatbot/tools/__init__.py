@@ -1,6 +1,7 @@
 """Tool abstractions and helper factories."""
 
 from simplified_chatbot.tools.base import Tool, tool_parameters
+from simplified_chatbot.tools.apply_patch import ApplyPatchTool
 from simplified_chatbot.tools.document_readers import (
     ReadDocxTool,
     ReadPdfTool,
@@ -34,6 +35,7 @@ from simplified_chatbot.tools.tavily import TavilySearchTool
 
 __all__ = [
     "build_default_tool_registry",
+    "ApplyPatchTool",
     "EditFileTool",
     "ExecTool",
     "FileStates",

@@ -39,6 +39,7 @@ def test_default_tool_registry_includes_wave_1a_tools(tmp_path):
     assert "read_docx" in registry.tool_names
     assert "read_xlsx" in registry.tool_names
     assert "write_file" in registry.tool_names
+    assert "apply_patch" in registry.tool_names
 
 
 def test_subagent_tool_registry_profile_is_supported(tmp_path):
@@ -49,6 +50,7 @@ def test_subagent_tool_registry_profile_is_supported(tmp_path):
     assert "list_exec_sessions" in registry.tool_names
     assert "read_file" in registry.tool_names
     assert "grep" in registry.tool_names
+    assert "apply_patch" in registry.tool_names
 
 
 def test_main_and_subagent_profiles_are_built_independently(tmp_path):

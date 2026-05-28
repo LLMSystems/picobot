@@ -35,6 +35,7 @@ _TOOL_ZH: dict[str, tuple[str, str]] = {
     "glob": ("搜尋路徑", "用萬用字元搜尋檔案路徑"),
     "grep": ("搜尋內容", "在檔案內容中搜尋關鍵字"),
     "find_files": ("尋找檔案", "尋找工作區內的相關檔案"),
+    "apply_patch": ("套用補丁", "根據 unified diff 格式的補丁修改檔案"),
     # shell
     "exec": ("執行指令", "在工作區內執行 shell 指令"),
     "write_stdin": ("寫入標準輸入", "用於與已啟動且持續執行的 exec 命令互動"),
