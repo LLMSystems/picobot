@@ -767,6 +767,11 @@ def build_default_tool_registry(
         ReadPdfTool,
         ReadXlsxTool,
     )
+    from simplified_chatbot.tools.exec_session import (
+        ExecSessionManager,
+        ListExecSessionsTool,
+        WriteStdinTool,
+    )
     from simplified_chatbot.tools.search import FindFilesTool, GlobTool, GrepTool
     from simplified_chatbot.tools.shell import ExecTool
     from simplified_chatbot.tools.skills import ReadSkillTool
@@ -788,7 +793,27 @@ def build_default_tool_registry(
         raise ValueError(f"Unsupported tool registry profile: {profile}")
 
     def register_shared_tools() -> None:
-        registry.register(ExecTool(workspace=ws, allowed_dir=allowed))
+        exec_session_manager = ExecSessionManager()
+        registry.register(
+            ExecTool(
+                workspace=ws,
+                allowed_dir=allowed,
+                session_manager=exec_session_manager,
+                owner_session_id=session_id,
+            ),
+        )
+        registry.register(
+            WriteStdinTool(
+                manager=exec_session_manager,
+                owner_session_id=session_id,
+            ),
+        )
+        registry.register(
+            ListExecSessionsTool(
+                manager=exec_session_manager,
+                owner_session_id=session_id,
+            ),
+        )
         registry.register(
             ReadSkillTool(
                 skills_dir=skills_dir,

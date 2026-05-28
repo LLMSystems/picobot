@@ -153,6 +153,11 @@ class SimplifiedChatbot:
         """Whether this chatbot can derive a fresh tool registry for another workspace."""
         return self._tool_factory is not None
 
+    @property
+    def default_workspace(self) -> Path | None:
+        """Default workspace used when deriving per-session chatbots."""
+        return self._default_workspace
+
     def for_workspace(
         self,
         workspace: str | Path,

@@ -11,6 +11,15 @@ from pathlib import Path
 from typing import Any
 
 from simplified_chatbot.tools.base import Tool, tool_parameters
+from simplified_chatbot.tools.exec_session import (
+    DEFAULT_EXEC_SESSION_MANAGER,
+    DEFAULT_MAX_OUTPUT_CHARS,
+    DEFAULT_YIELD_MS,
+    MAX_OUTPUT_CHARS,
+    MAX_YIELD_MS,
+    clamp_session_int,
+    format_session_poll,
+)
 
 _IS_WINDOWS = sys.platform == "win32"
 _AGENT_BROWSER_TOKEN_PATTERN = re.compile(
@@ -42,6 +51,31 @@ _WORKSPACE_BOUNDARY_NOTE = (
                 "minimum": 1,
                 "maximum": 600,
             },
+            "yield_time_ms": {
+                "type": "integer",
+                "description": (
+                    "Optional milliseconds to wait before returning output. "
+                    "When set, a still-running command returns a session_id. "
+                    "Omit this field to keep one-shot exec behavior."
+                ),
+                "minimum": 0,
+                "maximum": MAX_YIELD_MS,
+            },
+            "max_output_chars": {
+                "type": "integer",
+                "description": (
+                    "Maximum output characters to return when yield_time_ms is used "
+                    f"(default {DEFAULT_MAX_OUTPUT_CHARS}, max {MAX_OUTPUT_CHARS})."
+                ),
+                "minimum": 1000,
+                "maximum": MAX_OUTPUT_CHARS,
+            },
+            "max_output_tokens": {
+                "type": "integer",
+                "description": "Compatibility alias for max_output_chars.",
+                "minimum": 1000,
+                "maximum": MAX_OUTPUT_CHARS,
+            },
         },
         "required": ["command"],
     },
@@ -69,14 +103,26 @@ class ExecTool(Tool):
         workspace: Path | None = None,
         allowed_dir: Path | None = None,
         timeout: int = 60,
+        session_manager: Any | None = None,
+        owner_session_id: str | None = None,
     ) -> None:
         self._workspace = workspace.resolve() if workspace is not None else Path.cwd().resolve()
         self._allowed_dir = allowed_dir.resolve() if allowed_dir is not None else None
         self._timeout = timeout
         self._chrome_port = None
-        
+        self._session_manager = session_manager or DEFAULT_EXEC_SESSION_MANAGER
+        self._owner_session_id = owner_session_id
+
     def bind_chrome_debugging_port(self, port: int) -> None:
         self._chrome_port = port
+
+    @property
+    def session_manager(self) -> Any:
+        return self._session_manager
+
+    @property
+    def owner_session_id(self) -> str | None:
+        return self._owner_session_id
         
     @property
     def name(self) -> str:
@@ -87,6 +133,8 @@ class ExecTool(Tool):
         return (
             "Execute a shell command and return its output. "
             "Use this for tests, build, lint, or runtime verification. "
+            "For long-running or interactive commands, pass yield_time_ms; "
+            "if the command keeps running, exec returns a session_id. "
             "Output is truncated at 10,000 chars."
         )
 
@@ -95,6 +143,9 @@ class ExecTool(Tool):
         command: str,
         working_dir: str | None = None,
         timeout: int | None = None,
+        yield_time_ms: int | None = None,
+        max_output_chars: int | None = None,
+        max_output_tokens: int | None = None,
         **kwargs: Any,
     ) -> str:
         
@@ -114,6 +165,30 @@ class ExecTool(Tool):
         effective_timeout = min(timeout or self._timeout, self._MAX_TIMEOUT)
         env = os.environ.copy()
         env["PYTHONUNBUFFERED"] = "1"
+
+        if max_output_chars is None:
+            max_output_chars = max_output_tokens
+
+        if yield_time_ms is not None:
+            try:
+                session_id, poll = await self._session_manager.start(
+                    command=command,
+                    cwd=str(cwd),
+                    env=env,
+                    timeout=effective_timeout,
+                    spawn=self._spawn_session,
+                    owner_session_id=self._owner_session_id,
+                    yield_time_ms=clamp_session_int(yield_time_ms, DEFAULT_YIELD_MS, 0, MAX_YIELD_MS),
+                    max_output_chars=clamp_session_int(
+                        max_output_chars,
+                        DEFAULT_MAX_OUTPUT_CHARS,
+                        1000,
+                        MAX_OUTPUT_CHARS,
+                    ),
+                )
+                return format_session_poll(session_id, poll)
+            except Exception as exc:
+                return f"Error executing command: {exc}"
 
         try:
             process = await self._spawn(command, cwd, env)
@@ -184,6 +259,34 @@ class ExecTool(Tool):
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=str(cwd),
+            env=env,
+        )
+
+    @staticmethod
+    async def _spawn_session(
+        command: str,
+        cwd: str,
+        env: dict[str, str],
+    ) -> asyncio.subprocess.Process:
+        if _IS_WINDOWS:
+            return await asyncio.create_subprocess_shell(
+                command,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=cwd,
+                env=env,
+            )
+        bash = shutil.which("bash") or "/bin/bash"
+        return await asyncio.create_subprocess_exec(
+            bash,
+            "-l",
+            "-c",
+            command,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=cwd,
             env=env,
         )
 

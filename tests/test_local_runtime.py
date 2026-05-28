@@ -1,6 +1,8 @@
 import asyncio
 import json
 from pathlib import Path
+import re
+import sys
 
 import pytest
 
@@ -803,3 +805,99 @@ def test_local_runtime_binds_subagent_store_into_retrieval_tools(tmp_path: Path)
     assert session_chatbot.tools.get("list_subagents")._store is runtime.subagent_store
     assert session_chatbot.tools.get("subagent_status")._store is runtime.subagent_store
     assert session_chatbot.tools.get("subagent_wait")._store is runtime.subagent_store
+
+
+def test_local_runtime_binds_exec_tool_ownership_into_session_chatbot(tmp_path: Path):
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "provider": "openai_compat",
+                "model": "gpt-4.1-mini",
+                "apiKey": "test-key",
+            },
+        ),
+        encoding="utf-8",
+    )
+    runtime = LocalAgentRuntime.from_config(config_path)
+
+    session_chatbot = runtime._get_chatbot_for_session("session-exec")
+
+    assert session_chatbot is not runtime.chatbot
+    assert session_chatbot.tools.get("exec").owner_session_id == "session-exec"
+    assert session_chatbot.tools.get("write_stdin").owner_session_id == "session-exec"
+    assert session_chatbot.tools.get("list_exec_sessions").owner_session_id == "session-exec"
+
+
+def test_local_runtime_reset_session_cleans_exec_sessions(tmp_path: Path):
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "provider": "openai_compat",
+                "model": "gpt-4.1-mini",
+                "apiKey": "test-key",
+            },
+        ),
+        encoding="utf-8",
+    )
+    runtime = LocalAgentRuntime.from_config(config_path)
+    session_chatbot = runtime._get_chatbot_for_session("session-exec")
+    command = _python_command("import time; print('ready', flush=True); time.sleep(0.5)")
+
+    initial = session_chatbot.tools.execute(
+        "exec",
+        {
+            "command": command,
+            "yield_time_ms": 100,
+        },
+    )
+    session_id = _session_id(initial)
+
+    assert session_id in session_chatbot.tools.execute("list_exec_sessions", {})
+    runtime.reset_session("session-exec")
+    assert session_chatbot.tools.execute("list_exec_sessions", {}) == "No active exec sessions."
+
+
+@pytest.mark.asyncio
+async def test_local_runtime_reset_session_async_cleans_exec_sessions(tmp_path: Path):
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "provider": "openai_compat",
+                "model": "gpt-4.1-mini",
+                "apiKey": "test-key",
+            },
+        ),
+        encoding="utf-8",
+    )
+    runtime = LocalAgentRuntime.from_config(config_path)
+    session_chatbot = runtime._get_chatbot_for_session("session-exec-async")
+    command = _python_command("import time; print('ready', flush=True); time.sleep(0.5)")
+
+    initial = await session_chatbot.tools.execute_async(
+        "exec",
+        {
+            "command": command,
+            "yield_time_ms": 100,
+        },
+    )
+    session_id = _session_id(initial)
+
+    listing = await session_chatbot.tools.execute_async("list_exec_sessions", {})
+    assert session_id in listing
+    await runtime.reset_session_async("session-exec-async")
+    after = await session_chatbot.tools.execute_async("list_exec_sessions", {})
+    assert after == "No active exec sessions."
+
+
+def _python_command(code: str) -> str:
+    escaped = code.replace('"', '\\"')
+    return f'"{sys.executable}" -c "{escaped}"'
+
+
+def _session_id(output: str) -> str:
+    match = re.search(r"session_id:\s*([0-9a-f]+)", output)
+    assert match is not None
+    return match.group(1)

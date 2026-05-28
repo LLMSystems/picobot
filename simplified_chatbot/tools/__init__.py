@@ -15,6 +15,10 @@ from simplified_chatbot.tools.filesystem import (
     WriteFileTool,
     build_default_tool_registry,
 )
+from simplified_chatbot.tools.exec_session import (
+    ListExecSessionsTool,
+    WriteStdinTool,
+)
 from simplified_chatbot.tools.search import FindFilesTool, GlobTool, GrepTool
 from simplified_chatbot.tools.registry import ToolRegistry
 from simplified_chatbot.tools.shell import ExecTool
@@ -37,6 +41,7 @@ __all__ = [
     "GlobTool",
     "GrepTool",
     "ListDirTool",
+    "ListExecSessionsTool",
     "ListSubagentsTool",
     "CancelSubagentTool",
     "ReadDocxTool",
@@ -52,5 +57,6 @@ __all__ = [
     "SubagentWaitTool",
     "TavilySearchTool",
     "WriteFileTool",
+    "WriteStdinTool",
     "tool_parameters",
 ]
