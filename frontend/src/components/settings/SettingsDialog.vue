@@ -399,10 +399,10 @@ function toolDescLabel(tool: { name: string; description?: string }): string {
                       </code>
                       <span
                         v-if="tool.dangerous"
-                        class="rounded bg-destructive/15 px-1.5 py-0.5 text-[10px] text-destructive"
+                        class="rounded border border-amber-500/40 bg-amber-500/15 px-1.5 py-0.5 text-[10px] text-amber-700 dark:text-amber-400"
                         title="可能修改檔案或執行指令"
                       >
-                        敏感
+                        高權限
                       </span>
                     </div>
                     <p

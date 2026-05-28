@@ -382,6 +382,7 @@ class LocalAgentRuntime:
                 "This runtime is using an AsyncSessionStore. "
                 "Use reset_session_async(...) instead of reset_session(...).",
             )
+        self._terminate_exec_sessions_for_session(session_id)
         self.store.delete_session(session_id)
         self._session_chatbots.pop(session_id, None)
         self._session_locks.pop(session_id, None)
@@ -459,6 +460,7 @@ class LocalAgentRuntime:
                 await background_task
             except asyncio.CancelledError:
                 pass
+        await self._terminate_exec_sessions_for_session_async(session_id)
         if isinstance(self.store, AsyncSessionStore):
             await self.store.delete_session(session_id)
         else:
@@ -1111,8 +1113,6 @@ class LocalAgentRuntime:
         return result
 
     def _get_chatbot_for_session(self, session_id: str) -> Any:
-        if self.workspace_manager is None:
-            return self.chatbot
         if not isinstance(self.chatbot, SimplifiedChatbot):
             return self.chatbot
         if not self.chatbot.supports_workspace_clone:
@@ -1122,7 +1122,10 @@ class LocalAgentRuntime:
         if cached is not None:
             return cached
 
-        workspace = self.workspace_manager.ensure_workspace(session_id)
+        if self.workspace_manager is not None:
+            workspace = self.workspace_manager.ensure_workspace(session_id)
+        else:
+            workspace = self.chatbot.default_workspace or Path.cwd()
         session_chatbot = self.chatbot.for_workspace(
             workspace,
             session_id=session_id,
@@ -1153,6 +1156,43 @@ class LocalAgentRuntime:
             bind_store = getattr(tool, "bind_store", None)
             if callable(bind_store):
                 bind_store(self.subagent_store)
+
+    def _iter_exec_session_managers(
+        self,
+        session_id: str,
+    ) -> list[Any]:
+        managers: list[Any] = []
+        seen: set[int] = set()
+        chatbots = [self._session_chatbots.get(session_id), self.chatbot]
+        for chatbot in chatbots:
+            if chatbot is None:
+                continue
+            tools = getattr(chatbot, "tools", None)
+            if tools is None or not hasattr(tools, "get"):
+                continue
+            for tool_name in ("exec", "write_stdin", "list_exec_sessions"):
+                tool = tools.get(tool_name)
+                manager = getattr(tool, "session_manager", None)
+                if manager is None:
+                    continue
+                marker = id(manager)
+                if marker in seen:
+                    continue
+                seen.add(marker)
+                managers.append(manager)
+        return managers
+
+    def _terminate_exec_sessions_for_session(self, session_id: str) -> None:
+        for manager in self._iter_exec_session_managers(session_id):
+            terminate_sync = getattr(manager, "terminate_owner_sessions_sync", None)
+            if callable(terminate_sync):
+                terminate_sync(session_id)
+
+    async def _terminate_exec_sessions_for_session_async(self, session_id: str) -> None:
+        for manager in self._iter_exec_session_managers(session_id):
+            terminate = getattr(manager, "terminate_owner_sessions", None)
+            if callable(terminate):
+                await terminate(session_id)
 
     def _get_session_lock(self, session_id: str) -> asyncio.Lock:
         lock = self._session_locks.get(session_id)

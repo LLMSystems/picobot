@@ -762,16 +762,23 @@ def build_default_tool_registry(
     session_id: str | None = None,
 ) -> ToolRegistry:
     """Create a default tool registry for the requested execution profile."""
+    from simplified_chatbot.tools.apply_patch import ApplyPatchTool
     from simplified_chatbot.tools.document_readers import (
         ReadDocxTool,
         ReadPdfTool,
         ReadXlsxTool,
     )
-    from simplified_chatbot.tools.search import GlobTool, GrepTool
+    from simplified_chatbot.tools.exec_session import (
+        ExecSessionManager,
+        ListExecSessionsTool,
+        WriteStdinTool,
+    )
+    from simplified_chatbot.tools.search import FindFilesTool, GlobTool, GrepTool
     from simplified_chatbot.tools.shell import ExecTool
     from simplified_chatbot.tools.skills import ReadSkillTool
     from simplified_chatbot.tools.spawn import SpawnTool
     from simplified_chatbot.tools.subagents import (
+        CancelSubagentTool,
         ListSubagentsTool,
         SubagentStatusTool,
         SubagentWaitTool,
@@ -787,7 +794,27 @@ def build_default_tool_registry(
         raise ValueError(f"Unsupported tool registry profile: {profile}")
 
     def register_shared_tools() -> None:
-        registry.register(ExecTool(workspace=ws, allowed_dir=allowed))
+        exec_session_manager = ExecSessionManager()
+        registry.register(
+            ExecTool(
+                workspace=ws,
+                allowed_dir=allowed,
+                session_manager=exec_session_manager,
+                owner_session_id=session_id,
+            ),
+        )
+        registry.register(
+            WriteStdinTool(
+                manager=exec_session_manager,
+                owner_session_id=session_id,
+            ),
+        )
+        registry.register(
+            ListExecSessionsTool(
+                manager=exec_session_manager,
+                owner_session_id=session_id,
+            ),
+        )
         registry.register(
             ReadSkillTool(
                 skills_dir=skills_dir,
@@ -801,7 +828,9 @@ def build_default_tool_registry(
         registry.register(ReadXlsxTool(workspace=ws, allowed_dir=allowed))
         registry.register(WriteFileTool(workspace=ws, allowed_dir=allowed, file_states=file_states))
         registry.register(EditFileTool(workspace=ws, allowed_dir=allowed, file_states=file_states))
+        registry.register(ApplyPatchTool(workspace=ws, allowed_dir=allowed, file_states=file_states))
         registry.register(ListDirTool(workspace=ws, allowed_dir=allowed))
+        registry.register(FindFilesTool(workspace=ws, allowed_dir=allowed))
         registry.register(GlobTool(workspace=ws, allowed_dir=allowed))
         registry.register(GrepTool(workspace=ws, allowed_dir=allowed))
 
@@ -831,6 +860,13 @@ def build_default_tool_registry(
             )
             registry.register(
                 SubagentWaitTool(
+                    subagent_manager,
+                    session_id=session_id,
+                    store=subagent_store,
+                ),
+            )
+            registry.register(
+                CancelSubagentTool(
                     subagent_manager,
                     session_id=session_id,
                     store=subagent_store,

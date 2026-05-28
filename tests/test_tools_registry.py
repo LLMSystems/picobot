@@ -31,20 +31,26 @@ def test_default_tool_registry_includes_wave_1a_tools(tmp_path):
     registry = build_default_tool_registry(workspace=tmp_path)
 
     assert "exec" in registry.tool_names
+    assert "write_stdin" in registry.tool_names
+    assert "list_exec_sessions" in registry.tool_names
     assert "tavily_search" in registry.tool_names
     assert "read_skill" in registry.tool_names
     assert "read_pdf" in registry.tool_names
     assert "read_docx" in registry.tool_names
     assert "read_xlsx" in registry.tool_names
     assert "write_file" in registry.tool_names
+    assert "apply_patch" in registry.tool_names
 
 
 def test_subagent_tool_registry_profile_is_supported(tmp_path):
     registry = build_default_tool_registry(workspace=tmp_path, profile="subagent")
 
     assert "exec" in registry.tool_names
+    assert "write_stdin" in registry.tool_names
+    assert "list_exec_sessions" in registry.tool_names
     assert "read_file" in registry.tool_names
     assert "grep" in registry.tool_names
+    assert "apply_patch" in registry.tool_names
 
 
 def test_main_and_subagent_profiles_are_built_independently(tmp_path):
@@ -74,10 +80,12 @@ def test_spawn_tool_registers_only_for_main_profile_when_manager_is_provided(tmp
     assert "list_subagents" in main_registry.tool_names
     assert "subagent_status" in main_registry.tool_names
     assert "subagent_wait" in main_registry.tool_names
+    assert "cancel_subagent" in main_registry.tool_names
     assert "spawn" not in subagent_registry.tool_names
     assert "list_subagents" not in subagent_registry.tool_names
     assert "subagent_status" not in subagent_registry.tool_names
     assert "subagent_wait" not in subagent_registry.tool_names
+    assert "cancel_subagent" not in subagent_registry.tool_names
     assert main_registry.get("spawn")._workspace == tmp_path.resolve()
     assert main_registry.get("spawn")._parent_session_id == "session_abc"
 

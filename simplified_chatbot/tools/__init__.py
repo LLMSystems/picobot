@@ -1,6 +1,7 @@
 """Tool abstractions and helper factories."""
 
 from simplified_chatbot.tools.base import Tool, tool_parameters
+from simplified_chatbot.tools.apply_patch import ApplyPatchTool
 from simplified_chatbot.tools.document_readers import (
     ReadDocxTool,
     ReadPdfTool,
@@ -15,12 +16,17 @@ from simplified_chatbot.tools.filesystem import (
     WriteFileTool,
     build_default_tool_registry,
 )
-from simplified_chatbot.tools.search import GlobTool, GrepTool
+from simplified_chatbot.tools.exec_session import (
+    ListExecSessionsTool,
+    WriteStdinTool,
+)
+from simplified_chatbot.tools.search import FindFilesTool, GlobTool, GrepTool
 from simplified_chatbot.tools.registry import ToolRegistry
 from simplified_chatbot.tools.shell import ExecTool
 from simplified_chatbot.tools.skills import ReadSkillTool
 from simplified_chatbot.tools.spawn import SpawnTool
 from simplified_chatbot.tools.subagents import (
+    CancelSubagentTool,
     ListSubagentsTool,
     SubagentStatusTool,
     SubagentWaitTool,
@@ -29,13 +35,17 @@ from simplified_chatbot.tools.tavily import TavilySearchTool
 
 __all__ = [
     "build_default_tool_registry",
+    "ApplyPatchTool",
     "EditFileTool",
     "ExecTool",
     "FileStates",
+    "FindFilesTool",
     "GlobTool",
     "GrepTool",
     "ListDirTool",
+    "ListExecSessionsTool",
     "ListSubagentsTool",
+    "CancelSubagentTool",
     "ReadDocxTool",
     "Tool",
     "ToolRegistry",
@@ -49,5 +59,6 @@ __all__ = [
     "SubagentWaitTool",
     "TavilySearchTool",
     "WriteFileTool",
+    "WriteStdinTool",
     "tool_parameters",
 ]

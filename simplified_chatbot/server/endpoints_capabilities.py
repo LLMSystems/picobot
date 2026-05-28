@@ -34,13 +34,18 @@ _TOOL_ZH: dict[str, tuple[str, str]] = {
     "list_dir": ("列出資料夾", "列出資料夾內的檔案"),
     "glob": ("搜尋路徑", "用萬用字元搜尋檔案路徑"),
     "grep": ("搜尋內容", "在檔案內容中搜尋關鍵字"),
+    "find_files": ("尋找檔案", "尋找工作區內的相關檔案"),
+    "apply_patch": ("套用補丁", "根據 unified diff 格式的補丁修改檔案"),
     # shell
     "exec": ("執行指令", "在工作區內執行 shell 指令"),
+    "write_stdin": ("寫入標準輸入", "用於與已啟動且持續執行的 exec 命令互動"),
+    "list_exec_sessions": ("列出指令執行", "列出目前正在執行的 exec 命令"),
     # subagents
     "spawn": ("派發子代理", "建立並執行一個子代理任務"),
     "list_subagents": ("列出子代理", "查看目前的子代理列表"),
     "subagent_status": ("子代理狀態", "查詢單一子代理的執行狀態"),
     "subagent_wait": ("等待子代理", "等待子代理完成並取得結果"),
+    "cancel_subagent": ("取消子代理", "取消正在執行的子代理"),
     # search / web
     "tavily_search": ("Tavily 搜尋", "用 Tavily 搜尋網路資訊"),
     # skills / docs

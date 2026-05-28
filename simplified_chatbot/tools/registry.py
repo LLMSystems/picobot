@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 from typing import Any
 
 from simplified_chatbot.tools.base import Tool
@@ -137,7 +138,44 @@ def _run_tool(awaitable: Any) -> Any:
     try:
         asyncio.get_running_loop()
     except RuntimeError:
-        return asyncio.run(awaitable)
+        return _DEFAULT_ASYNC_TOOL_RUNNER.run(awaitable)
     raise RuntimeError(
         "Cannot execute async tools from a running event loop in the current sync runtime",
     )
+
+
+class _AsyncToolRunner:
+    def __init__(self) -> None:
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._thread: threading.Thread | None = None
+        self._ready = threading.Event()
+        self._lock = threading.Lock()
+
+    def run(self, coro: Any) -> Any:
+        loop = self._ensure_loop()
+        future = asyncio.run_coroutine_threadsafe(coro, loop)
+        return future.result()
+
+    def _ensure_loop(self) -> asyncio.AbstractEventLoop:
+        with self._lock:
+            if self._loop is not None:
+                return self._loop
+            self._thread = threading.Thread(
+                target=self._thread_main,
+                name="simplified-chatbot-async-tools",
+                daemon=True,
+            )
+            self._thread.start()
+        self._ready.wait()
+        assert self._loop is not None
+        return self._loop
+
+    def _thread_main(self) -> None:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        self._loop = loop
+        self._ready.set()
+        loop.run_forever()
+
+
+_DEFAULT_ASYNC_TOOL_RUNNER = _AsyncToolRunner()

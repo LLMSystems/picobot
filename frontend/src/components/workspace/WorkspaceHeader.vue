@@ -91,7 +91,7 @@ const showAddMenu = showUpload || showNew
     class="flex h-12 shrink-0 items-center gap-2 border-b bg-background px-3"
   >
     <div
-      class="flex items-center gap-0.5 rounded-md border bg-muted/40 p-0.5"
+      class="flex shrink-0 items-center gap-0.5 rounded-md border bg-muted/40 p-0.5"
       role="tablist"
     >
       <button
