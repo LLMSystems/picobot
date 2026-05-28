@@ -93,6 +93,7 @@ def test_system_prompt_mentions_read_skill_tool_rules():
     assert "`list_subagents(phase, limit, include_completed)`" in prompt
     assert "`subagent_status(task_id, include_result, tail_tool_events)`" in prompt
     assert "`subagent_wait(task_id, timeout_seconds)`" in prompt
+    assert "`cancel_subagent(task_id)`" in prompt
     assert "background subagent" in prompt
     assert "`.subagents/<task_id>/`" in prompt
     assert "Do not try to force binary office/document formats through `read_file`." in prompt
@@ -106,6 +107,7 @@ def test_system_prompt_includes_subagent_delegation_policy():
 
     assert "## Subagent Delegation Policy" in prompt
     assert "remember the returned `task_id`" in prompt
+    assert "Use `cancel_subagent(task_id)` when a background task is no longer useful" in prompt
     assert "Do not tell the user that a subagent completed the task unless you have actually checked its result." in prompt
     assert "If `subagent_wait(...)` returns `completed=false`, treat that as still in progress rather than failure." in prompt
 

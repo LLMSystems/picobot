@@ -9,6 +9,7 @@ import pytest
 from simplified_chatbot.agent.subagent import SubagentManager, SubagentSpec
 from simplified_chatbot.runtime.session_store import AioSQLiteSubagentStore
 from simplified_chatbot.tools.subagents import (
+    CancelSubagentTool,
     ListSubagentsTool,
     SubagentStatusTool,
     SubagentWaitTool,
@@ -224,3 +225,163 @@ async def test_status_tool_rejects_persisted_task_from_other_session(tmp_path: P
     payload = await tool.execute(task_id="sub_hidden")
 
     assert payload["error"] == "Unknown subagent task_id: sub_hidden"
+
+
+@pytest.mark.asyncio
+async def test_cancel_subagent_tool_cancels_running_task(tmp_path: Path):
+    manager = SubagentManager(
+        lambda _workspace, _model: _FakeChatbot(delay=0.2),
+    )
+    task_id = await manager.spawn(
+        SubagentSpec(
+            task="cancel me",
+            parent_session_id="session_a",
+        ),
+        parent_workspace=tmp_path,
+    )
+    tool = CancelSubagentTool(
+        manager,
+        session_id="session_a",
+    )
+
+    payload = await tool.execute(task_id=task_id)
+    result = await manager.wait(task_id)
+
+    assert payload == {
+        "found": True,
+        "cancelled": True,
+        "task_id": task_id,
+        "phase": "cancelled",
+    }
+    assert result.stop_reason == "cancelled"
+    assert result.ok is False
+
+
+@pytest.mark.asyncio
+async def test_cancel_subagent_tool_returns_terminal_phase_for_completed_task(tmp_path: Path):
+    manager = SubagentManager(lambda _workspace, _model: _FakeChatbot())
+    task_id = await manager.spawn(
+        SubagentSpec(
+            task="finish first",
+            parent_session_id="session_a",
+        ),
+        parent_workspace=tmp_path,
+    )
+    await manager.wait(task_id)
+    tool = CancelSubagentTool(
+        manager,
+        session_id="session_a",
+    )
+
+    payload = await tool.execute(task_id=task_id)
+
+    assert payload == {
+        "found": True,
+        "cancelled": False,
+        "task_id": task_id,
+        "phase": "done",
+    }
+
+
+@pytest.mark.asyncio
+async def test_cancel_subagent_tool_rejects_task_from_other_session(tmp_path: Path):
+    manager = SubagentManager(
+        lambda _workspace, _model: _FakeChatbot(delay=0.2),
+    )
+    task_id = await manager.spawn(
+        SubagentSpec(
+            task="hidden task",
+            parent_session_id="session_b",
+        ),
+        parent_workspace=tmp_path,
+    )
+    tool = CancelSubagentTool(
+        manager,
+        session_id="session_a",
+    )
+
+    payload = await tool.execute(task_id=task_id)
+
+    assert payload == {
+        "found": False,
+        "cancelled": False,
+        "task_id": task_id,
+    }
+    await manager.cancel(task_id)
+
+
+@pytest.mark.asyncio
+async def test_cancel_subagent_tool_falls_back_to_persisted_terminal_task(tmp_path: Path):
+    pytest.importorskip("aiosqlite")
+    store = AioSQLiteSubagentStore(tmp_path / "subagents.db")
+    await store.upsert_run(
+        {
+            "task_id": "sub_persisted_cancelled",
+            "parent_session_id": "session_a",
+            "label": "persisted task",
+            "task": "Persisted task",
+            "workspace": None,
+            "phase": "cancelled",
+            "started_at": "2026-05-27T12:00:00Z",
+            "finished_at": "2026-05-27T12:00:01Z",
+            "stop_reason": "cancelled",
+            "ok": False,
+            "error": None,
+            "usage": {},
+            "tool_events": [],
+            "final_content": "Cancelled",
+        },
+    )
+
+    tool = CancelSubagentTool(
+        SubagentManager(lambda _workspace, _model: _FakeChatbot()),
+        session_id="session_a",
+        store=store,
+    )
+
+    payload = await tool.execute(task_id="sub_persisted_cancelled")
+
+    assert payload == {
+        "found": True,
+        "cancelled": False,
+        "task_id": "sub_persisted_cancelled",
+        "phase": "cancelled",
+    }
+
+
+@pytest.mark.asyncio
+async def test_cancel_subagent_tool_rejects_persisted_task_from_other_session(tmp_path: Path):
+    pytest.importorskip("aiosqlite")
+    store = AioSQLiteSubagentStore(tmp_path / "subagents.db")
+    await store.upsert_run(
+        {
+            "task_id": "sub_hidden_persisted",
+            "parent_session_id": "session_b",
+            "label": "hidden persisted task",
+            "task": "Hidden persisted task",
+            "workspace": None,
+            "phase": "done",
+            "started_at": "2026-05-27T12:00:00Z",
+            "finished_at": "2026-05-27T12:00:01Z",
+            "stop_reason": "completed",
+            "ok": True,
+            "error": None,
+            "usage": {},
+            "tool_events": [],
+            "final_content": "hidden",
+        },
+    )
+
+    tool = CancelSubagentTool(
+        SubagentManager(lambda _workspace, _model: _FakeChatbot()),
+        session_id="session_a",
+        store=store,
+    )
+
+    payload = await tool.execute(task_id="sub_hidden_persisted")
+
+    assert payload == {
+        "found": False,
+        "cancelled": False,
+        "task_id": "sub_hidden_persisted",
+    }

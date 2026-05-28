@@ -772,6 +772,7 @@ def build_default_tool_registry(
     from simplified_chatbot.tools.skills import ReadSkillTool
     from simplified_chatbot.tools.spawn import SpawnTool
     from simplified_chatbot.tools.subagents import (
+        CancelSubagentTool,
         ListSubagentsTool,
         SubagentStatusTool,
         SubagentWaitTool,
@@ -831,6 +832,13 @@ def build_default_tool_registry(
             )
             registry.register(
                 SubagentWaitTool(
+                    subagent_manager,
+                    session_id=session_id,
+                    store=subagent_store,
+                ),
+            )
+            registry.register(
+                CancelSubagentTool(
                     subagent_manager,
                     session_id=session_id,
                     store=subagent_store,

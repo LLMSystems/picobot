@@ -74,10 +74,12 @@ def test_spawn_tool_registers_only_for_main_profile_when_manager_is_provided(tmp
     assert "list_subagents" in main_registry.tool_names
     assert "subagent_status" in main_registry.tool_names
     assert "subagent_wait" in main_registry.tool_names
+    assert "cancel_subagent" in main_registry.tool_names
     assert "spawn" not in subagent_registry.tool_names
     assert "list_subagents" not in subagent_registry.tool_names
     assert "subagent_status" not in subagent_registry.tool_names
     assert "subagent_wait" not in subagent_registry.tool_names
+    assert "cancel_subagent" not in subagent_registry.tool_names
     assert main_registry.get("spawn")._workspace == tmp_path.resolve()
     assert main_registry.get("spawn")._parent_session_id == "session_abc"
 

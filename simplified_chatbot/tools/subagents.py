@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from simplified_chatbot.runtime.session_store import AioSQLiteSubagentStore
 
 _PHASES = ["initializing", "running", "done", "error", "cancelled"]
+_ACTIVE_PHASES = {"initializing", "running"}
 
 
 def _serialize_status(
@@ -353,4 +354,98 @@ class SubagentWaitTool(Tool):
         return {
             "completed": False,
             "status": _serialize_persisted_status(persisted, tail_tool_events=5),
+        }
+
+
+@tool_parameters(
+    {
+        "type": "object",
+        "properties": {
+            "task_id": {
+                "type": "string",
+                "description": "The subagent task id to cancel.",
+                "minLength": 1,
+            },
+        },
+        "required": ["task_id"],
+    },
+)
+class CancelSubagentTool(Tool):
+    """Cancel one subagent in the current session."""
+
+    def __init__(
+        self,
+        manager: SubagentManager,
+        *,
+        session_id: str | None = None,
+        store: AioSQLiteSubagentStore | None = None,
+    ) -> None:
+        self._manager = manager
+        self._session_id = session_id
+        self._store = store
+
+    def bind_store(self, store: AioSQLiteSubagentStore | None) -> None:
+        self._store = store
+
+    @property
+    def name(self) -> str:
+        return "cancel_subagent"
+
+    @property
+    def description(self) -> str:
+        return (
+            "Cancel one running subagent in the current session. "
+            "Use this when background work is no longer needed or the user changes direction."
+        )
+
+    async def execute(
+        self,
+        task_id: str,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        status = self._manager.get_status(task_id)
+        if status is None:
+            if self._store is None:
+                return {
+                    "found": False,
+                    "cancelled": False,
+                    "task_id": task_id,
+                }
+            persisted = await self._store.get_run(task_id)
+            if persisted is None or (
+                self._session_id is not None
+                and persisted.get("parent_session_id") != self._session_id
+            ):
+                return {
+                    "found": False,
+                    "cancelled": False,
+                    "task_id": task_id,
+                }
+            return {
+                "found": True,
+                "cancelled": False,
+                "task_id": task_id,
+                "phase": persisted.get("phase"),
+            }
+        if self._session_id is not None and status.parent_session_id != self._session_id:
+            return {
+                "found": False,
+                "cancelled": False,
+                "task_id": task_id,
+            }
+        if status.phase not in _ACTIVE_PHASES:
+            return {
+                "found": True,
+                "cancelled": False,
+                "task_id": task_id,
+                "phase": status.phase,
+            }
+
+        cancelled = await self._manager.cancel(task_id)
+        updated = self._manager.get_status(task_id) or status
+        return {
+            "found": True,
+            "cancelled": cancelled,
+            "task_id": task_id,
+            "phase": updated.phase,
         }

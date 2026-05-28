@@ -21,6 +21,7 @@ from simplified_chatbot.tools.shell import ExecTool
 from simplified_chatbot.tools.skills import ReadSkillTool
 from simplified_chatbot.tools.spawn import SpawnTool
 from simplified_chatbot.tools.subagents import (
+    CancelSubagentTool,
     ListSubagentsTool,
     SubagentStatusTool,
     SubagentWaitTool,
@@ -36,6 +37,7 @@ __all__ = [
     "GrepTool",
     "ListDirTool",
     "ListSubagentsTool",
+    "CancelSubagentTool",
     "ReadDocxTool",
     "Tool",
     "ToolRegistry",
