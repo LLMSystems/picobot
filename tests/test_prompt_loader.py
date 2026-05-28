@@ -85,6 +85,9 @@ def test_system_prompt_mentions_read_skill_tool_rules():
     prompt = load_system_prompt(config)
 
     assert "`read_skill(name)`" in prompt
+    assert "`exec(command, working_dir, timeout, yield_time_ms, max_output_chars)`" in prompt
+    assert "`write_stdin(session_id, chars, close_stdin, terminate, yield_time_ms, max_output_chars)`" in prompt
+    assert "`list_exec_sessions()`" in prompt
     assert "`read_pdf(path, pages)`" in prompt
     assert "`read_docx(path)`" in prompt
     assert "`read_xlsx(path, sheet, range)`" in prompt
@@ -97,6 +100,8 @@ def test_system_prompt_mentions_read_skill_tool_rules():
     assert "`cancel_subagent(task_id)`" in prompt
     assert "background subagent" in prompt
     assert "`.subagents/<task_id>/`" in prompt
+    assert "Use `exec(...)` without `yield_time_ms` for ordinary one-shot commands." in prompt
+    assert "Use `write_stdin(...)` to continue, poll, close stdin, or terminate an existing exec session." in prompt
     assert "Do not try to force binary office/document formats through `read_file`." in prompt
     assert "Do not use `read_file` to access `SKILL.md` files" in prompt
 
@@ -111,6 +116,17 @@ def test_system_prompt_includes_subagent_delegation_policy():
     assert "Use `cancel_subagent(task_id)` when a background task is no longer useful" in prompt
     assert "Do not tell the user that a subagent completed the task unless you have actually checked its result." in prompt
     assert "If `subagent_wait(...)` returns `completed=false`, treat that as still in progress rather than failure." in prompt
+
+
+def test_system_prompt_includes_exec_session_guidance():
+    config = ChatbotConfig(model="gpt-4.1-mini")
+
+    prompt = load_system_prompt(config)
+
+    assert "Use `yield_time_ms` only when you intentionally want session-mode behavior" in prompt
+    assert "If `exec(..., yield_time_ms=...)` returns a running `session_id`, continue with `write_stdin(...)`" in prompt
+    assert "Use `chars=\"\"` with `write_stdin(...)` when you only need to poll new output" in prompt
+    assert "Use `list_exec_sessions()` when you need to recover a session id" in prompt
 
 
 def test_subagent_system_prompt_includes_runtime_context_and_policy(tmp_path):
