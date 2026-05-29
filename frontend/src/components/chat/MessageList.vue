@@ -5,6 +5,7 @@ import { useAutoScroll } from '@/composables/useAutoScroll'
 import UserMessage from './UserMessage.vue'
 import AssistantMessage from './AssistantMessage.vue'
 import SubagentResultCard from './SubagentResultCard.vue'
+import TodoSummaryCard from './TodoSummaryCard.vue'
 import EmptyState from './EmptyState.vue'
 import ScrollToBottom from '@/components/common/ScrollToBottom.vue'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -37,7 +38,11 @@ function isToolOnlyAssistant(m: DisplayMessage): boolean {
 // Any card-style message: tool-only assistant or subagent_result card.
 // Adjacent compact cards should sit ~8px apart instead of the default 16px.
 function isCompactCard(m: DisplayMessage): boolean {
-  return m.role === 'subagent_result' || isToolOnlyAssistant(m)
+  return (
+    m.role === 'subagent_result' ||
+    m.role === 'todo_summary' ||
+    isToolOnlyAssistant(m)
+  )
 }
 
 // Tighten the gap between adjacent compact cards so that cross-message
@@ -119,6 +124,11 @@ watch(
             />
             <SubagentResultCard
               v-else-if="entry.message.role === 'subagent_result'"
+              :message="entry.message"
+              :class="entry.tighten ? '-mt-2' : ''"
+            />
+            <TodoSummaryCard
+              v-else-if="entry.message.role === 'todo_summary'"
               :message="entry.message"
               :class="entry.tighten ? '-mt-2' : ''"
             />

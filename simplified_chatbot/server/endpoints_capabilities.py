@@ -57,6 +57,8 @@ _TOOL_ZH: dict[str, tuple[str, str]] = {
     "echo": ("回音", "回傳輸入內容（測試用）"),
     "get_weather": ("查詢天氣", "查詢城市天氣（範例工具）"),
     "calculator": ("計算機", "計算數學表達式（範例工具）"),
+    # todo
+    "todo_write": ("待辦寫入", "將待辦事項寫入待辦清單"),
 }
 
 

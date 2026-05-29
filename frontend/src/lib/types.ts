@@ -175,6 +175,20 @@ export interface DisplayToolCall {
   status: 'running' | 'ok' | 'failed'
 }
 
+export type TodoStatus = 'pending' | 'in_progress' | 'completed'
+
+export interface TodoItem {
+  content: string
+  activeForm: string
+  status: TodoStatus
+}
+
+export interface TodoSnapshot {
+  todos: TodoItem[]
+  completed: number
+  total: number
+}
+
 export type DisplayMessageStatus = 'complete' | 'streaming' | 'aborted' | 'error'
 
 export type DisplayMessageSegment =
@@ -199,7 +213,7 @@ export interface SubagentResultPayload {
 
 export interface DisplayMessage {
   id: string
-  role: 'user' | 'assistant' | 'subagent_result'
+  role: 'user' | 'assistant' | 'subagent_result' | 'todo_summary'
   content: string
   created_at: string
   toolCalls: DisplayToolCall[]
@@ -209,6 +223,7 @@ export interface DisplayMessage {
   toolsUsed?: string[]
   images?: DisplayMessageImage[]
   subagent?: SubagentResultPayload
+  todoSnapshot?: TodoSnapshot
 }
 
 export type SubagentPhase =

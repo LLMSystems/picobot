@@ -784,6 +784,7 @@ def build_default_tool_registry(
         SubagentWaitTool,
     )
     from simplified_chatbot.tools.tavily import TavilySearchTool
+    from simplified_chatbot.tools.todo import TodoWriteTool
 
     ws = workspace.resolve() if workspace is not None else Path.cwd().resolve()
     allowed = ws if restrict_to_workspace else None
@@ -833,6 +834,7 @@ def build_default_tool_registry(
         registry.register(FindFilesTool(workspace=ws, allowed_dir=allowed))
         registry.register(GlobTool(workspace=ws, allowed_dir=allowed))
         registry.register(GrepTool(workspace=ws, allowed_dir=allowed))
+        registry.register(TodoWriteTool())
 
     if profile == "main":
         register_shared_tools()

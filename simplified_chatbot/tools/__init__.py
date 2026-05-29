@@ -32,6 +32,7 @@ from simplified_chatbot.tools.subagents import (
     SubagentWaitTool,
 )
 from simplified_chatbot.tools.tavily import TavilySearchTool
+from simplified_chatbot.tools.todo import TodoWriteTool
 
 __all__ = [
     "build_default_tool_registry",
@@ -58,6 +59,7 @@ __all__ = [
     "SubagentStatusTool",
     "SubagentWaitTool",
     "TavilySearchTool",
+    "TodoWriteTool",
     "WriteFileTool",
     "WriteStdinTool",
     "tool_parameters",
