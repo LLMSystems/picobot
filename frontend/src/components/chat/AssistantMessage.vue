@@ -64,8 +64,11 @@ async function copy() {
   <div class="group">
     <div class="flex min-w-0 flex-col gap-2">
       <template v-for="(seg, idx) in message.segments" :key="idx">
-        <ToolCallCard v-if="seg.type === 'tool'" :tool-call="seg.toolCall" />
-        <div v-else-if="seg.content" class="relative">
+        <ToolCallCard
+          v-if="seg.type === 'tool' && seg.toolCall.name !== 'todo_write'"
+          :tool-call="seg.toolCall"
+        />
+        <div v-else-if="seg.type === 'text' && seg.content" class="relative">
           <MarkdownView :content="seg.content" />
           <StreamingCursor
             v-if="isStreaming && idx === lastSegmentIndex"

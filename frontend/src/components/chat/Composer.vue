@@ -14,6 +14,7 @@ import { useComposerBus } from '@/composables/useComposerBus'
 import { useImageAttachments, ACCEPTED_FILE_EXTENSIONS } from '@/composables/useImageAttachments'
 import { useSelectedModel } from '@/composables/useSelectedModel'
 import ModelSelector from './ModelSelector.vue'
+import TodoChip from './TodoChip.vue'
 import { ApiError } from '@/lib/errors'
 import { api } from '@/lib/api'
 import { toast } from 'vue-sonner'
@@ -423,6 +424,9 @@ function formatFileSize(bytes: number): string {
 <template>
   <div class="bg-muted/30 pb-3 pt-3">
     <div class="mx-auto w-full max-w-3xl px-4">
+      <div class="mb-1.5 flex justify-end">
+        <TodoChip />
+      </div>
       <div
         class="relative rounded-2xl border bg-background px-4 py-3 shadow-md transition-shadow focus-within:border-brand/40 focus-within:shadow-lg focus-within:ring-2 focus-within:ring-brand/20"
         :class="
