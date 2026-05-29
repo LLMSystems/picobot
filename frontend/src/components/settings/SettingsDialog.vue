@@ -20,6 +20,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible'
+import SkillsSection from '@/components/settings/SkillsSection.vue'
 import { useSettingsStore } from '@/stores/settings'
 import { useCapabilitiesStore } from '@/stores/capabilities'
 import {
@@ -421,6 +422,9 @@ function toolDescLabel(tool: { name: string; description?: string }): string {
             </div>
           </div>
         </section>
+
+        <!-- Skills -->
+        <SkillsSection />
       </div>
 
       <div class="flex items-center justify-between border-t px-6 py-3">

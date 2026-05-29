@@ -150,7 +150,7 @@ def _resolve_active_skills(
     active: list[str] = []
     seen: set[str] = set()
     for name in [*loader.get_always_skills(), *config.enabled_skills]:
-        if name in seen or name in config.disabled_skills:
+        if name in seen or name in loader.disabled_skills:
             continue
         if loader.load_skill(name) is None:
             continue

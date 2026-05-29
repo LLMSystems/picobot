@@ -1,0 +1,10 @@
+{
+  "disabled": [
+    "canvas-design",
+    "docx",
+    "frontend-design",
+    "pdf",
+    "pptx",
+    "xlsx"
+  ]
+}

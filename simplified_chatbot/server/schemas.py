@@ -352,6 +352,50 @@ class WorkspaceDeleteDirectoryResponse(BaseModel):
     deleted: bool = True
 
 
+class SkillInfo(BaseModel):
+    """One skill entry in the global skill library."""
+
+    name: str
+    source: str  # "builtin" | "custom"
+    description: str = ""
+    always: bool = False
+    disabled: bool = False
+
+
+class SkillListResponse(BaseModel):
+    """Response body for listing all skills."""
+
+    skills: list[SkillInfo]
+
+
+class SkillUploadFile(BaseModel):
+    """One optional supplementary file shipped with a custom skill."""
+
+    path: str = Field(min_length=1)
+    content_base64: str
+
+
+class SkillCreateRequest(BaseModel):
+    """Request body for creating or overwriting a custom skill."""
+
+    name: str = Field(min_length=1)
+    content: str = Field(min_length=1)
+    files: list[SkillUploadFile] = Field(default_factory=list)
+
+
+class SkillMutationResponse(BaseModel):
+    """Response body for create / delete / toggle operations."""
+
+    name: str
+    ok: bool = True
+
+
+class SkillDisableRequest(BaseModel):
+    """Request body for enabling / disabling a skill."""
+
+    disabled: bool
+
+
 class HealthResponse(BaseModel):
     """Simple health check payload."""
 

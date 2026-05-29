@@ -75,7 +75,7 @@ class ChatbotConfig(BaseModel):
         validation_alias=AliasChoices("disabled_skills", "disabledSkills"),
     )
     skills_dir: str | None = Field(
-        default=None,
+        default="custom_skills",
         validation_alias=AliasChoices("skills_dir", "skillsDir"),
     )
     workspace_root_dir: str | None = Field(

@@ -20,6 +20,7 @@ export default defineConfig({
       '/chat': { target: BACKEND, changeOrigin: true },
       '/sessions': { target: BACKEND, changeOrigin: true },
       '/capabilities': { target: BACKEND, changeOrigin: true },
+      '/skills': { target: BACKEND, changeOrigin: true },
       '/health': { target: BACKEND, changeOrigin: true },
       '/ws': { target: BACKEND, changeOrigin: true, ws: true },
     },
