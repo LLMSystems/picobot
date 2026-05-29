@@ -17,6 +17,7 @@ import uuid
 from simplified_chatbot.agent.types import Message, MessageContent, RunResult
 from simplified_chatbot.chatbot import SimplifiedChatbot
 from simplified_chatbot.config.loader import load_config
+from simplified_chatbot.skills.loader import SkillsLoader
 from simplified_chatbot.runtime.session_store import (
     AioSQLiteSubagentEventStore,
     AioSQLiteSessionStore,
@@ -48,6 +49,7 @@ class LocalAgentRuntime:
         max_upload_file_bytes: int = _DEFAULT_MAX_UPLOAD_FILE_BYTES,
         max_upload_files_per_request: int = _DEFAULT_MAX_UPLOAD_FILES_PER_REQUEST,
         chrome_debugging_port: int | None = None,
+        skills_loader: SkillsLoader | None = None,
     ) -> None:
         self.chatbot = chatbot
         self.store = store or InMemorySessionStore()
@@ -56,7 +58,7 @@ class LocalAgentRuntime:
             subagent_event_store or _build_default_subagent_event_store(self.store)
         )
         self.workspace_manager = (
-            SessionWorkspaceManager(workspace_root_dir)
+            SessionWorkspaceManager(workspace_root_dir, skills_loader=skills_loader)
             if workspace_root_dir is not None
             else None
         )
@@ -109,6 +111,11 @@ class LocalAgentRuntime:
             if isinstance(browser_config, dict)
             else None
         )
+        resolved_skills_dir = _resolve_skills_dir(loaded_config, config_file=config_file)
+        skills_loader = SkillsLoader(
+            skills_dir=resolved_skills_dir,
+            disabled_skills=set(loaded_config.disabled_skills) if loaded_config is not None else set(),
+        )
         return cls(
             chatbot=bot,
             store=store,
@@ -126,6 +133,7 @@ class LocalAgentRuntime:
                 else cls._DEFAULT_MAX_UPLOAD_FILES_PER_REQUEST
             ),
             chrome_debugging_port=chrome_port,
+            skills_loader=skills_loader,
         )
 
     def handle_message(
@@ -1989,6 +1997,19 @@ def _validate_upload_filename(name: str) -> None:
         raise WorkspaceFilenameInvalidError(
             "filename must not contain '/', '\\', or null bytes",
         )
+
+
+def _resolve_skills_dir(
+    config: Any,
+    *,
+    config_file: Path | None,
+) -> Path | None:
+    if config is None or not config.skills_dir:
+        return None
+    candidate = Path(config.skills_dir).expanduser()
+    if not candidate.is_absolute() and config_file is not None:
+        candidate = config_file.parent / candidate
+    return candidate.resolve()
 
 
 def _atomic_write_bytes(target: Path, content: bytes) -> None:

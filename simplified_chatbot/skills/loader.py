@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 from pathlib import Path
 
 BUILTIN_SKILLS_DIR = Path(__file__).resolve().parent / "builtins"
@@ -57,16 +58,28 @@ class SkillsLoader:
                 return path.read_text(encoding="utf-8")
         return None
 
-    def load_skills_for_context(self, skill_names: list[str]) -> str:
+    def load_skills_for_context(
+        self,
+        skill_names: list[str],
+        workspace: Path | None = None,
+    ) -> str:
         """Load selected skills for direct prompt injection."""
-        parts = [
-            f"### Skill: {name}\n\n{self._strip_frontmatter(markdown)}"
-            for name in skill_names
-            if (markdown := self.load_skill(name))
-        ]
+        parts: list[str] = []
+        for name in skill_names:
+            markdown = self.load_skill(name)
+            if markdown is None:
+                continue
+            header = f"### Skill: {name}"
+            if workspace is not None:
+                header += f"\nSkill directory: {workspace / '.skills' / name}"
+            parts.append(f"{header}\n\n{self._strip_frontmatter(markdown)}")
         return "\n\n---\n\n".join(parts)
 
-    def build_skills_summary(self, exclude: set[str] | None = None) -> str:
+    def build_skills_summary(
+        self,
+        exclude: set[str] | None = None,
+        workspace: Path | None = None,
+    ) -> str:
         """Build a summary of visible but not directly loaded skills."""
         lines: list[str] = []
         for entry in self.list_skills():
@@ -75,8 +88,26 @@ class SkillsLoader:
                 continue
             metadata = self.get_skill_metadata(name) or {}
             description = str(metadata.get("description") or name)
-            lines.append(f"- **{name}** - {description}")
+            if workspace is not None:
+                lines.append(
+                    f"- **{name}** - {description}"
+                    f" (dir: `{workspace / '.skills' / name}`)"
+                )
+            else:
+                lines.append(f"- **{name}** - {description}")
         return "\n".join(lines)
+
+    def copy_to_workspace(self, workspace: Path) -> None:
+        """Copy all skill directories into workspace/.skills/."""
+        dest = workspace / ".skills"
+        if dest.exists():
+            return
+        dest.mkdir(parents=True, exist_ok=True)
+        for entry in self.list_skills():
+            src_dir = Path(entry["path"]).parent
+            dst_dir = dest / entry["name"]
+            if not dst_dir.exists():
+                shutil.copytree(src_dir, dst_dir)
 
     def get_skill_metadata(self, name: str) -> dict[str, object] | None:
         """Get parsed frontmatter metadata from a skill."""

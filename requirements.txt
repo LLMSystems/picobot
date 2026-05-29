@@ -8,3 +8,5 @@ pypdf
 openpyxl
 python-docx
 websockets
+pytest-asyncio
+pytest

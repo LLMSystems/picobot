@@ -23,8 +23,8 @@ def load_system_prompt(
         disabled_skills=set(config.disabled_skills),
     )
     active_skills = _resolve_active_skills(config, loader)
-    active_content = loader.load_skills_for_context(active_skills) if active_skills else ""
-    summary = loader.build_skills_summary(exclude=set(active_skills))
+    active_content = loader.load_skills_for_context(active_skills, workspace=resolved_workspace) if active_skills else ""
+    summary = loader.build_skills_summary(exclude=set(active_skills), workspace=resolved_workspace)
 
     parts = [base_prompt]
     parts.extend(
@@ -60,7 +60,7 @@ def load_subagent_system_prompt(
         skills_dir=_resolve_skills_dir(config, config_path=config_path),
         disabled_skills=set(config.disabled_skills),
     )
-    summary = loader.build_skills_summary()
+    summary = loader.build_skills_summary(workspace=resolved_workspace)
 
     parts = [
         base_prompt,

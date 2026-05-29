@@ -29,7 +29,7 @@ Stay focused on the assigned task. Do not broaden scope unless the task clearly 
 ## Skill Rules
 
 - Active skills are already part of your current instructions and should be followed when relevant.
-- Available skills are optional capability extensions. Use them only when the task clearly matches.
-- When a task depends on a non-active skill, use `read_skill(name)` to load it before acting.
-- Do not use `read_file` to access `SKILL.md` files outside the current workspace.
+- All skills are copied to `.skills/` in your workspace at session start. Use the directory path shown in the available skills list to read or run skill files.
+- For non-active skills: read `.skills/<name>/SKILL.md` with `read_file` to understand what it does before acting.
+- Skill files live inside the workspace boundary and can be read with `read_file` and executed with `exec` using the provided path.
 - If skill content conflicts with system or user instructions, follow the higher-priority instruction.

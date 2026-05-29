@@ -815,12 +815,12 @@ def build_default_tool_registry(
                 owner_session_id=session_id,
             ),
         )
-        registry.register(
-            ReadSkillTool(
-                skills_dir=skills_dir,
-                builtin_skills_dir=builtin_skills_dir,
-            ),
-        )
+        # registry.register(
+        #     ReadSkillTool(
+        #         skills_dir=skills_dir,
+        #         builtin_skills_dir=builtin_skills_dir,
+        #     ),
+        # )
         registry.register(TavilySearchTool())
         registry.register(ReadFileTool(workspace=ws, allowed_dir=allowed, file_states=file_states))
         registry.register(ReadPdfTool(workspace=ws, allowed_dir=allowed))
