@@ -115,7 +115,7 @@ async function submit() {
           <template v-for="opt in q.options" :key="opt.label">
             <span
               v-if="Array.isArray(completedAnswers[q.question])
-                ? completedAnswers[q.question].includes(opt.label)
+                ? (completedAnswers[q.question] as string[]).includes(opt.label)
                 : completedAnswers[q.question] === opt.label"
               class="inline-flex items-center rounded-md border border-primary/40 bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary"
             >
