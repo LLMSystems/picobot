@@ -279,12 +279,36 @@ class FindFilesTool(_SearchTool):
         "properties": {
             "pattern": {
                 "type": "string",
-                "description": "Glob pattern to match, e.g. '*.py' or 'tests/**/test_*.py'.",
+                "description": (
+                    "Optional glob pattern, e.g. '*.py' or 'tests/**/test_*.py'. "
+                    "Omit to list all entries under path and filter via query/type."
+                ),
                 "minLength": 1,
             },
             "path": {
                 "type": "string",
                 "description": "Directory to search from (default '.').",
+            },
+            "query": {
+                "type": "string",
+                "description": (
+                    "Optional case-insensitive path fragment filter. "
+                    "Whitespace-separated terms must all be present in the path."
+                ),
+            },
+            "type": {
+                "type": "string",
+                "description": "Optional file type shorthand, e.g. 'py', 'ts', 'md', 'json'.",
+            },
+            "entry_type": {
+                "type": "string",
+                "enum": ["files", "dirs", "both"],
+                "description": "Whether to match files, directories, or both (default files).",
+            },
+            "sort": {
+                "type": "string",
+                "enum": ["modified", "path"],
+                "description": "Sort by mtime (newest first) or path (default modified).",
             },
             "max_results": {
                 "type": "integer",
@@ -294,7 +318,7 @@ class FindFilesTool(_SearchTool):
             },
             "head_limit": {
                 "type": "integer",
-                "description": "Maximum number of matches to return (default 250).",
+                "description": "Maximum number of matches to return (default 250, 0 for all).",
                 "minimum": 0,
                 "maximum": 1000,
             },
@@ -304,17 +328,11 @@ class FindFilesTool(_SearchTool):
                 "minimum": 0,
                 "maximum": 100000,
             },
-            "entry_type": {
-                "type": "string",
-                "enum": ["files", "dirs", "both"],
-                "description": "Whether to match files, directories, or both (default files).",
-            },
         },
-        "required": ["pattern"],
     },
 )
 class GlobTool(_SearchTool):
-    """Find files matching a glob pattern."""
+    """Find paths by glob pattern, optionally filtered by name fragment or file type."""
 
     @property
     def name(self) -> str:
@@ -323,19 +341,24 @@ class GlobTool(_SearchTool):
     @property
     def description(self) -> str:
         return (
-            "Find files matching a glob pattern. "
-            "Results are sorted by modification time (newest first). "
+            "Find paths by glob pattern, optionally filtered by path fragment (query) "
+            "or file type shorthand (type). All filters combine with AND. "
+            "Pattern is optional — omit to list entries and rely on query/type. "
+            "Results default to modification-time order (newest first). "
             "Skips common noise directories."
         )
 
     async def execute(
         self,
-        pattern: str,
+        pattern: str | None = None,
         path: str = ".",
+        query: str | None = None,
+        type: str | None = None,
+        entry_type: str = "files",
+        sort: str = "modified",
         max_results: int | None = None,
         head_limit: int | None = None,
         offset: int = 0,
-        entry_type: str = "files",
         **kwargs: Any,
     ) -> str:
         try:
@@ -344,6 +367,10 @@ class GlobTool(_SearchTool):
                 return f"Error: Path not found: {path}"
             if not root.is_dir():
                 return f"Error: Not a directory: {path}"
+            if sort not in {"modified", "path"}:
+                return "Error: sort must be 'modified' or 'path'"
+            if entry_type not in {"files", "dirs", "both"}:
+                return "Error: entry_type must be 'files', 'dirs', or 'both'"
 
             if head_limit is not None:
                 limit = None if head_limit == 0 else head_limit
@@ -362,9 +389,15 @@ class GlobTool(_SearchTool):
                 include_dirs=include_dirs,
             ):
                 rel_path = entry.relative_to(root).as_posix()
-                if not _match_glob(rel_path, entry.name, pattern):
+                if pattern and not _match_glob(rel_path, entry.name, pattern):
+                    continue
+                if entry.is_file() and not _matches_type(entry.name, type):
+                    continue
+                if entry.is_dir() and type:
                     continue
                 display = self._display_path(entry, root)
+                if not _matches_query(display, query):
+                    continue
                 if entry.is_dir():
                     display += "/"
                 try:
@@ -374,9 +407,13 @@ class GlobTool(_SearchTool):
                 matches.append((display, mtime))
 
             if not matches:
-                return f"No paths matched pattern '{pattern}' in {path}"
+                filters = pattern or query or type or "(no filter)"
+                return f"No paths matched {filters} in {path}"
 
-            matches.sort(key=lambda item: (-item[1], item[0]))
+            if sort == "modified":
+                matches.sort(key=lambda item: (-item[1], item[0]))
+            else:
+                matches.sort(key=lambda item: item[0])
             ordered = [name for name, _ in matches]
             paged, truncated = _paginate(ordered, limit, offset)
             result = "\n".join(paged)

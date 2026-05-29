@@ -12,6 +12,8 @@ from simplified_chatbot.agent.types import ContentBlock, MessageContent
 from simplified_chatbot.runtime.local_runtime import ModelNotAllowedError
 from simplified_chatbot.server.common import error_response, get_request_id, get_runtime
 from simplified_chatbot.server.schemas import (
+    AskUserQuestionAnswerRequest,
+    AskUserQuestionAnswerResponse,
     ChatImageInput,
     ChatRequest,
     ChatResponse,
@@ -280,6 +282,28 @@ def _build_chat_stream_response(
             "Connection": "keep-alive",
         },
     )
+
+
+@router.post(
+    "/sessions/{session_id}/ask_user_question/answer",
+    response_model=AskUserQuestionAnswerResponse,
+)
+async def answer_ask_user_question(
+    request: Request,
+    session_id: str,
+    payload: AskUserQuestionAnswerRequest,
+) -> AskUserQuestionAnswerResponse:
+    """Submit user answers to a pending ask_user_question tool call."""
+    runtime = get_runtime(request)
+    ok = await runtime.answer_ask_user_question(session_id, dict(payload.answers))
+    if not ok:
+        return error_response(
+            request,
+            status_code=404,
+            code="NO_PENDING_QUESTION",
+            message=f"No pending question for session '{session_id}'",
+        )
+    return AskUserQuestionAnswerResponse(ok=True)
 
 
 async def _build_chat_content(

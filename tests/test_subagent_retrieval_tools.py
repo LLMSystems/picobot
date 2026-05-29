@@ -118,13 +118,100 @@ async def test_subagent_wait_tool_returns_status_on_timeout_and_result_when_done
 
     assert pending["completed"] is False
     assert pending["status"]["task_id"] == task_id
-    assert pending["status"]["phase"] == "running"
+    assert pending["status"]["phase"] in {"initializing", "running"}
 
     finished = await tool.execute(task_id=task_id, timeout_seconds=1.0)
 
     assert finished["completed"] is True
     assert finished["result"]["task_id"] == task_id
     assert finished["result"]["ok"] is True
+
+
+@pytest.mark.asyncio
+async def test_subagent_wait_default_returns_snapshot_without_blocking(tmp_path: Path):
+    manager = SubagentManager(
+        lambda _workspace, _model: _FakeChatbot(delay=0.2),
+    )
+    task_id = await manager.spawn(
+        SubagentSpec(task="slow"),
+        parent_workspace=tmp_path,
+    )
+
+    tool = SubagentWaitTool(manager)
+    snapshot = await tool.execute(task_id=task_id)
+
+    assert snapshot["completed"] is False
+    assert snapshot["status"]["phase"] in {"initializing", "running"}
+
+    await manager.wait(task_id)
+
+
+@pytest.mark.asyncio
+async def test_subagent_wait_timeout_zero_returns_result_when_done(tmp_path: Path):
+    """Regression: asyncio.wait_for(coro, 0) drops already-done coroutines
+    under Python 3.12; the tool must bypass wait_for in snapshot mode so
+    completed subagents still surface their result."""
+    manager = SubagentManager(
+        lambda _workspace, _model: _FakeChatbot(),
+    )
+    task_id = await manager.spawn(
+        SubagentSpec(task="fast"),
+        parent_workspace=tmp_path,
+    )
+    await manager.wait(task_id)
+
+    tool = SubagentWaitTool(manager)
+    payload = await tool.execute(task_id=task_id, timeout_seconds=0)
+
+    assert payload["completed"] is True
+    assert payload["result"]["task_id"] == task_id
+    assert payload["result"]["ok"] is True
+
+
+@pytest.mark.asyncio
+async def test_subagent_wait_include_result_false_omits_result(tmp_path: Path):
+    manager = SubagentManager(
+        lambda _workspace, _model: _FakeChatbot(),
+    )
+    task_id = await manager.spawn(
+        SubagentSpec(task="fast"),
+        parent_workspace=tmp_path,
+    )
+    await manager.wait(task_id)
+
+    tool = SubagentWaitTool(manager)
+    payload = await tool.execute(task_id=task_id, include_result=False)
+
+    assert payload == {"completed": True}
+
+
+@pytest.mark.asyncio
+async def test_subagent_wait_tail_tool_events_limits_status_events(tmp_path: Path):
+    manager = SubagentManager(
+        lambda _workspace, _model: _FakeChatbot(
+            delay=0.2,
+            event_script=[
+                ("tool_call_started", {"id": "tc1", "name": "glob", "arguments": {}}),
+                ("tool_call_finished", {"id": "tc1", "name": "glob", "ok": True, "result": []}),
+                ("tool_call_started", {"id": "tc2", "name": "read_file", "arguments": {}}),
+                ("tool_call_finished", {"id": "tc2", "name": "read_file", "ok": True, "result": ""}),
+            ],
+        ),
+    )
+    task_id = await manager.spawn(
+        SubagentSpec(task="emit events"),
+        parent_workspace=tmp_path,
+    )
+    # Give the fake chatbot a beat to flush events but stay running.
+    await asyncio.sleep(0.05)
+
+    tool = SubagentWaitTool(manager)
+    payload = await tool.execute(task_id=task_id, tail_tool_events=1)
+
+    assert payload["completed"] is False
+    assert len(payload["status"]["tool_events"]) == 1
+
+    await manager.wait(task_id)
 
 
 @pytest.mark.asyncio

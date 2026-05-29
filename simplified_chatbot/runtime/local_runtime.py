@@ -1190,7 +1190,7 @@ class LocalAgentRuntime:
         tools = getattr(chatbot, "tools", None)
         if tools is None or self.subagent_store is None:
             return
-        for tool_name in ("list_subagents", "subagent_status", "subagent_wait"):
+        for tool_name in ("list_subagents", "subagent_wait"):
             tool = tools.get(tool_name) if hasattr(tools, "get") else None
             bind_store = getattr(tool, "bind_store", None)
             if callable(bind_store):
@@ -1703,6 +1703,26 @@ class LocalAgentRuntime:
             "last_assistant_preview": _preview_text(last_assistant),
         }
         
+    async def answer_ask_user_question(
+        self,
+        session_id: str,
+        answers: dict[str, Any],
+    ) -> bool:
+        """Deliver user answers to a pending ask_user_question tool call.
+
+        Returns True if a pending question was found and resolved.
+        """
+        from simplified_chatbot.tools.ask_user_question import AskUserQuestionTool
+
+        chatbot = self._get_chatbot_for_session(session_id)
+        tools = getattr(chatbot, "tools", None)
+        if tools is None or not hasattr(tools, "get"):
+            return False
+        tool = tools.get("ask_user_question")
+        if not isinstance(tool, AskUserQuestionTool):
+            return False
+        return tool.answer(answers)
+
     def _bind_chrome_port(self, session_chatbot: Any) -> None:
         if self.chrome_debugging_port is None:
             return

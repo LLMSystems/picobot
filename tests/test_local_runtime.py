@@ -803,7 +803,6 @@ def test_local_runtime_binds_subagent_store_into_retrieval_tools(tmp_path: Path)
     assert runtime.chatbot.tools.get("list_subagents")._store is runtime.subagent_store
     session_chatbot = runtime._get_chatbot_for_session("session-tools")
     assert session_chatbot.tools.get("list_subagents")._store is runtime.subagent_store
-    assert session_chatbot.tools.get("subagent_status")._store is runtime.subagent_store
     assert session_chatbot.tools.get("subagent_wait")._store is runtime.subagent_store
 
 

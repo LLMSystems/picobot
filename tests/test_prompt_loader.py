@@ -93,11 +93,10 @@ def test_system_prompt_mentions_read_skill_tool_rules():
     assert "`read_xlsx(path, sheet, range)`" in prompt
     assert "`apply_patch(edits, dry_run)`" in prompt
     assert "`tavily_search(query, topic, search_depth, max_results" in prompt
-    assert "`find_files(path, query, glob, type, include_dirs, sort, head_limit, offset)`" in prompt
+    assert "`glob(pattern, path, query, type, entry_type, sort, head_limit, offset)`" in prompt
     assert "`spawn(task, label, temperature)`" in prompt
     assert "`list_subagents(phase, limit, include_completed)`" in prompt
-    assert "`subagent_status(task_id, include_result, tail_tool_events)`" in prompt
-    assert "`subagent_wait(task_id, timeout_seconds)`" in prompt
+    assert "`subagent_wait(task_id, timeout_seconds, include_result, tail_tool_events)`" in prompt
     assert "`cancel_subagent(task_id)`" in prompt
     assert "background subagent" in prompt
     assert "`.subagents/<task_id>/`" in prompt

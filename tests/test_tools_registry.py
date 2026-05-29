@@ -34,7 +34,6 @@ def test_default_tool_registry_includes_wave_1a_tools(tmp_path):
     assert "write_stdin" in registry.tool_names
     assert "list_exec_sessions" in registry.tool_names
     assert "tavily_search" in registry.tool_names
-    assert "read_skill" in registry.tool_names
     assert "read_pdf" in registry.tool_names
     assert "read_docx" in registry.tool_names
     assert "read_xlsx" in registry.tool_names
@@ -78,22 +77,12 @@ def test_spawn_tool_registers_only_for_main_profile_when_manager_is_provided(tmp
 
     assert "spawn" in main_registry.tool_names
     assert "list_subagents" in main_registry.tool_names
-    assert "subagent_status" in main_registry.tool_names
+    assert "subagent_status" not in main_registry.tool_names
     assert "subagent_wait" in main_registry.tool_names
     assert "cancel_subagent" in main_registry.tool_names
     assert "spawn" not in subagent_registry.tool_names
     assert "list_subagents" not in subagent_registry.tool_names
-    assert "subagent_status" not in subagent_registry.tool_names
     assert "subagent_wait" not in subagent_registry.tool_names
     assert "cancel_subagent" not in subagent_registry.tool_names
     assert main_registry.get("spawn")._workspace == tmp_path.resolve()
     assert main_registry.get("spawn")._parent_session_id == "session_abc"
-
-
-def test_read_skill_tool_reads_builtin_skill():
-    tool = ReadSkillTool()
-
-    result = asyncio.run(tool.execute(name="tool-use-reminder"))
-
-    assert "Prefer available tools when they make the answer more reliable." in result
-    assert "Use tools before answering" in result

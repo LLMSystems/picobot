@@ -773,17 +773,18 @@ def build_default_tool_registry(
         ListExecSessionsTool,
         WriteStdinTool,
     )
-    from simplified_chatbot.tools.search import FindFilesTool, GlobTool, GrepTool
+    from simplified_chatbot.tools.search import GlobTool, GrepTool
+    from simplified_chatbot.tools.web_fetch import WebFetchTool
     from simplified_chatbot.tools.shell import ExecTool
     from simplified_chatbot.tools.skills import ReadSkillTool
     from simplified_chatbot.tools.spawn import SpawnTool
     from simplified_chatbot.tools.subagents import (
         CancelSubagentTool,
         ListSubagentsTool,
-        SubagentStatusTool,
         SubagentWaitTool,
     )
     from simplified_chatbot.tools.tavily import TavilySearchTool
+    from simplified_chatbot.tools.ask_user_question import AskUserQuestionTool
     from simplified_chatbot.tools.todo import TodoWriteTool
 
     ws = workspace.resolve() if workspace is not None else Path.cwd().resolve()
@@ -816,13 +817,8 @@ def build_default_tool_registry(
                 owner_session_id=session_id,
             ),
         )
-        # registry.register(
-        #     ReadSkillTool(
-        #         skills_dir=skills_dir,
-        #         builtin_skills_dir=builtin_skills_dir,
-        #     ),
-        # )
         registry.register(TavilySearchTool())
+        registry.register(WebFetchTool())
         registry.register(ReadFileTool(workspace=ws, allowed_dir=allowed, file_states=file_states))
         registry.register(ReadPdfTool(workspace=ws, allowed_dir=allowed))
         registry.register(ReadDocxTool(workspace=ws, allowed_dir=allowed))
@@ -831,10 +827,10 @@ def build_default_tool_registry(
         registry.register(EditFileTool(workspace=ws, allowed_dir=allowed, file_states=file_states))
         registry.register(ApplyPatchTool(workspace=ws, allowed_dir=allowed, file_states=file_states))
         registry.register(ListDirTool(workspace=ws, allowed_dir=allowed))
-        registry.register(FindFilesTool(workspace=ws, allowed_dir=allowed))
         registry.register(GlobTool(workspace=ws, allowed_dir=allowed))
         registry.register(GrepTool(workspace=ws, allowed_dir=allowed))
         registry.register(TodoWriteTool())
+        registry.register(AskUserQuestionTool())
 
     if profile == "main":
         register_shared_tools()
@@ -848,13 +844,6 @@ def build_default_tool_registry(
             )
             registry.register(
                 ListSubagentsTool(
-                    subagent_manager,
-                    session_id=session_id,
-                    store=subagent_store,
-                ),
-            )
-            registry.register(
-                SubagentStatusTool(
                     subagent_manager,
                     session_id=session_id,
                     store=subagent_store,

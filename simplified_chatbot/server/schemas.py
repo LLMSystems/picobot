@@ -400,3 +400,20 @@ class HealthResponse(BaseModel):
     """Simple health check payload."""
 
     status: str
+
+
+class AskUserQuestionAnswerRequest(BaseModel):
+    """Request body for submitting user answers to a pending ask_user_question call."""
+
+    answers: dict[str, object] = Field(
+        description=(
+            "Map of question text → selected option label(s). "
+            "Single-select: string value. Multi-select: list of strings."
+        ),
+    )
+
+
+class AskUserQuestionAnswerResponse(BaseModel):
+    """Response body for submitting user answers."""
+
+    ok: bool

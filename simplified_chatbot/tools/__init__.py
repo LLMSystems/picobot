@@ -2,6 +2,7 @@
 
 from simplified_chatbot.tools.base import Tool, tool_parameters
 from simplified_chatbot.tools.apply_patch import ApplyPatchTool
+from simplified_chatbot.tools.ask_user_question import AskUserQuestionTool
 from simplified_chatbot.tools.document_readers import (
     ReadDocxTool,
     ReadPdfTool,
@@ -33,10 +34,12 @@ from simplified_chatbot.tools.subagents import (
 )
 from simplified_chatbot.tools.tavily import TavilySearchTool
 from simplified_chatbot.tools.todo import TodoWriteTool
+from simplified_chatbot.tools.web_fetch import WebFetchTool
 
 __all__ = [
     "build_default_tool_registry",
     "ApplyPatchTool",
+    "AskUserQuestionTool",
     "EditFileTool",
     "ExecTool",
     "FileStates",
@@ -60,6 +63,7 @@ __all__ = [
     "SubagentWaitTool",
     "TavilySearchTool",
     "TodoWriteTool",
+    "WebFetchTool",
     "WriteFileTool",
     "WriteStdinTool",
     "tool_parameters",

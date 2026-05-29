@@ -245,4 +245,13 @@ export const api = {
       method: 'PATCH',
       body: JSON.stringify({ disabled }),
     }),
+
+  answerAskUserQuestion: (
+    sessionId: string,
+    answers: Record<string, string | string[]>,
+  ) =>
+    request<{ ok: boolean }>(
+      `/sessions/${encodeURIComponent(sessionId)}/ask_user_question/answer`,
+      { method: 'POST', body: JSON.stringify({ answers }) },
+    ),
 }

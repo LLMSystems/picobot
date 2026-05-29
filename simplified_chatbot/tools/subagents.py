@@ -274,22 +274,40 @@ class SubagentStatusTool(Tool):
         "properties": {
             "task_id": {
                 "type": "string",
-                "description": "The subagent task id to wait for.",
+                "description": "The subagent task id to inspect or wait on.",
                 "minLength": 1,
             },
             "timeout_seconds": {
                 "type": "number",
                 "minimum": 0,
                 "maximum": 300,
-                "description": "How long to wait before returning the current status.",
-                "default": 30,
+                "description": (
+                    "How long to block waiting for completion. "
+                    "Default 0 returns immediately (snapshot)."
+                ),
+                "default": 0,
+            },
+            "include_result": {
+                "type": "boolean",
+                "description": (
+                    "When the subagent is complete, include the full result payload. "
+                    "Set false to save tokens when you only need to confirm completion."
+                ),
+                "default": True,
+            },
+            "tail_tool_events": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 20,
+                "description": "How many recent tool events to include in the status snapshot.",
+                "default": 5,
             },
         },
         "required": ["task_id"],
     },
 )
 class SubagentWaitTool(Tool):
-    """Wait for one subagent to finish and return its final result or current status."""
+    """Inspect a subagent or wait for it to finish, returning result or current status."""
 
     def __init__(
         self,
@@ -312,32 +330,40 @@ class SubagentWaitTool(Tool):
     @property
     def description(self) -> str:
         return (
-            "Wait for a subagent to finish. "
-            "Returns the final result when complete, or the current status if the wait times out."
+            "Inspect a subagent or wait for it to finish. "
+            "Default timeout_seconds=0 returns immediately with the current status "
+            "(or result if already done). Pass timeout_seconds>0 to block up to N seconds."
         )
 
     async def execute(
         self,
         task_id: str,
-        timeout_seconds: float = 30.0,
+        timeout_seconds: float = 0.0,
+        include_result: bool = True,
+        tail_tool_events: int = 5,
         **kwargs: Any,
     ) -> dict[str, Any]:
         status = self._manager.get_status(task_id)
         if status is not None:
-            result = await self._manager.wait_for(
-                task_id,
-                timeout_seconds=timeout_seconds,
-            )
-            if result is None:
-                status = self._manager.get_status(task_id)
-                assert status is not None
-                return {
-                    "completed": False,
-                    "status": _serialize_status(status, tail_tool_events=5),
-                }
+            if timeout_seconds <= 0:
+                # asyncio.wait_for(coro, 0) drops already-done coroutines under
+                # Python 3.12, so bypass wait_for entirely for snapshot mode.
+                result = self._manager.get_result(task_id)
+            else:
+                result = await self._manager.wait_for(
+                    task_id,
+                    timeout_seconds=timeout_seconds,
+                )
+            if result is not None:
+                payload: dict[str, Any] = {"completed": True}
+                if include_result:
+                    payload["result"] = _serialize_result(result)
+                return payload
+            status = self._manager.get_status(task_id)
+            assert status is not None
             return {
-                "completed": True,
-                "result": _serialize_result(result),
+                "completed": False,
+                "status": _serialize_status(status, tail_tool_events=tail_tool_events),
             }
         if self._store is None:
             return {"error": f"Unknown subagent task_id: {task_id}"}
@@ -347,13 +373,13 @@ class SubagentWaitTool(Tool):
         ):
             return {"error": f"Unknown subagent task_id: {task_id}"}
         if persisted.get("phase") in {"done", "error", "cancelled"}:
-            return {
-                "completed": True,
-                "result": _serialize_persisted_result(persisted),
-            }
+            payload = {"completed": True}
+            if include_result:
+                payload["result"] = _serialize_persisted_result(persisted)
+            return payload
         return {
             "completed": False,
-            "status": _serialize_persisted_status(persisted, tail_tool_events=5),
+            "status": _serialize_persisted_status(persisted, tail_tool_events=tail_tool_events),
         }
 
 

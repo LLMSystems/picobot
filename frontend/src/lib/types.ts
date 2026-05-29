@@ -388,3 +388,15 @@ export interface SkillMutationResponse {
   name: string
   ok: boolean
 }
+
+export interface AskUserQuestionOption {
+  label: string
+  description: string
+}
+
+export interface AskUserQuestion {
+  question: string
+  header: string
+  multiSelect: boolean
+  options: AskUserQuestionOption[]
+}

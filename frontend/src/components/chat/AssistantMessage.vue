@@ -6,11 +6,13 @@ import { useChatStore } from '@/stores/chat'
 import { AlertCircle, CircleStop, Copy, RefreshCw } from 'lucide-vue-next'
 import { computed } from 'vue'
 import { toast } from 'vue-sonner'
+import AskUserQuestionCard from './AskUserQuestionCard.vue'
 import StreamingCursor from './StreamingCursor.vue'
 import ToolCallCard from './ToolCallCard.vue'
 
 const props = defineProps<{ message: DisplayMessage }>()
 const chat = useChatStore()
+const sessionId = computed(() => chat.currentSessionId ?? '')
 
 const canRegenerate = computed(
   () =>
@@ -64,8 +66,13 @@ async function copy() {
   <div class="group">
     <div class="flex min-w-0 flex-col gap-2">
       <template v-for="(seg, idx) in message.segments" :key="idx">
+        <AskUserQuestionCard
+          v-if="seg.type === 'tool' && seg.toolCall.name === 'ask_user_question'"
+          :tool-call="seg.toolCall"
+          :session-id="sessionId"
+        />
         <ToolCallCard
-          v-if="seg.type === 'tool' && seg.toolCall.name !== 'todo_write'"
+          v-else-if="seg.type === 'tool' && seg.toolCall.name !== 'todo_write'"
           :tool-call="seg.toolCall"
         />
         <div v-else-if="seg.type === 'text' && seg.content" class="relative">

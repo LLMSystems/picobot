@@ -43,11 +43,11 @@ _TOOL_ZH: dict[str, tuple[str, str]] = {
     # subagents
     "spawn": ("派發子代理", "建立並執行一個子代理任務"),
     "list_subagents": ("列出子代理", "查看目前的子代理列表"),
-    "subagent_status": ("子代理狀態", "查詢單一子代理的執行狀態"),
-    "subagent_wait": ("等待子代理", "等待子代理完成並取得結果"),
+    "subagent_wait": ("查詢/等待子代理", "查詢子代理狀態，或阻塞等待其完成並取得結果"),
     "cancel_subagent": ("取消子代理", "取消正在執行的子代理"),
     # search / web
     "tavily_search": ("Tavily 搜尋", "用 Tavily 搜尋網路資訊"),
+    "web_fetch": ("網頁擷取", "擷取網頁內容並回傳內文"),
     # skills / docs
     "read_skill": ("讀取 skill", "讀取技能定義"),
     "read_pdf": ("讀取 PDF", "解析 PDF 檔案內容"),
@@ -59,6 +59,7 @@ _TOOL_ZH: dict[str, tuple[str, str]] = {
     "calculator": ("計算機", "計算數學表達式（範例工具）"),
     # todo
     "todo_write": ("待辦寫入", "將待辦事項寫入待辦清單"),
+    "ask_user_question": ("詢問使用者", "向使用者提出問題並等待回覆"),
 }
 
 
