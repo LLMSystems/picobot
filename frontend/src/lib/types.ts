@@ -356,3 +356,20 @@ export interface WorkspaceDeleteDirectoryResponse {
   path: string
   deleted: boolean
 }
+
+export interface SkillInfo {
+  name: string
+  source: 'builtin' | 'custom'
+  description: string
+  always: boolean
+  disabled: boolean
+}
+
+export interface SkillListResponse {
+  skills: SkillInfo[]
+}
+
+export interface SkillMutationResponse {
+  name: string
+  ok: boolean
+}

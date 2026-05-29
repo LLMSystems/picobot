@@ -53,6 +53,7 @@ class LocalAgentRuntime:
     ) -> None:
         self.chatbot = chatbot
         self.store = store or InMemorySessionStore()
+        self.skills_loader = skills_loader
         self.subagent_store = subagent_store or _build_default_subagent_store(self.store)
         self.subagent_event_store = (
             subagent_event_store or _build_default_subagent_event_store(self.store)
@@ -112,6 +113,8 @@ class LocalAgentRuntime:
             else None
         )
         resolved_skills_dir = _resolve_skills_dir(loaded_config, config_file=config_file)
+        if resolved_skills_dir is not None:
+            resolved_skills_dir.mkdir(parents=True, exist_ok=True)
         skills_loader = SkillsLoader(
             skills_dir=resolved_skills_dir,
             disabled_skills=set(loaded_config.disabled_skills) if loaded_config is not None else set(),
@@ -135,6 +138,34 @@ class LocalAgentRuntime:
             chrome_debugging_port=chrome_port,
             skills_loader=skills_loader,
         )
+
+    # ----- skill library management ----------------------------------------
+
+    def _require_skills_loader(self) -> SkillsLoader:
+        if self.skills_loader is None:
+            raise RuntimeError("Skill library is not available in this runtime")
+        return self.skills_loader
+
+    def list_skills(self) -> list[dict[str, object]]:
+        """List every skill (builtin + custom) with source / disabled flags."""
+        return self._require_skills_loader().list_all_skills()
+
+    def create_skill(
+        self,
+        name: str,
+        content: str,
+        files: dict[str, bytes] | None = None,
+    ) -> None:
+        """Create or overwrite a custom skill in the global library."""
+        self._require_skills_loader().create_skill(name, content, files=files)
+
+    def delete_skill(self, name: str) -> None:
+        """Delete a custom skill from the global library."""
+        self._require_skills_loader().delete_skill(name)
+
+    def set_skill_disabled(self, name: str, disabled: bool) -> None:
+        """Enable or disable a skill globally for newly created sessions."""
+        self._require_skills_loader().set_skill_disabled(name, disabled)
 
     def handle_message(
         self,

@@ -17,6 +17,8 @@ import type {
   WorkspaceSaveFileResponse,
   SubagentSummaryListResponse,
   SubagentTimelineResponse,
+  SkillListResponse,
+  SkillMutationResponse,
 } from './types'
 import { ApiError } from './errors'
 
@@ -220,4 +222,27 @@ export const api = {
 
   sessionEventStreamUrl: (sessionId: string): string =>
     `${API_BASE}/sessions/${encodeURIComponent(sessionId)}/events/stream`,
+
+  listSkills: () => request<SkillListResponse>('/skills'),
+
+  createSkill: (body: {
+    name: string
+    content: string
+    files?: { path: string; content_base64: string }[]
+  }) =>
+    request<SkillMutationResponse>('/skills', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  deleteSkill: (name: string) =>
+    request<SkillMutationResponse>(`/skills/${encodeURIComponent(name)}`, {
+      method: 'DELETE',
+    }),
+
+  setSkillDisabled: (name: string, disabled: boolean) =>
+    request<SkillMutationResponse>(`/skills/${encodeURIComponent(name)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ disabled }),
+    }),
 }
