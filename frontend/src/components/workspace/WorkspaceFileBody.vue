@@ -1,22 +1,17 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { Loader2 } from 'lucide-vue-next'
-import hljs from 'highlight.js'
 import { ApiError } from '@/lib/errors'
 import { useWorkspaceStore } from '@/stores/workspace'
 import MarkdownView from '@/components/common/MarkdownView.vue'
 import { Button } from '@/components/ui/button'
 import { api } from '@/lib/api'
-import { detectPreviewKind } from '@/lib/preview'
-
-function onEditorKeydown(e: KeyboardEvent) {
-  if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-    e.preventDefault()
-    void ws.saveFile()
-  }
-}
+import { detectPreviewKind, detectLanguage } from '@/lib/preview'
+import { useCodePreviewPrefs } from '@/composables/useCodePreviewPrefs'
+import CodeEditor from './CodeEditor.vue'
 
 const ws = useWorkspaceStore()
+const { wrap, fontSize } = useCodePreviewPrefs()
 
 type HtmlMode = 'preview' | 'source'
 const htmlMode = ref<HtmlMode>('preview')
@@ -45,47 +40,7 @@ const rawUrl = computed(() => {
   return api.workspaceFileRawUrl(sid, p)
 })
 
-const EXT_TO_LANG: Record<string, string> = {
-  py: 'python',
-  js: 'javascript',
-  mjs: 'javascript',
-  cjs: 'javascript',
-  jsx: 'javascript',
-  ts: 'typescript',
-  tsx: 'typescript',
-  vue: 'xml',
-  html: 'xml',
-  htm: 'xml',
-  xml: 'xml',
-  svg: 'xml',
-  css: 'css',
-  scss: 'scss',
-  less: 'less',
-  json: 'json',
-  yaml: 'yaml',
-  yml: 'yaml',
-  toml: 'ini',
-  ini: 'ini',
-  sh: 'bash',
-  bash: 'bash',
-  zsh: 'bash',
-  rs: 'rust',
-  go: 'go',
-  java: 'java',
-  kt: 'kotlin',
-  cpp: 'cpp',
-  cc: 'cpp',
-  cxx: 'cpp',
-  hpp: 'cpp',
-  h: 'c',
-  c: 'c',
-  rb: 'ruby',
-  php: 'php',
-  sql: 'sql',
-  swift: 'swift',
-  dockerfile: 'dockerfile',
-  makefile: 'makefile',
-}
+const codeLanguage = computed(() => detectLanguage(ws.selectedPath))
 
 const isMarkdown = computed(() => {
   const p = ws.selectedPath
@@ -94,42 +49,13 @@ const isMarkdown = computed(() => {
   return lower.endsWith('.md') || lower.endsWith('.markdown')
 })
 
-function detectLanguage(path: string): string | null {
-  const lower = path.toLowerCase()
-  const base = lower.split('/').pop() ?? lower
-  if (base === 'dockerfile') return 'dockerfile'
-  if (base === 'makefile') return 'makefile'
-  const ext = base.includes('.') ? (base.split('.').pop() ?? '') : ''
-  if (!ext) return null
-  const mapped = EXT_TO_LANG[ext]
-  if (mapped) return mapped
-  return hljs.getLanguage(ext) ? ext : null
+function onEditUpdate(value: string) {
+  ws.editContent = value
 }
 
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
+function onSave() {
+  void ws.saveFile()
 }
-
-const highlightedHtml = computed(() => {
-  const c = ws.fileContent
-  const p = ws.selectedPath
-  if (!c || !p) return ''
-  const lang = detectLanguage(p)
-  if (lang) {
-    try {
-      return hljs.highlight(c.content, {
-        language: lang,
-        ignoreIllegals: true,
-      }).value
-    } catch {
-      // fall through to plain text
-    }
-  }
-  return escapeHtml(c.content)
-})
 
 const errorMessage = computed(() => {
   const e = ws.fileError
@@ -155,15 +81,19 @@ const errorMessage = computed(() => {
 <template>
   <div class="flex h-full min-h-0 flex-col">
     <!-- 編輯模式 -->
-    <textarea
+    <CodeEditor
       v-if="ws.editMode"
-      v-model="ws.editContent"
-      class="h-full w-full resize-none bg-background px-4 py-3 font-mono text-xs leading-relaxed outline-none"
-      spellcheck="false"
-      @keydown="onEditorKeydown"
+      class="bg-muted/20"
+      editable
+      :model-value="ws.editContent"
+      :language="codeLanguage"
+      :wrap="wrap"
+      :font-size="fontSize"
+      :on-save="onSave"
+      @update:model-value="onEditUpdate"
     />
 
-    <div v-else class="flex-1 overflow-auto">
+    <div v-else class="flex min-h-0 flex-1 flex-col overflow-hidden">
       <template v-if="!ws.selectedPath">
         <div class="flex h-full items-center justify-center px-4 text-center text-xs text-muted-foreground">
           點左側檔案以預覽
@@ -232,9 +162,13 @@ const errorMessage = computed(() => {
               </div>
             </template>
             <template v-else-if="ws.fileContent">
-              <pre
-                class="m-0 flex-1 overflow-auto whitespace-pre bg-muted/20 px-4 py-3 font-mono text-xs leading-relaxed"
-              ><code class="hljs" v-html="highlightedHtml" /></pre>
+              <CodeEditor
+                class="flex-1 bg-muted/20"
+                :model-value="ws.fileContent.content"
+                :language="codeLanguage"
+                :wrap="wrap"
+                :font-size="fontSize"
+              />
             </template>
           </template>
         </div>
@@ -254,12 +188,16 @@ const errorMessage = computed(() => {
         <MarkdownView
           v-if="isMarkdown"
           :content="ws.fileContent.content"
-          class="px-4 py-3"
+          class="overflow-auto px-4 py-3"
         />
-        <pre
+        <CodeEditor
           v-else
-          class="m-0 whitespace-pre overflow-auto bg-muted/20 px-4 py-3 font-mono text-xs leading-relaxed"
-        ><code class="hljs" v-html="highlightedHtml" /></pre>
+          class="bg-muted/20"
+          :model-value="ws.fileContent.content"
+          :language="codeLanguage"
+          :wrap="wrap"
+          :font-size="fontSize"
+        />
       </template>
     </div>
 

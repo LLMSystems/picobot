@@ -156,4 +156,34 @@
   .dark ::-webkit-scrollbar-thumb:hover {
     background: rgb(255 255 255 / 0.25);
   }
+
+  .hljs {
+    background: transparent !important;
+    color: inherit;
+  }
+  .dark .hljs-keyword,
+  .dark .hljs-selector-tag,
+  .dark .hljs-literal,
+  .dark .hljs-doctag,
+  .dark .hljs-title,
+  .dark .hljs-section,
+  .dark .hljs-type,
+  .dark .hljs-name,
+  .dark .hljs-strong { color: #ff7b72; }
+  .dark .hljs-string,
+  .dark .hljs-attr,
+  .dark .hljs-symbol,
+  .dark .hljs-bullet,
+  .dark .hljs-addition { color: #a5d6ff; }
+  .dark .hljs-number,
+  .dark .hljs-meta,
+  .dark .hljs-link { color: #79c0ff; }
+  .dark .hljs-built_in,
+  .dark .hljs-class .hljs-title,
+  .dark .hljs-variable.language_ { color: #ffa657; }
+  .dark .hljs-comment,
+  .dark .hljs-quote,
+  .dark .hljs-deletion { color: #8b949e; font-style: italic; }
+  .dark .hljs-function .hljs-title,
+  .dark .hljs-title.function_ { color: #d2a8ff; }
 }

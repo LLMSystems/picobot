@@ -2,7 +2,7 @@ import MarkdownIt from 'markdown-it'
 import hljsPlugin from 'markdown-it-highlightjs'
 import hljs from 'highlight.js'
 import DOMPurify from 'dompurify'
-import 'highlight.js/styles/github-dark.css'
+import 'highlight.js/styles/github.css'
 
 const md = new MarkdownIt({
   linkify: true,

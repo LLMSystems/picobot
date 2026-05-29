@@ -312,10 +312,11 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     if (!id) return
     const dirsToRefresh = new Set<string>()
     for (const p of paths) {
-      const parent = parentOf(p)
-      if (parent === '' || expanded.value.has(parent)) {
-        dirsToRefresh.add(parent)
+      let parent = parentOf(p)
+      while (parent !== '' && !expanded.value.has(parent)) {
+        parent = parentOf(parent)
       }
+      dirsToRefresh.add(parent)
     }
     await Promise.all(
       [...dirsToRefresh].map((d) => refreshTree({ path: d === '' ? '.' : d })),

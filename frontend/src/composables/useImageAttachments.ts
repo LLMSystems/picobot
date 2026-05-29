@@ -2,6 +2,7 @@ import { computed, onBeforeUnmount, ref } from 'vue'
 import { toast } from 'vue-sonner'
 import { api } from '@/lib/api'
 import { ApiError } from '@/lib/errors'
+import { useWorkspaceStore } from '@/stores/workspace'
 import type { ChatImageInput } from '@/lib/types'
 
 export const MAX_IMAGES_PER_MESSAGE = 4
@@ -78,13 +79,8 @@ function describeUploadError(err: unknown): string {
   return err instanceof Error ? err.message : '上傳失敗'
 }
 
-const ensuredDirs = new Set<string>()
-
 async function ensureUploadDir(sessionId: string): Promise<void> {
-  const key = `${sessionId}:${UPLOAD_SUBDIR}`
-  if (ensuredDirs.has(key)) return
   await api.createWorkspaceDirectory(sessionId, { path: UPLOAD_SUBDIR })
-  ensuredDirs.add(key)
 }
 
 function uniqueFileName(file: File): string {
@@ -163,6 +159,7 @@ export function useImageAttachments(
       }
       target.path = uploaded.path
       target.status = 'ready'
+      void useWorkspaceStore().refreshPaths([uploaded.path])
       if (!isImage && onFileReady) {
         onFileReady(uploaded.path)
       }
