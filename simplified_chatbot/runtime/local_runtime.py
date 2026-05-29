@@ -1361,6 +1361,20 @@ class LocalAgentRuntime:
         if len(queue) > 200:
             del queue[:-200]
 
+        # Emit workspace_changed so the file tree refreshes after subagent file ops.
+        # tool_call_finished payloads include "name", so we can check directly.
+        if event == "subagent_tool_call_finished" and payload.get("ok") is True:
+            paths = _workspace_change_paths(payload)
+            if paths is not None:
+                self.publish_session_event(
+                    session_id,
+                    {
+                        "session_id": session_id,
+                        "event": "workspace_changed",
+                        "data": {"session_id": session_id, "paths": paths},
+                    },
+                )
+
     def _next_subagent_event_seq(self, task_id: str) -> int:
         next_seq = self._subagent_event_seq.get(task_id, 0) + 1
         self._subagent_event_seq[task_id] = next_seq
@@ -1961,12 +1975,12 @@ def _normalize_session_title(title: str | None) -> str:
     return normalized or "New Chat"
 
 
-def _workspace_change_paths(started_event: dict[str, Any]) -> list[str] | None:
-    name = started_event.get("name")
-    arguments = started_event.get("arguments")
+def _workspace_change_paths(event: dict[str, Any]) -> list[str] | None:
+    name = event.get("name")
+    arguments = event.get("arguments")
     if not isinstance(name, str):
         return None
-    if name == "exec":
+    if name in {"exec", "apply_patch"}:
         return []
     if name not in {"write_file", "edit_file"}:
         return None
