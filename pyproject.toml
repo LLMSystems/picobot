@@ -15,6 +15,7 @@ dependencies = [
     "openpyxl",
     "python-docx",
     "websockets",
+    "psutil>=5.9.0,<8.0.0",
 ]
 
 [project.optional-dependencies]

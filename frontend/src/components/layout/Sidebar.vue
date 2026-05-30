@@ -10,7 +10,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { Plus, MessageSquare, Search, X } from 'lucide-vue-next'
+import { Plus, MessageSquare, Search, X, LineChart } from 'lucide-vue-next'
 import { useSessionsStore } from '@/stores/sessions'
 import { useChatStore } from '@/stores/chat'
 import { toast } from 'vue-sonner'
@@ -123,6 +123,16 @@ async function confirmDelete() {
       >
         <Plus class="size-3.5" />
         新對話
+      </Button>
+      <Button
+        size="sm"
+        variant="outline"
+        class="h-8 w-full justify-start gap-1.5 rounded-[8px] text-sm"
+        :class="{ 'bg-muted': route.name === 'dashboard' }"
+        @click="() => { router.push('/dashboard'); emit('select') }"
+      >
+        <LineChart class="size-3.5" />
+        Dashboard
       </Button>
       <div class="relative">
         <Search

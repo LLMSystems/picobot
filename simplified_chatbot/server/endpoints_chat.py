@@ -26,6 +26,27 @@ from simplified_chatbot.server.sse import encode_sse
 router = APIRouter()
 
 
+def _record_chat_usage(
+    request: Request,
+    *,
+    session_id: str,
+    model: str | None,
+    usage: dict[str, int] | None,
+) -> None:
+    """Push a chat-call usage record into the metrics ring buffer, if available."""
+    svc = getattr(request.app.state, "metrics", None)
+    if svc is None:
+        return
+    recorder = getattr(svc, "chat_usage", None)
+    if recorder is None:
+        return
+    try:
+        recorder.record(session_id=session_id, model=model, usage=usage)
+    except Exception:
+        # Recording must never break the chat flow.
+        pass
+
+
 @router.post("/chat", response_model=ChatResponse)
 async def chat(request: Request, payload: ChatRequest) -> ChatResponse:
     """Return one complete assistant response."""
@@ -97,6 +118,12 @@ async def chat(request: Request, payload: ChatRequest) -> ChatResponse:
             message=str(exc),
         )
 
+    _record_chat_usage(
+        request,
+        session_id=payload.session_id,
+        model=getattr(result, "model", None),
+        usage=result.usage,
+    )
     return ChatResponse(
         session_id=payload.session_id,
         content=result.content,
@@ -216,6 +243,12 @@ def _build_chat_stream_response(
                 disabled_tools=disabled_tools,
                 on_event=on_event,
             )
+            _record_chat_usage(
+                request,
+                session_id=session_id,
+                model=getattr(result, "model", None),
+                usage=result.usage,
+            )
             await queue.put(
                 {
                     "event": "done",
@@ -262,8 +295,13 @@ def _build_chat_stream_response(
                 },
             )
 
+    metrics = getattr(request.app.state, "metrics", None)
+    sse_counter = getattr(metrics, "sse_connections", None) if metrics else None
+
     async def stream() -> Any:
         task = asyncio.create_task(produce())
+        if sse_counter is not None:
+            sse_counter.enter("chat")
         try:
             while True:
                 item = await queue.get()
@@ -277,6 +315,8 @@ def _build_chat_stream_response(
                 await task
             except asyncio.CancelledError:
                 pass
+            if sse_counter is not None:
+                sse_counter.leave("chat")
 
     return StreamingResponse(
         stream(),

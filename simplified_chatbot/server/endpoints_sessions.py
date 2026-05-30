@@ -196,6 +196,10 @@ async def stream_session_events(
         )
 
     queue = runtime.subscribe_session_events(session_id)
+    metrics = getattr(request.app.state, "metrics", None)
+    sse_counter = getattr(metrics, "sse_connections", None) if metrics else None
+    if sse_counter is not None:
+        sse_counter.enter("session_events")
 
     async def stream() -> Any:
         try:
@@ -211,6 +215,8 @@ async def stream_session_events(
                 yield encode_sse(event=str(item["event"]), data=item)
         finally:
             runtime.unsubscribe_session_events(session_id, queue)
+            if sse_counter is not None:
+                sse_counter.leave("session_events")
 
     return StreamingResponse(
         stream(),

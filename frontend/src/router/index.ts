@@ -14,6 +14,11 @@ const router = createRouter({
       component: () => import('@/views/ChatView.vue'),
       props: true,
     },
+    {
+      path: '/dashboard',
+      name: 'dashboard',
+      component: () => import('@/views/DashboardView.vue'),
+    },
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],
 })

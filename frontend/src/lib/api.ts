@@ -19,6 +19,11 @@ import type {
   SubagentTimelineResponse,
   SkillListResponse,
   SkillMutationResponse,
+  MetricsCurrentSnapshot,
+  MetricsHistoryResponse,
+  MetricsSessionSnapshot,
+  MetricsRange,
+  MetricsBucket,
 } from './types'
 import { ApiError } from './errors'
 
@@ -253,5 +258,25 @@ export const api = {
     request<{ ok: boolean }>(
       `/sessions/${encodeURIComponent(sessionId)}/ask_user_question/answer`,
       { method: 'POST', body: JSON.stringify({ answers }) },
+    ),
+
+  metricsCurrent: () => request<MetricsCurrentSnapshot>('/metrics/current'),
+
+  metricsSession: (sessionId: string) =>
+    request<MetricsSessionSnapshot>(
+      `/metrics/sessions/${encodeURIComponent(sessionId)}`,
+    ),
+
+  metricsHistory: (params: {
+    range: MetricsRange
+    series: string[]
+    bucket?: MetricsBucket
+  }) =>
+    request<MetricsHistoryResponse>(
+      `/metrics/history${qs({
+        range: params.range,
+        series: params.series.join(','),
+        bucket: params.bucket,
+      })}`,
     ),
 }

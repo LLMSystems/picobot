@@ -24,7 +24,12 @@ from simplified_chatbot.server.endpoints_health import router as health_router
 from simplified_chatbot.server.endpoints_sessions import router as sessions_router
 from simplified_chatbot.server.endpoints_skills import router as skills_router
 from simplified_chatbot.server.endpoints_workspace import router as workspace_router
+from simplified_chatbot.server.endpoints_metrics import router as metrics_router
 from simplified_chatbot.server.browser.chrome_process import ChromeProcess
+from simplified_chatbot.metrics.service import MetricsService
+from simplified_chatbot.metrics.middleware import ApiStatsMiddleware
+from simplified_chatbot.metrics.snapshot_store import SnapshotStore
+from simplified_chatbot.metrics.snapshot_task import SnapshotTask
 
 try:
     from simplified_chatbot.server.endpoints_screencast import router as screencast_router
@@ -48,11 +53,16 @@ def create_app(
     )
     
     @asynccontextmanager
-    async def lifespan(_: FastAPI):
+    async def lifespan(app_: FastAPI):
         await chrome.start()
+        snapshot_task = getattr(app_.state, "snapshot_task", None)
+        if snapshot_task is not None:
+            await snapshot_task.start()
         try:
             yield
         finally:
+            if snapshot_task is not None:
+                await snapshot_task.stop()
             chrome.stop()
     
     app = FastAPI(title="picobot", version="0.1.0", lifespan=lifespan)
@@ -69,12 +79,32 @@ def create_app(
             allow_headers=["*"],
         )
 
-    @app.middleware("http")
-    async def attach_request_id(request: Request, call_next):  # type: ignore[no-untyped-def]
-        request.state.request_id = f"req_{uuid.uuid4().hex}"
-        response = await call_next(request)
-        response.headers["X-Request-Id"] = get_request_id(request)
-        return response
+    # Raw ASGI middleware — pure asgi (not BaseHTTPMiddleware) so streaming
+    # responses (e.g. SSE on /metrics/stream and /chat/stream) pass through
+    # without being buffered.
+    class _RequestIdMiddleware:
+        def __init__(self, inner):  # type: ignore[no-untyped-def]
+            self._inner = inner
+
+        async def __call__(self, scope, receive, send):  # type: ignore[no-untyped-def]
+            if scope.get("type") != "http":
+                await self._inner(scope, receive, send)
+                return
+            request_id = f"req_{uuid.uuid4().hex}"
+            state = scope.setdefault("state", {})
+            state["request_id"] = request_id
+            header_value = request_id.encode("latin-1")
+
+            async def send_with_header(message):  # type: ignore[no-untyped-def]
+                if message.get("type") == "http.response.start":
+                    headers = list(message.get("headers", []))
+                    headers.append((b"x-request-id", header_value))
+                    message = {**message, "headers": headers}
+                await send(message)
+
+            await self._inner(scope, receive, send_with_header)
+
+    app.add_middleware(_RequestIdMiddleware)
 
     @app.exception_handler(StarletteHTTPException)
     async def handle_http_exception(request: Request, exc: StarletteHTTPException) -> JSONResponse:
@@ -123,15 +153,54 @@ def create_app(
     app.state.runtime = runtime
     app.state.chrome = chrome
     app.state.config = config
+
+    metrics = _build_metrics_service(runtime, chrome)
+    app.state.metrics = metrics
+    app.add_middleware(ApiStatsMiddleware, recorder=metrics.api_stats)
+    if metrics.snapshot_store is not None:
+        snapshot_db_path = getattr(metrics, "_db_path", None)
+        app.state.snapshot_task = SnapshotTask(
+            service=metrics,
+            store=metrics.snapshot_store,
+            db_path=str(snapshot_db_path) if snapshot_db_path else None,
+        )
+
     app.include_router(chat_router)
     app.include_router(capabilities_router)
     app.include_router(sessions_router)
     app.include_router(workspace_router)
     app.include_router(skills_router)
     app.include_router(health_router)
+    app.include_router(metrics_router)
     if screencast_router is not None:
         app.include_router(screencast_router)
     return app
+
+
+def _build_metrics_service(
+    runtime: LocalAgentRuntime,
+    chrome: ChromeProcess,
+) -> MetricsService:
+    """Wire the MetricsService against the active runtime/store."""
+    db_path = None
+    store = getattr(runtime, "store", None)
+    if store is not None and hasattr(store, "db_path"):
+        db_path = getattr(store, "db_path")
+    workspace_root = None
+    if runtime.workspace_manager is not None:
+        workspace_root = getattr(runtime.workspace_manager, "root_dir", None) or getattr(
+            runtime.workspace_manager, "workspace_root", None,
+        )
+    snapshot_store = SnapshotStore(db_path) if db_path is not None else None
+    service = MetricsService(
+        db_path=db_path,
+        workspace_root_dir=workspace_root,
+        snapshot_store=snapshot_store,
+    )
+    service.set_chrome_status_provider(
+        lambda: chrome.proc is not None and chrome.proc.poll() is None,
+    )
+    return service
 
 
 def _resolve_cors_allowed_origins(

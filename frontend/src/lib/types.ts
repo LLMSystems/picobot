@@ -403,3 +403,135 @@ export interface AskUserQuestion {
   multiSelect: boolean
   options: AskUserQuestionOption[]
 }
+
+// ---- metrics dashboard ----------------------------------------------------
+
+export interface MetricsSystemBlock {
+  cpu_percent: number | null
+  rss_bytes: number | null
+  threads: number | null
+  db_file_bytes: number | null
+  db_row_counts: Record<string, number>
+  workspace_total_bytes: number | null
+  workspace_session_count: number | null
+  active_sse_connections: Record<string, number>
+  chrome_alive: boolean | null
+}
+
+export interface MetricsTopTool {
+  name: string
+  count: number
+  success_rate: number
+}
+
+export interface MetricsAgentBlock {
+  sessions_total: number
+  sessions_active_24h: number
+  sessions_new_24h: number
+  message_count_total: number
+  iterations_total: number
+  tool_calls_total: number
+  tool_success_rate: number
+  top_tools: MetricsTopTool[]
+}
+
+export interface MetricsSubagentBlock {
+  runs_24h: number
+  success_rate_24h: number
+  duration_p50_ms: number
+  duration_p95_ms: number
+  running_now: number
+  tokens_in_24h: number
+  tokens_out_24h: number
+}
+
+export interface MetricsEndpointSummary {
+  endpoint: string
+  count: number
+  latency_p50_ms: number
+  latency_p95_ms: number
+  error_4xx: number
+  error_5xx: number
+}
+
+export interface MetricsApiBlock {
+  qps_1m: number
+  latency_p50_ms: number
+  latency_p95_ms: number
+  error_4xx_rate_1h: number
+  error_5xx_rate_1h: number
+  top_endpoints_1h: MetricsEndpointSummary[]
+}
+
+export interface MetricsUsageEntry {
+  model: string
+  tokens_in: number
+  tokens_out: number
+}
+
+export interface MetricsUsageBlock {
+  tokens_in_24h: number
+  tokens_out_24h: number
+  by_model_24h: MetricsUsageEntry[]
+}
+
+export interface MetricsCurrentSnapshot {
+  ts: string
+  system: MetricsSystemBlock
+  agent: MetricsAgentBlock
+  subagents: MetricsSubagentBlock
+  api: MetricsApiBlock
+  usage: MetricsUsageBlock
+}
+
+export interface MetricsSessionToolBreakdown {
+  name: string
+  count: number
+  success: number
+  failure: number
+  success_rate: number
+}
+
+export type MetricsRange = '1h' | '24h' | '7d'
+export type MetricsBucket = '1m' | '5m' | '15m' | '1h' | '1d'
+
+export interface MetricsHistoryPoint {
+  ts: string
+  value: number | null
+}
+
+export interface MetricsHistorySeries {
+  metric: string
+  category: string
+  dim_key: string | null
+  dim_value: string | null
+  points: MetricsHistoryPoint[]
+}
+
+export interface MetricsHistoryResponse {
+  range: MetricsRange
+  bucket: MetricsBucket
+  series: MetricsHistorySeries[]
+}
+
+export interface MetricsSessionSnapshot {
+  session_id: string
+  created_at: string | null
+  last_active_at: string | null
+  message_count: number
+  iterations_total: number
+  tool_calls_total: number
+  tool_success_rate: number
+  tool_breakdown: MetricsSessionToolBreakdown[]
+  subagent_runs: number
+  subagent_success: number
+  subagent_failure: number
+  subagent_tokens_in: number
+  subagent_tokens_out: number
+  subagent_tokens_by_model: Array<{ model: string; tokens_in: number; tokens_out: number }>
+  chat_tokens_in: number
+  chat_tokens_out: number
+  chat_tokens_by_model: MetricsUsageEntry[]
+  workspace_bytes: number | null
+  workspace_measured_at: number | null
+}
