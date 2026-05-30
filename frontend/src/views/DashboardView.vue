@@ -162,26 +162,25 @@ const tokenByModelBars = computed(() => {
 </script>
 
 <template>
-  <div class="flex h-full min-h-0 flex-col">
-    <header class="flex items-center justify-between border-b px-6 py-3">
-      <div>
-        <h1 class="text-lg font-semibold">Dashboard</h1>
-        <p class="text-xs text-muted-foreground flex items-center gap-2">
-          <span>系統 / Agent / API 即時監控</span>
+  <div class="flex flex-col">
+    <div
+      class="sticky top-0 z-20 flex items-center justify-between gap-3 border-b bg-background/95 px-6 py-2 backdrop-blur"
+    >
+      <div class="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+        <span class="text-sm font-semibold text-foreground">Dashboard</span>
+        <span
+          class="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium"
+          :class="metrics.liveConnected
+            ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+            : 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300'"
+        >
           <span
-            class="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium"
-            :class="metrics.liveConnected
-              ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
-              : 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300'"
-          >
-            <span
-              class="size-1.5 rounded-full"
-              :class="metrics.liveConnected ? 'bg-emerald-500' : 'bg-amber-500'"
-            />
-            {{ metrics.liveConnected ? 'Live' : '輪詢中' }}
-          </span>
-          <span v-if="lastUpdated">最後更新 {{ lastUpdated }}</span>
-        </p>
+            class="size-1.5 rounded-full"
+            :class="metrics.liveConnected ? 'bg-emerald-500' : 'bg-amber-500'"
+          />
+          {{ metrics.liveConnected ? 'Live' : '輪詢中' }}
+        </span>
+        <span v-if="lastUpdated">最後更新 {{ lastUpdated }}</span>
       </div>
       <div class="flex items-center gap-2">
         <RangePicker :model-value="metrics.historyRange" @update:model-value="onRangeChange" />
@@ -195,9 +194,9 @@ const tokenByModelBars = computed(() => {
           重新整理
         </Button>
       </div>
-    </header>
+    </div>
 
-    <div class="flex-1 min-h-0 overflow-y-auto px-6 py-4 space-y-6">
+    <div class="px-6 py-4 space-y-6">
       <template v-if="loading">
         <div class="grid grid-cols-2 gap-3 md:grid-cols-4">
           <Skeleton v-for="i in 8" :key="i" class="h-[120px] w-full" />
@@ -213,11 +212,13 @@ const tokenByModelBars = computed(() => {
       </template>
 
       <template v-else-if="snap">
-        <MetricsSection title="系統健康總覽">
-          <HealthSummaryRow :snapshot="snap" :loading="false" />
-        </MetricsSection>
+        <section data-anchor="health" class="scroll-mt-20">
+          <MetricsSection title="系統健康總覽">
+            <HealthSummaryRow :snapshot="snap" :loading="false" />
+          </MetricsSection>
+        </section>
 
-        <div class="grid grid-cols-1 gap-6 xl:grid-cols-2">
+        <section data-anchor="resources" class="scroll-mt-20 grid grid-cols-1 gap-6 xl:grid-cols-2">
           <MetricsSection title="系統資源">
             <div class="grid grid-cols-2 gap-2 sm:grid-cols-3">
               <StatCard
@@ -303,8 +304,9 @@ const tokenByModelBars = computed(() => {
               />
             </div>
           </MetricsSection>
-        </div>
+        </section>
 
+        <section data-anchor="trends" class="scroll-mt-20">
         <MetricsSection
           title="趨勢"
           :subtitle="`歷史 ${metrics.historyRange} · bucket ${metrics.history?.bucket ?? '—'}`"
@@ -368,7 +370,9 @@ const tokenByModelBars = computed(() => {
             </Card>
           </div>
         </MetricsSection>
+        </section>
 
+        <section data-anchor="api-trends" class="scroll-mt-20">
         <MetricsSection
           title="API 與子代理趨勢"
           subtitle="次要指標 — 同樣套用 RangePicker"
@@ -441,8 +445,9 @@ const tokenByModelBars = computed(() => {
             </Card>
           </div>
         </MetricsSection>
+        </section>
 
-        <div class="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
+        <section data-anchor="lists" class="scroll-mt-20 grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
           <Card class="border-border/60 shadow-none">
             <CardHeader class="pb-2">
               <CardTitle class="flex items-center gap-2 text-sm">
@@ -474,8 +479,9 @@ const tokenByModelBars = computed(() => {
             </CardContent>
           </Card>
           <RecentActivityFeed :limit="6" />
-        </div>
+        </section>
 
+        <section data-anchor="usage" class="scroll-mt-20">
         <MetricsSection
           title="Token 用量（24h）"
           subtitle="僅統計目前 process 期間累積的 chat tokens（Phase 1 限制）"
@@ -522,8 +528,11 @@ const tokenByModelBars = computed(() => {
             </CardContent>
           </Card>
         </MetricsSection>
+        </section>
 
-        <SessionDetailPanel />
+        <section data-anchor="session" class="scroll-mt-20">
+          <SessionDetailPanel />
+        </section>
       </template>
     </div>
   </div>

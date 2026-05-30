@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { onMounted, watch } from 'vue'
+import { computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppShell from '@/components/layout/AppShell.vue'
+import DashboardShell from '@/components/layout/DashboardShell.vue'
 import { Toaster } from '@/components/ui/sonner'
 import { useCapabilitiesStore } from '@/stores/capabilities'
 import { useSessionsStore } from '@/stores/sessions'
@@ -21,6 +22,10 @@ const bus = useComposerBus()
 const ws = useWorkspaceStore()
 
 useTheme()
+
+const shell = computed(() =>
+  route.meta.shell === 'dashboard' ? 'dashboard' : 'app',
+)
 
 onMounted(async () => {
   await Promise.all([caps.load(), sessions.fetchAll()])
@@ -95,7 +100,10 @@ useGlobalShortcuts({
 </script>
 
 <template>
-  <AppShell>
+  <DashboardShell v-if="shell === 'dashboard'">
+    <RouterView />
+  </DashboardShell>
+  <AppShell v-else>
     <RouterView />
   </AppShell>
   <Toaster rich-colors close-button position="top-center" />
