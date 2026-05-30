@@ -768,10 +768,18 @@ class AioSQLiteSubagentStore:
                         error TEXT,
                         usage_json TEXT NOT NULL,
                         tool_events_json TEXT NOT NULL,
-                        final_content TEXT
+                        final_content TEXT,
+                        model TEXT
                     )
                     """,
                 )
+                cursor = await conn.execute("PRAGMA table_info(subagent_runs)")
+                existing_columns = {row[1] for row in await cursor.fetchall()}
+                await cursor.close()
+                if "model" not in existing_columns:
+                    await conn.execute(
+                        "ALTER TABLE subagent_runs ADD COLUMN model TEXT",
+                    )
                 await conn.execute(
                     """
                     CREATE INDEX IF NOT EXISTS idx_subagent_runs_parent_session
@@ -801,8 +809,9 @@ class AioSQLiteSubagentStore:
                     error,
                     usage_json,
                     tool_events_json,
-                    final_content
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    final_content,
+                    model
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(task_id) DO UPDATE SET
                     parent_session_id = excluded.parent_session_id,
                     label = excluded.label,
@@ -816,7 +825,8 @@ class AioSQLiteSubagentStore:
                     error = excluded.error,
                     usage_json = excluded.usage_json,
                     tool_events_json = excluded.tool_events_json,
-                    final_content = excluded.final_content
+                    final_content = excluded.final_content,
+                    model = COALESCE(excluded.model, subagent_runs.model)
                 """,
                 row,
             )
@@ -841,7 +851,8 @@ class AioSQLiteSubagentStore:
                     error,
                     usage_json,
                     tool_events_json,
-                    final_content
+                    final_content,
+                    model
                 FROM subagent_runs
                 WHERE task_id = ?
                 """,
@@ -875,7 +886,8 @@ class AioSQLiteSubagentStore:
                 error,
                 usage_json,
                 tool_events_json,
-                final_content
+                final_content,
+                model
             FROM subagent_runs
             """
         ]
@@ -915,6 +927,7 @@ class AioSQLiteSubagentStore:
         usage = payload.get("usage", {})
         tool_events = payload.get("tool_events", [])
         final_content = payload.get("final_content")
+        model = payload.get("model")
 
         return (
             task_id,
@@ -931,6 +944,7 @@ class AioSQLiteSubagentStore:
             json.dumps(usage if isinstance(usage, dict) else {}, ensure_ascii=False),
             json.dumps(tool_events if isinstance(tool_events, list) else [], ensure_ascii=False),
             str(final_content) if isinstance(final_content, str) else None,
+            str(model) if isinstance(model, str) and model else None,
         )
 
     @staticmethod
@@ -950,6 +964,7 @@ class AioSQLiteSubagentStore:
             usage_json,
             tool_events_json,
             final_content,
+            model,
         ) = row
         return {
             "task_id": str(task_id),
@@ -966,6 +981,7 @@ class AioSQLiteSubagentStore:
             "usage": _safe_load_json_dict(usage_json),
             "tool_events": _safe_load_json_list(tool_events_json),
             "final_content": str(final_content) if isinstance(final_content, str) else None,
+            "model": str(model) if isinstance(model, str) and model else None,
         }
 
 

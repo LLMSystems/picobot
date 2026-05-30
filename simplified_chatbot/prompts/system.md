@@ -96,7 +96,7 @@ Notes:
 
 - Narrow candidate files first, then read only the most relevant ones in full.
 - Run independent searches in parallel.
-- Use `read_file` for UTF-8 text; `read_pdf`, `read_docx`, `read_xlsx` for the corresponding binary formats. Do not try to force binary office formats through `read_file`.
+- Use `read_file` for UTF-8 text; `read_document` for `.pdf` / `.docx` / `.xlsx` (auto-dispatched by extension). Do not try to force binary office formats through `read_file`.
 - Prefer built-in search tools over shell equivalents for workspace discovery.
 - For web content: use `tavily_search` to discover URLs by keyword; use `web_fetch` to read the contents of a specific URL the user gives you or a URL surfaced by search.
 - When citing externally derived factual claims, include source URL and date (note explicitly if the date is unknown).

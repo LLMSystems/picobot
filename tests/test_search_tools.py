@@ -71,9 +71,11 @@ async def test_find_files_rejects_paths_outside_workspace(tmp_path: Path):
     assert result.startswith("Error:")
 
 
-def test_default_registry_includes_find_files_for_main_and_subagent_profiles(tmp_path: Path):
+def test_default_registry_includes_glob_for_main_and_subagent_profiles(tmp_path: Path):
     main_registry = build_default_tool_registry(workspace=tmp_path, profile="main")
     subagent_registry = build_default_tool_registry(workspace=tmp_path, profile="subagent")
 
-    assert "find_files" in main_registry.tool_names
-    assert "find_files" in subagent_registry.tool_names
+    assert "glob" in main_registry.tool_names
+    assert "glob" in subagent_registry.tool_names
+    assert "find_files" not in main_registry.tool_names
+    assert "find_files" not in subagent_registry.tool_names

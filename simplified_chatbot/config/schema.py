@@ -17,6 +17,10 @@ class ChatbotConfig(BaseModel):
 
     provider: Literal["openai_compat"] = "openai_compat"
     model: str = Field(min_length=1)
+    subagent_model: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("subagent_model", "subagentModel"),
+    )
     available_models: list[str] = Field(
         default_factory=list,
         validation_alias=AliasChoices("available_models", "availableModels"),
@@ -129,6 +133,16 @@ class ChatbotConfig(BaseModel):
             raise ValueError("model must not be empty")
         return stripped
 
+    @field_validator("subagent_model")
+    @classmethod
+    def _strip_subagent_model(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("subagent_model must not be empty when provided")
+        return stripped
+
     @field_validator("available_models")
     @classmethod
     def _normalize_available_models(cls, value: list[str]) -> list[str]:
@@ -150,4 +164,12 @@ class ChatbotConfig(BaseModel):
     def _validate_model_membership(self) -> "ChatbotConfig":
         if self.available_models and self.model not in self.available_models:
             raise ValueError("model must be included in available_models when provided")
+        if (
+            self.subagent_model is not None
+            and self.available_models
+            and self.subagent_model not in self.available_models
+        ):
+            raise ValueError(
+                "subagent_model must be included in available_models when provided",
+            )
         return self

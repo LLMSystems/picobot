@@ -243,6 +243,7 @@ export const useSubagentStore = defineStore('subagents', () => {
       label?: string
       task?: string
       workspace?: string | null
+      model?: string | null
     }
     const taskId = data.task_id ?? ev.task_id
     if (!taskId) return
@@ -262,6 +263,7 @@ export const useSubagentStore = defineStore('subagents', () => {
       usage: {},
       tool_events: [],
       final_content: null,
+      model: data.model ?? null,
     }
     setSummary(summary)
     ensureStreaming(taskId)

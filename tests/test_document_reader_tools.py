@@ -2,6 +2,7 @@ import asyncio
 from pathlib import Path
 
 from simplified_chatbot.tools.document_readers import (
+    ReadDocumentTool,
     ReadDocxTool,
     ReadPdfTool,
     ReadXlsxTool,
@@ -106,3 +107,88 @@ def test_read_xlsx_tool_extracts_rows(tmp_path):
     assert "[Range: A1:B2]" in result
     assert "1| Name\tValue" in result
     assert "2| Revenue\t42" in result
+
+
+def test_read_document_dispatches_pdf(tmp_path):
+    pdf_path = tmp_path / "sample.pdf"
+    _write_simple_pdf(pdf_path, "Hello PDF")
+    tool = ReadDocumentTool(workspace=tmp_path, allowed_dir=tmp_path)
+
+    result = asyncio.run(tool.execute(path="sample.pdf"))
+
+    assert "Hello PDF" in result
+    assert "[Page 1]" in result
+
+
+def test_read_document_dispatches_docx(tmp_path):
+    from docx import Document
+
+    docx_path = tmp_path / "notes.docx"
+    document = Document()
+    document.add_paragraph("Dispatched via read_document.")
+    document.save(docx_path)
+
+    tool = ReadDocumentTool(workspace=tmp_path, allowed_dir=tmp_path)
+    result = asyncio.run(tool.execute(path="notes.docx"))
+
+    assert "Dispatched via read_document." in result
+    assert "[Paragraph 1]" in result
+
+
+def test_read_document_dispatches_xlsx(tmp_path):
+    from openpyxl import Workbook
+
+    xlsx_path = tmp_path / "data.xlsx"
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Main"
+    sheet["A1"] = "key"
+    sheet["B1"] = "value"
+    sheet["A2"] = "count"
+    sheet["B2"] = 7
+    workbook.save(xlsx_path)
+
+    tool = ReadDocumentTool(workspace=tmp_path, allowed_dir=tmp_path)
+    result = asyncio.run(tool.execute(path="data.xlsx", sheet="Main", range="A1:B2"))
+
+    assert "[Sheet: Main]" in result
+    assert "1| key\tvalue" in result
+    assert "2| count\t7" in result
+
+
+def test_read_document_unsupported_extension_returns_error(tmp_path):
+    txt_path = tmp_path / "readme.txt"
+    txt_path.write_text("just text", encoding="utf-8")
+    tool = ReadDocumentTool(workspace=tmp_path, allowed_dir=tmp_path)
+
+    result = asyncio.run(tool.execute(path="readme.txt"))
+
+    assert result.startswith("Error: Unsupported document format")
+    assert ".txt" in result
+    assert "read_file" in result
+
+
+def test_read_document_silently_ignores_mismatched_params(tmp_path):
+    from docx import Document
+
+    docx_path = tmp_path / "ignore.docx"
+    document = Document()
+    document.add_paragraph("Still works.")
+    document.save(docx_path)
+
+    tool = ReadDocumentTool(workspace=tmp_path, allowed_dir=tmp_path)
+    # pages/sheet/range are PDF/XLSX-specific; should be silently dropped.
+    result = asyncio.run(
+        tool.execute(path="ignore.docx", pages="1-3", sheet="X", range="A1:B2"),
+    )
+
+    assert "Still works." in result
+    assert "Error" not in result
+
+
+def test_read_document_missing_file_returns_error(tmp_path):
+    tool = ReadDocumentTool(workspace=tmp_path, allowed_dir=tmp_path)
+
+    result = asyncio.run(tool.execute(path="ghost.pdf"))
+
+    assert result == "Error: File not found: ghost.pdf"

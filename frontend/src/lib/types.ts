@@ -23,6 +23,7 @@ export interface CapabilityFeatures {
 export interface Capabilities {
   model: ModelInfo
   available_models: string[]
+  default_subagent_model: string | null
   max_iterations: number
   tools: ToolCapability[]
   features: CapabilityFeatures
@@ -37,6 +38,7 @@ export interface ChatOverrides {
   max_tokens?: number
   max_iterations?: number
   disabled_tools?: string[]
+  subagent_model?: string
 }
 
 export interface SessionSummary {
@@ -248,6 +250,7 @@ export interface SubagentSummary {
   usage: Record<string, number>
   tool_events: Array<Record<string, unknown>>
   final_content: string | null
+  model: string | null
 }
 
 export interface SubagentSummaryListResponse {

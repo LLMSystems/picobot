@@ -4,6 +4,7 @@ from simplified_chatbot.tools.base import Tool, tool_parameters
 from simplified_chatbot.tools.apply_patch import ApplyPatchTool
 from simplified_chatbot.tools.ask_user_question import AskUserQuestionTool
 from simplified_chatbot.tools.document_readers import (
+    ReadDocumentTool,
     ReadDocxTool,
     ReadPdfTool,
     ReadXlsxTool,
@@ -50,6 +51,7 @@ __all__ = [
     "ListExecSessionsTool",
     "ListSubagentsTool",
     "CancelSubagentTool",
+    "ReadDocumentTool",
     "ReadDocxTool",
     "Tool",
     "ToolRegistry",

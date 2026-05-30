@@ -48,6 +48,7 @@ class ChatRequest(BaseModel):
     session_id: str = Field(min_length=1)
     message: str = Field(min_length=1)
     model: str | None = Field(default=None, min_length=1)
+    subagent_model: str | None = Field(default=None, min_length=1)
     images: list[ChatImageInput] = Field(default_factory=list)
     temperature: float | None = Field(default=None, ge=0.0, le=2.0)
     max_tokens: int | None = Field(default=None, gt=0)
@@ -138,6 +139,7 @@ class SubagentRun(BaseModel):
     usage: dict[str, object] = Field(default_factory=dict)
     tool_events: list[dict[str, object]] = Field(default_factory=list)
     final_content: str | None = None
+    model: str | None = None
 
 
 class SubagentRunListResponse(BaseModel):
@@ -207,6 +209,7 @@ class CapabilitiesResponse(BaseModel):
 
     model: CapabilitiesModelInfo
     available_models: list[str] = Field(default_factory=list)
+    default_subagent_model: str | None = None
     max_iterations: int
     tools: list[CapabilitiesToolInfo] = Field(default_factory=list)
     features: CapabilitiesFeatures

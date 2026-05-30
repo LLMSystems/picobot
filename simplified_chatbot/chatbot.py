@@ -99,8 +99,14 @@ class SimplifiedChatbot:
                     if workspace is not None
                     else default_workspace
                 )
+                effective_model = model_override or config.subagent_model
+                effective_config = (
+                    config.model_copy(update={"model": effective_model, "available_models": []})
+                    if effective_model is not None
+                    else config
+                )
                 return cls(
-                    config=config,
+                    config=effective_config,
                     provider=provider,
                     system_prompt=subagent_system_prompt_factory(resolved_workspace),
                     tools=build_default_tool_registry(
@@ -118,9 +124,13 @@ class SimplifiedChatbot:
                     subagent_manager=None,
                 )
 
+            def resolve_subagent_model(spec) -> str | None:
+                return spec.model_override or config.subagent_model or config.model
+
             subagent_manager = SubagentManager(
                 build_subagent_chatbot,
                 max_concurrent_subagents=config.max_concurrent_subagents,
+                resolve_model=resolve_subagent_model,
             )
             resolved_tools = build_default_tool_registry(
                 workspace=default_workspace,

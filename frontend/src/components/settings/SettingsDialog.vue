@@ -46,6 +46,7 @@ const {
   maxTokens,
   maxIterations,
   disabledTools,
+  subagentModel,
 } = storeToRefs(settings)
 
 const temperatureSliderValue = computed<number[]>({
@@ -97,6 +98,13 @@ function resetMaxTokens() {
 function resetMaxIterations() {
   maxIterations.value = null
 }
+function resetSubagentModel() {
+  subagentModel.value = null
+}
+
+const subagentModelDefaultLabel = computed(
+  () => caps.data.default_subagent_model ?? caps.data.model.name,
+)
 
 const toolsByCategory = computed(() => {
   const map = new Map<string, ToolCapability[]>()
@@ -328,6 +336,57 @@ function toolDescLabel(tool: { name: string; description?: string }): string {
               :placeholder="caps.data.max_iterations.toString()"
               class="h-8 bg-background text-sm"
             />
+          </div>
+
+          <!-- subagent_model -->
+          <div
+            v-if="caps.data.available_models.length > 0"
+            class="space-y-1.5"
+          >
+            <div class="flex items-center justify-between">
+              <Label class="text-xs text-muted-foreground" for="settings-subagent-model">
+                Subagent Model
+              </Label>
+              <div class="flex items-center gap-1.5">
+                <span
+                  v-if="subagentModel === null"
+                  class="text-[10px] text-muted-foreground"
+                >
+                  預設 {{ subagentModelDefaultLabel }}
+                </span>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  class="size-5"
+                  :disabled="subagentModel === null"
+                  title="還原預設"
+                  @click="resetSubagentModel"
+                >
+                  <X class="size-3" />
+                </Button>
+              </div>
+            </div>
+            <select
+              id="settings-subagent-model"
+              :value="subagentModel ?? ''"
+              class="h-8 w-full rounded-md border bg-background px-2 text-sm"
+              @change="(e) => {
+                const v = (e.target as HTMLSelectElement).value
+                subagentModel = v === '' ? null : v
+              }"
+            >
+              <option value="">使用預設（{{ subagentModelDefaultLabel }}）</option>
+              <option
+                v-for="m in caps.data.available_models"
+                :key="m"
+                :value="m"
+              >
+                {{ m }}
+              </option>
+            </select>
+            <p class="text-xs text-muted-foreground">
+              spawn 出來的 subagent 會用這個 model；agent 在 `spawn(model=...)` 顯式指定時優先。
+            </p>
           </div>
         </section>
 

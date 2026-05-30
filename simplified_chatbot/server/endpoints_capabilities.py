@@ -50,9 +50,7 @@ _TOOL_ZH: dict[str, tuple[str, str]] = {
     "web_fetch": ("網頁擷取", "擷取網頁內容並回傳內文"),
     # skills / docs
     "read_skill": ("讀取 skill", "讀取技能定義"),
-    "read_pdf": ("讀取 PDF", "解析 PDF 檔案內容"),
-    "read_docx": ("讀取 Word", "解析 .docx 檔案內容"),
-    "read_xlsx": ("讀取 Excel", "解析 .xlsx 試算表內容"),
+    "read_document": ("讀取文件", "解析 PDF、Word、Excel 等 office 文件內容（依副檔名自動判斷）"),
     # demo / fake
     "echo": ("回音", "回傳輸入內容（測試用）"),
     "get_weather": ("查詢天氣", "查詢城市天氣（範例工具）"),
@@ -99,6 +97,9 @@ async def get_capabilities(request: Request) -> CapabilitiesResponse:
     provider_name = str(getattr(config, "provider", "unknown"))
     model_name = str(getattr(config, "model", "unknown"))
     available_models = getattr(config, "available_models", []) if config is not None else []
+    default_subagent_model = (
+        getattr(config, "subagent_model", None) if config is not None else None
+    )
     max_iterations = int(getattr(config, "max_iterations", 0) or 0)
     default_temperature = float(getattr(config, "temperature", 0.7) or 0.7)
     default_max_tokens_raw = getattr(config, "max_tokens", None)
@@ -115,6 +116,11 @@ async def get_capabilities(request: Request) -> CapabilitiesResponse:
             for item in (available_models or [model_name])
             if isinstance(item, str) and item
         ],
+        default_subagent_model=(
+            default_subagent_model
+            if isinstance(default_subagent_model, str) and default_subagent_model
+            else None
+        ),
         max_iterations=max_iterations,
         tools=_build_tool_capabilities(tools),
         default_system_prompt=default_system_prompt,

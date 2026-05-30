@@ -9,7 +9,7 @@ import type {
     SubagentTimelineEvent,
 } from '@/lib/types'
 import { useSubagentStore } from '@/stores/subagents'
-import { Coins, Hash, Loader2, Timer, Wrench, X } from 'lucide-vue-next'
+import { Coins, Cpu, Hash, Loader2, Timer, Wrench, X } from 'lucide-vue-next'
 import { computed } from 'vue'
 import SubagentAvatar from './SubagentAvatar.vue'
 import SubagentTimeline from './SubagentTimeline.vue'
@@ -199,6 +199,15 @@ const toolsCount = computed(
                 class="mr-1 inline-block size-1.5 animate-pulse rounded-full bg-amber-400"
               />
               {{ phaseLabel }}
+            </Badge>
+            <Badge
+              v-if="summary.model"
+              variant="outline"
+              class="h-4 gap-1 px-1.5 font-mono text-[10px]"
+              :title="`Model: ${summary.model}`"
+            >
+              <Cpu class="size-2.5" />
+              {{ summary.model }}
             </Badge>
             <span class="font-mono text-[10px] opacity-70">
               {{ summary.task_id }}

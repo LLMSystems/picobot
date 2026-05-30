@@ -91,6 +91,30 @@ async def test_spawn_returns_task_id_and_result():
 
 
 @pytest.mark.asyncio
+async def test_resolve_model_is_recorded_on_status_before_run():
+    seen: list[str | None] = []
+
+    def resolver(spec):
+        seen.append(spec.model_override)
+        return spec.model_override or "default-fallback"
+
+    manager = SubagentManager(
+        lambda _workspace, _model: _FakeChatbot(),
+        max_concurrent_subagents=2,
+        resolve_model=resolver,
+    )
+
+    task_id_a = await manager.spawn(SubagentSpec(task="a", model_override="gpt-5-nano"))
+    task_id_b = await manager.spawn(SubagentSpec(task="b"))
+    await manager.wait(task_id_a)
+    await manager.wait(task_id_b)
+
+    assert seen == ["gpt-5-nano", None]
+    assert manager.get_status(task_id_a).model == "gpt-5-nano"
+    assert manager.get_status(task_id_b).model == "default-fallback"
+
+
+@pytest.mark.asyncio
 async def test_running_count_tracks_background_tasks():
     manager = SubagentManager(
         lambda _workspace, _model: _FakeChatbot(delay=0.05),

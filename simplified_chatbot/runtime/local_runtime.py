@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import inspect
@@ -322,6 +323,7 @@ class LocalAgentRuntime:
         content: MessageContent,
         *,
         model_override: str | None = None,
+        subagent_model_override: str | None = None,
         temperature_override: float | None = None,
         max_tokens_override: int | None = None,
         max_iterations_override: int | None = None,
@@ -337,17 +339,19 @@ class LocalAgentRuntime:
                 _build_run_started_payload(session_id, content),
             )
             resolved_model = self._resolve_model_override(model_override)
+            resolved_subagent_model = self._resolve_model_override(subagent_model_override)
             history = await self._load_history_async(session_id)
             injected = self._pop_pending_internal_messages(session_id)
             effective_history = [*history, *injected]
             try:
-                result = await self._run_chat_async(
-                    session_id,
-                    content,
-                    history=effective_history,
-                    model_override=resolved_model,
-                    on_event=event_callback,
-                )
+                with self._apply_subagent_model_override(session_id, resolved_subagent_model):
+                    result = await self._run_chat_async(
+                        session_id,
+                        content,
+                        history=effective_history,
+                        model_override=resolved_model,
+                        on_event=event_callback,
+                    )
             except Exception:
                 self._restore_pending_internal_messages(session_id, injected)
                 raise
@@ -380,6 +384,7 @@ class LocalAgentRuntime:
         *,
         on_delta: Callable[[str], None] | None = None,
         model_override: str | None = None,
+        subagent_model_override: str | None = None,
         temperature_override: float | None = None,
         max_tokens_override: int | None = None,
         max_iterations_override: int | None = None,
@@ -395,18 +400,20 @@ class LocalAgentRuntime:
                 _build_run_started_payload(session_id, content),
             )
             resolved_model = self._resolve_model_override(model_override)
+            resolved_subagent_model = self._resolve_model_override(subagent_model_override)
             history = await self._load_history_async(session_id)
             injected = self._pop_pending_internal_messages(session_id)
             effective_history = [*history, *injected]
             try:
-                result = await self._run_chat_stream_async(
-                    session_id,
-                    content,
-                    history=effective_history,
-                    on_delta=on_delta,
-                    model_override=resolved_model,
-                    on_event=event_callback,
-                )
+                with self._apply_subagent_model_override(session_id, resolved_subagent_model):
+                    result = await self._run_chat_stream_async(
+                        session_id,
+                        content,
+                        history=effective_history,
+                        on_delta=on_delta,
+                        model_override=resolved_model,
+                        on_event=event_callback,
+                    )
             except Exception:
                 self._restore_pending_internal_messages(session_id, injected)
                 raise
@@ -1575,6 +1582,7 @@ class LocalAgentRuntime:
                 "usage": dict(getattr(status, "usage", {}) or {}),
                 "tool_events": list(getattr(status, "tool_events", []) or []),
                 "final_content": None,
+                "model": getattr(status, "model", None),
             },
         )
 
@@ -1600,6 +1608,7 @@ class LocalAgentRuntime:
                 "usage": dict(getattr(result, "usage", {}) or {}),
                 "tool_events": list(getattr(result, "tool_events", []) or []),
                 "final_content": getattr(result, "content", None),
+                "model": getattr(status, "model", None),
             },
         )
 
@@ -1626,6 +1635,31 @@ class LocalAgentRuntime:
                 "data": dict(payload),
             },
         )
+
+    @contextmanager
+    def _apply_subagent_model_override(
+        self,
+        session_id: str,
+        subagent_model: str | None,
+    ):
+        spawn_tool = self._get_spawn_tool_for_session(session_id)
+        previous: str | None = None
+        if spawn_tool is not None:
+            previous = getattr(spawn_tool, "_default_model", None)
+            if subagent_model is not None:
+                spawn_tool.set_default_model(subagent_model)
+        try:
+            yield
+        finally:
+            if spawn_tool is not None and subagent_model is not None:
+                spawn_tool.set_default_model(previous)
+
+    def _get_spawn_tool_for_session(self, session_id: str) -> Any | None:
+        chatbot = self._get_chatbot_for_session(session_id)
+        tools = getattr(chatbot, "tools", None)
+        if tools is None or not hasattr(tools, "get"):
+            return None
+        return tools.get("spawn")
 
     def _resolve_model_override(self, model_override: str | None) -> str | None:
         if model_override is None:

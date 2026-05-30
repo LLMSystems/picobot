@@ -88,13 +88,11 @@ def test_system_prompt_mentions_read_skill_tool_rules():
     assert "`exec(command, working_dir, timeout, yield_time_ms, max_output_chars)`" in prompt
     assert "`write_stdin(session_id, chars, close_stdin, terminate, yield_time_ms, max_output_chars)`" in prompt
     assert "`list_exec_sessions()`" in prompt
-    assert "`read_pdf(path, pages)`" in prompt
-    assert "`read_docx(path)`" in prompt
-    assert "`read_xlsx(path, sheet, range)`" in prompt
+    assert "`read_document(path, pages, sheet, range)`" in prompt
     assert "`apply_patch(edits, dry_run)`" in prompt
     assert "`tavily_search(query, topic, search_depth, max_results" in prompt
     assert "`glob(pattern, path, query, type, entry_type, sort, head_limit, offset)`" in prompt
-    assert "`spawn(task, label, temperature)`" in prompt
+    assert "`spawn(task, label, temperature, model)`" in prompt
     assert "`list_subagents(phase, limit, include_completed)`" in prompt
     assert "`subagent_wait(task_id, timeout_seconds, include_result, tail_tool_events)`" in prompt
     assert "`cancel_subagent(task_id)`" in prompt

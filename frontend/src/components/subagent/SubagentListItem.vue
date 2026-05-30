@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Check, X, CircleSlash, Wrench, Hash } from 'lucide-vue-next'
+import { Check, X, CircleSlash, Wrench, Hash, Cpu } from 'lucide-vue-next'
 import SubagentAvatar from './SubagentAvatar.vue'
 import { truncate } from '@/lib/format'
 import { toolDisplayName } from '@/lib/toolDisplay'
@@ -136,13 +136,24 @@ const { text: elapsedText } = useElapsed(
         {{ truncate(summary.task, 60) }}
       </div>
 
-      <div class="flex items-center gap-2 pt-0.5 text-[10px] text-muted-foreground">
+      <div class="flex flex-wrap items-center gap-x-2 gap-y-0.5 pt-0.5 text-[10px] text-muted-foreground">
         <span class="flex items-center gap-0.5">
           <Hash class="size-2.5" />{{ stepsCount }} 步
         </span>
         <span aria-hidden="true">·</span>
         <span class="flex items-center gap-0.5">
           <Wrench class="size-2.5" />{{ toolsCount }} 工具
+        </span>
+        <span
+          v-if="summary.model"
+          aria-hidden="true"
+        >·</span>
+        <span
+          v-if="summary.model"
+          class="flex items-center gap-0.5 truncate font-mono"
+          :title="`Model: ${summary.model}`"
+        >
+          <Cpu class="size-2.5" />{{ summary.model }}
         </span>
         <span aria-hidden="true">·</span>
         <span class="flex items-center gap-0.5">

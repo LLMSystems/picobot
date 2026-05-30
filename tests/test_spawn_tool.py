@@ -55,6 +55,41 @@ async def test_spawn_tool_delegates_to_subagent_manager():
 
 
 @pytest.mark.asyncio
+async def test_spawn_tool_forwards_explicit_model_to_spec():
+    manager = _StubManager()
+    tool = SpawnTool(manager)  # type: ignore[arg-type]
+
+    await tool.execute(task="collect references", model="gpt-5-nano")
+
+    assert manager.seen_spec is not None
+    assert manager.seen_spec.model_override == "gpt-5-nano"
+
+
+@pytest.mark.asyncio
+async def test_spawn_tool_falls_back_to_default_model_when_not_specified():
+    manager = _StubManager()
+    tool = SpawnTool(manager)  # type: ignore[arg-type]
+    tool.set_default_model("gpt-5-nano")
+
+    await tool.execute(task="collect references")
+
+    assert manager.seen_spec is not None
+    assert manager.seen_spec.model_override == "gpt-5-nano"
+
+
+@pytest.mark.asyncio
+async def test_spawn_tool_explicit_model_overrides_default():
+    manager = _StubManager()
+    tool = SpawnTool(manager)  # type: ignore[arg-type]
+    tool.set_default_model("gpt-5-nano")
+
+    await tool.execute(task="collect references", model="gpt-4.1-mini")
+
+    assert manager.seen_spec is not None
+    assert manager.seen_spec.model_override == "gpt-4.1-mini"
+
+
+@pytest.mark.asyncio
 async def test_spawn_tool_propagates_manager_error():
     class _FailingManager:
         async def spawn(

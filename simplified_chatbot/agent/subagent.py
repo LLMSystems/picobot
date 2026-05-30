@@ -37,6 +37,7 @@ class SupportsAsyncRun(Protocol):
 
 
 ChatbotFactory = Callable[[Path | None, str | None], SupportsAsyncRun]
+SubagentModelResolver = Callable[["SubagentSpec"], str | None]
 SubagentResultCallback = Callable[
     ["SubagentStatus", "SubagentResult"],
     Awaitable[None] | None,
@@ -80,6 +81,7 @@ class SubagentStatus:
     usage: dict[str, int] = field(default_factory=dict)
     stop_reason: str | None = None
     error: str | None = None
+    model: str | None = None
 
 
 @dataclass(slots=True)
@@ -107,6 +109,7 @@ class SubagentManager:
         spawn_callback: SubagentSpawnCallback | None = None,
         event_callback: SubagentEventCallback | None = None,
         result_callback: SubagentResultCallback | None = None,
+        resolve_model: SubagentModelResolver | None = None,
     ) -> None:
         if max_concurrent_subagents < 1:
             raise ValueError("max_concurrent_subagents must be >= 1")
@@ -115,6 +118,7 @@ class SubagentManager:
         self._spawn_callback = spawn_callback
         self._event_callback = event_callback
         self._result_callback = result_callback
+        self._resolve_model = resolve_model
         self._running_tasks: dict[str, asyncio.Task[None]] = {}
         self._statuses: dict[str, SubagentStatus] = {}
         self._results: dict[str, SubagentResult] = {}
@@ -150,6 +154,13 @@ class SubagentManager:
             spec,
             parent_workspace=parent_workspace,
         )
+        if self._resolve_model is not None:
+            try:
+                status.model = self._resolve_model(spec)
+            except Exception:
+                status.model = spec.model_override
+        else:
+            status.model = spec.model_override
         self._statuses[task_id] = status
         self._done_events[task_id] = asyncio.Event()
         try:
@@ -162,6 +173,7 @@ class SubagentManager:
                     "label": status.label,
                     "task": status.task,
                     "workspace": str(status.workspace) if status.workspace is not None else None,
+                    "model": status.model,
                 },
             )
         except Exception:
@@ -360,6 +372,9 @@ class SubagentManager:
         status = self._statuses[task_id]
         status.phase = "running"
         chatbot = self._chatbot_factory(spec.workspace, spec.model_override)
+        chatbot_model = getattr(getattr(chatbot, "config", None), "model", None)
+        if isinstance(chatbot_model, str) and chatbot_model:
+            status.model = chatbot_model
         pending_event_tasks: set[asyncio.Task[None]] = set()
         event_chain: asyncio.Task[None] | None = None
 

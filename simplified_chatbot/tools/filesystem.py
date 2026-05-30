@@ -763,11 +763,7 @@ def build_default_tool_registry(
 ) -> ToolRegistry:
     """Create a default tool registry for the requested execution profile."""
     from simplified_chatbot.tools.apply_patch import ApplyPatchTool
-    from simplified_chatbot.tools.document_readers import (
-        ReadDocxTool,
-        ReadPdfTool,
-        ReadXlsxTool,
-    )
+    from simplified_chatbot.tools.document_readers import ReadDocumentTool
     from simplified_chatbot.tools.exec_session import (
         ExecSessionManager,
         ListExecSessionsTool,
@@ -820,9 +816,7 @@ def build_default_tool_registry(
         registry.register(TavilySearchTool())
         registry.register(WebFetchTool())
         registry.register(ReadFileTool(workspace=ws, allowed_dir=allowed, file_states=file_states))
-        registry.register(ReadPdfTool(workspace=ws, allowed_dir=allowed))
-        registry.register(ReadDocxTool(workspace=ws, allowed_dir=allowed))
-        registry.register(ReadXlsxTool(workspace=ws, allowed_dir=allowed))
+        registry.register(ReadDocumentTool(workspace=ws, allowed_dir=allowed))
         registry.register(WriteFileTool(workspace=ws, allowed_dir=allowed, file_states=file_states))
         registry.register(EditFileTool(workspace=ws, allowed_dir=allowed, file_states=file_states))
         registry.register(ApplyPatchTool(workspace=ws, allowed_dir=allowed, file_states=file_states))

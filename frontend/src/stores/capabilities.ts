@@ -6,6 +6,7 @@ import type { Capabilities, ToolCapability } from '@/lib/types'
 const FALLBACK: Capabilities = {
   model: { provider: 'unknown', name: 'unknown' },
   available_models: [],
+  default_subagent_model: null,
   max_iterations: 8,
   tools: [],
   features: {

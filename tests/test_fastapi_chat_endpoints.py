@@ -866,6 +866,7 @@ def test_get_session_subagents_lists_persisted_runs(tmp_path):
                 "usage": {"prompt_tokens": 10},
                 "tool_events": [],
                 "final_content": "done",
+                "model": None,
             },
         ],
     }

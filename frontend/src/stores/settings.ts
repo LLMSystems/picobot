@@ -10,6 +10,7 @@ interface PersistedSettings {
   maxTokens: number | null
   maxIterations: number | null
   disabledTools: string[]
+  subagentModel: string | null
 }
 
 const EMPTY: PersistedSettings = {
@@ -18,6 +19,7 @@ const EMPTY: PersistedSettings = {
   maxTokens: null,
   maxIterations: null,
   disabledTools: [],
+  subagentModel: null,
 }
 
 function load(): PersistedSettings {
@@ -37,6 +39,8 @@ function load(): PersistedSettings {
       disabledTools: Array.isArray(parsed.disabledTools)
         ? parsed.disabledTools.filter((x): x is string => typeof x === 'string')
         : [],
+      subagentModel:
+        typeof parsed.subagentModel === 'string' ? parsed.subagentModel : null,
     }
   } catch {
     return { ...EMPTY }
@@ -50,9 +54,10 @@ export const useSettingsStore = defineStore('settings', () => {
   const maxTokens = ref<number | null>(initial.maxTokens)
   const maxIterations = ref<number | null>(initial.maxIterations)
   const disabledTools = ref<string[]>(initial.disabledTools)
+  const subagentModel = ref<string | null>(initial.subagentModel)
 
   watch(
-    [systemPrompt, temperature, maxTokens, maxIterations, disabledTools],
+    [systemPrompt, temperature, maxTokens, maxIterations, disabledTools, subagentModel],
     () => {
       const payload: PersistedSettings = {
         systemPrompt: systemPrompt.value,
@@ -60,6 +65,7 @@ export const useSettingsStore = defineStore('settings', () => {
         maxTokens: maxTokens.value,
         maxIterations: maxIterations.value,
         disabledTools: [...disabledTools.value],
+        subagentModel: subagentModel.value,
       }
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(payload))
@@ -81,6 +87,9 @@ export const useSettingsStore = defineStore('settings', () => {
     if (disabledTools.value.length > 0) {
       out.disabled_tools = [...disabledTools.value]
     }
+    if (subagentModel.value !== null && subagentModel.value.trim() !== '') {
+      out.subagent_model = subagentModel.value
+    }
     return out
   })
 
@@ -90,7 +99,8 @@ export const useSettingsStore = defineStore('settings', () => {
       temperature.value !== null ||
       maxTokens.value !== null ||
       maxIterations.value !== null ||
-      disabledTools.value.length > 0
+      disabledTools.value.length > 0 ||
+      subagentModel.value !== null
     )
   })
 
@@ -113,6 +123,7 @@ export const useSettingsStore = defineStore('settings', () => {
     maxTokens.value = null
     maxIterations.value = null
     disabledTools.value = []
+    subagentModel.value = null
   }
 
   return {
@@ -121,6 +132,7 @@ export const useSettingsStore = defineStore('settings', () => {
     maxTokens,
     maxIterations,
     disabledTools,
+    subagentModel,
     chatOverrides,
     hasOverrides,
     setToolEnabled,

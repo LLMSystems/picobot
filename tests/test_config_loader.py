@@ -79,6 +79,38 @@ def test_load_config_requires_default_model_to_exist_in_available_models():
         )
 
 
+def test_load_config_supports_subagent_model_alias(tmp_path):
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "provider": "openai_compat",
+                "model": "gpt-4.1-mini",
+                "subagentModel": "gpt-4.1-nano",
+            },
+        ),
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+
+    assert config.subagent_model == "gpt-4.1-nano"
+
+
+def test_load_config_requires_subagent_model_to_exist_in_available_models():
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError, match="subagent_model"):
+        load_config_payload(
+            {
+                "provider": "openai_compat",
+                "model": "gpt-4.1-mini",
+                "availableModels": ["gpt-4.1-mini"],
+                "subagentModel": "gpt-4.1-nano",
+            },
+        )
+
+
 def test_load_config_auto_loads_dotenv_from_parent_directory(tmp_path, monkeypatch):
     project_root = tmp_path / "project"
     project_root.mkdir()
