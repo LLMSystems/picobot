@@ -542,7 +542,7 @@ const tokenByModelBars = computed(() => {
         <section data-anchor="usage" class="scroll-mt-20">
         <MetricsSection
           title="Token 用量（24h）"
-          subtitle="持久化儲存於 chat_usage_events，保留 7 天"
+          subtitle="保留 7 天"
         >
           <div class="grid grid-cols-2 gap-3 md:grid-cols-3">
             <StatCard
