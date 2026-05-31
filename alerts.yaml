@@ -111,12 +111,18 @@ rules:
 
   - name: llm_latency_high
     display_name: LLM 延遲過高
+    # Disabled: end-to-end latency is dominated by output length (writing a
+    # long answer naturally pushes p95 past 5s), so this alert produced too
+    # many false positives. The TTFT-only alert below (`llm_ttft_high`) is the
+    # cleaner "model is slow" signal — flip enabled back to true here if you
+    # later want a high-ceiling guard against pathological responses.
     description: LLM 呼叫 p95 延遲超過 5 秒
     severity: warning
     metric_path: llm.latency_p95_ms
     comparator: ">"
     threshold: 5000
     for_seconds: 60
+    enabled: false
 
   - name: llm_ttft_high
     display_name: LLM 首 Token 延遲過高
