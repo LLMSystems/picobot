@@ -16,6 +16,8 @@ try:
 except ImportError:  # pragma: no cover - aiosqlite ships in pyproject
     aiosqlite = None  # type: ignore[assignment]
 
+from simplified_chatbot.runtime.sqlite_pragmas import open_async
+
 
 @dataclass
 class ToolBreakdownEntry:
@@ -45,16 +47,30 @@ class MessageAggregate:
         return self.tool_success_total / seen if seen > 0 else 1.0
 
 
+# Cap the number of session_messages rows we scan per aggregate. Used to be a
+# full table scan — fine at a few hundred rows but degrades linearly as the DB
+# grows, and this runs every 10 s on the snapshot tick. The cap turns the
+# global aggregate into a rolling "recent N messages" stat: older tool calls
+# fall out of the success-rate window, which is the right behaviour for a
+# dashboard anyway. Bump if you need a deeper retrospective.
+_DEFAULT_ROW_LIMIT = 10_000
+
+
 async def aggregate_messages(
     db_path: str | Path | None,
     *,
     session_id: str | None = None,
+    row_limit: int = _DEFAULT_ROW_LIMIT,
 ) -> MessageAggregate:
     """Aggregate tool / iteration stats either globally or for one session.
 
     Only one pass per row; we recognise tool results by the conventional
     `tool` role with `tool_call_id`. The result's `ok` flag is best-effort —
     when missing we count the call as success.
+
+    Caps at `row_limit` rows (newest-first) to bound snapshot-tick latency.
+    The inner subquery selects the most recent N by rowid, then we re-sort
+    chronologically so the tool_call → tool_result pairing still works.
     """
     out = MessageAggregate()
     if db_path is None or aiosqlite is None:
@@ -63,13 +79,24 @@ async def aggregate_messages(
     if not p.exists():
         return out
     if session_id is None:
-        sql = "SELECT payload FROM session_messages"
-        params: tuple = ()
+        sql = (
+            "SELECT payload FROM ("
+            "  SELECT rowid, payload FROM session_messages"
+            "  ORDER BY rowid DESC LIMIT ?"
+            ") ORDER BY rowid ASC"
+        )
+        params: tuple = (int(row_limit),)
     else:
-        sql = "SELECT payload FROM session_messages WHERE session_id = ?"
-        params = (session_id,)
+        sql = (
+            "SELECT payload FROM ("
+            "  SELECT rowid, payload FROM session_messages"
+            "  WHERE session_id = ?"
+            "  ORDER BY rowid DESC LIMIT ?"
+            ") ORDER BY rowid ASC"
+        )
+        params = (session_id, int(row_limit))
     try:
-        conn_ctx = aiosqlite.connect(str(p))
+        conn_ctx = open_async(p)
     except Exception:
         return out
     async with conn_ctx as conn:

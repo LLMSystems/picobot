@@ -12,6 +12,8 @@ try:
 except ImportError:  # pragma: no cover - aiosqlite ships in pyproject
     aiosqlite = None  # type: ignore[assignment]
 
+from simplified_chatbot.runtime.sqlite_pragmas import open_async
+
 
 _KNOWN_TABLES = (
     "session_messages",
@@ -42,7 +44,7 @@ class SqliteStatsCollector:
             size = None
         row_counts: dict[str, int] = {}
         try:
-            async with aiosqlite.connect(str(self._db_path)) as conn:
+            async with open_async(self._db_path) as conn:
                 for table in _KNOWN_TABLES:
                     try:
                         cursor = await conn.execute(

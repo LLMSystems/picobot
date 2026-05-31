@@ -17,6 +17,8 @@ try:
 except ImportError:  # pragma: no cover - optional dependency
     aiosqlite = None  # type: ignore[assignment]
 
+from simplified_chatbot.runtime.sqlite_pragmas import open_async
+
 
 class SessionStore(ABC):
     """Abstract storage for session histories."""
@@ -316,8 +318,14 @@ class SQLiteSessionStore(SessionStore):
         self._init_db()
 
     def _connect(self) -> sqlite3.Connection:
+        from simplified_chatbot.runtime.sqlite_pragmas import apply_pragmas_sync
+
         conn = sqlite3.connect(str(self.db_path))
         conn.execute("PRAGMA foreign_keys=ON")
+        # WAL + tuned synchronous/cache_size — see sqlite_pragmas docstring for
+        # the rationale. Sync store is mostly used by tests these days, but
+        # keeping pragmas consistent avoids surprises if it's wired back in.
+        apply_pragmas_sync(conn)
         return conn
 
     def _init_db(self) -> None:
@@ -528,7 +536,7 @@ class AioSQLiteSessionStore(AsyncSessionStore):
         async with self._init_lock:
             if self._initialized:
                 return
-            async with aiosqlite.connect(str(self.db_path)) as conn:
+            async with open_async(self.db_path) as conn:
                 await conn.execute(
                     """
                     CREATE TABLE IF NOT EXISTS session_messages (
@@ -565,7 +573,7 @@ class AioSQLiteSessionStore(AsyncSessionStore):
 
     async def load_history(self, session_id: str) -> list[Message]:
         await self._ensure_initialized()
-        async with aiosqlite.connect(str(self.db_path)) as conn:
+        async with open_async(self.db_path) as conn:
             cursor = await conn.execute(
                 """
                 SELECT payload
@@ -591,7 +599,7 @@ class AioSQLiteSessionStore(AsyncSessionStore):
             for index, message in enumerate(history)
         ]
         now = _utc_timestamp()
-        async with aiosqlite.connect(str(self.db_path)) as conn:
+        async with open_async(self.db_path) as conn:
             await conn.execute("BEGIN")
             await conn.execute(
                 "DELETE FROM session_messages WHERE session_id = ?",
@@ -618,7 +626,7 @@ class AioSQLiteSessionStore(AsyncSessionStore):
 
     async def delete_session(self, session_id: str) -> None:
         await self._ensure_initialized()
-        async with aiosqlite.connect(str(self.db_path)) as conn:
+        async with open_async(self.db_path) as conn:
             await conn.execute(
                 "DELETE FROM session_messages WHERE session_id = ?",
                 (session_id,),
@@ -631,7 +639,7 @@ class AioSQLiteSessionStore(AsyncSessionStore):
 
     async def list_sessions(self) -> list[str]:
         await self._ensure_initialized()
-        async with aiosqlite.connect(str(self.db_path)) as conn:
+        async with open_async(self.db_path) as conn:
             cursor = await conn.execute(
                 """
                 SELECT session_id
@@ -645,7 +653,7 @@ class AioSQLiteSessionStore(AsyncSessionStore):
 
     async def get_session_metadata(self, session_id: str) -> dict[str, object] | None:
         await self._ensure_initialized()
-        async with aiosqlite.connect(str(self.db_path)) as conn:
+        async with open_async(self.db_path) as conn:
             cursor = await conn.execute(
                 """
                 SELECT created_at, updated_at, title
@@ -675,7 +683,7 @@ class AioSQLiteSessionStore(AsyncSessionStore):
         payload = dict(metadata or {})
         now = _utc_timestamp()
         title = payload.get("title")
-        async with aiosqlite.connect(str(self.db_path)) as conn:
+        async with open_async(self.db_path) as conn:
             await conn.execute(
                 """
                 INSERT INTO session_metadata (session_id, created_at, updated_at, title)
@@ -708,7 +716,7 @@ class AioSQLiteSessionStore(AsyncSessionStore):
         merged = dict(existing)
         merged.update(metadata)
         merged["updated_at"] = _utc_timestamp()
-        async with aiosqlite.connect(str(self.db_path)) as conn:
+        async with open_async(self.db_path) as conn:
             await conn.execute(
                 """
                 UPDATE session_metadata
@@ -751,7 +759,7 @@ class AioSQLiteSubagentStore:
         async with self._init_lock:
             if self._initialized:
                 return
-            async with aiosqlite.connect(str(self.db_path)) as conn:
+            async with open_async(self.db_path) as conn:
                 await conn.execute(
                     """
                     CREATE TABLE IF NOT EXISTS subagent_runs (
@@ -792,7 +800,7 @@ class AioSQLiteSubagentStore:
     async def upsert_run(self, payload: dict[str, object]) -> None:
         await self._ensure_initialized()
         row = self._normalize_payload(payload)
-        async with aiosqlite.connect(str(self.db_path)) as conn:
+        async with open_async(self.db_path) as conn:
             await conn.execute(
                 """
                 INSERT INTO subagent_runs (
@@ -834,7 +842,7 @@ class AioSQLiteSubagentStore:
 
     async def get_run(self, task_id: str) -> dict[str, object] | None:
         await self._ensure_initialized()
-        async with aiosqlite.connect(str(self.db_path)) as conn:
+        async with open_async(self.db_path) as conn:
             cursor = await conn.execute(
                 """
                 SELECT
@@ -905,7 +913,7 @@ class AioSQLiteSubagentStore:
         query.append("LIMIT ?")
         params.append(limit)
 
-        async with aiosqlite.connect(str(self.db_path)) as conn:
+        async with open_async(self.db_path) as conn:
             cursor = await conn.execute("\n".join(query), tuple(params))
             rows = await cursor.fetchall()
             await cursor.close()
@@ -1011,7 +1019,7 @@ class AioSQLiteSubagentEventStore:
         async with self._init_lock:
             if self._initialized:
                 return
-            async with aiosqlite.connect(str(self.db_path)) as conn:
+            async with open_async(self.db_path) as conn:
                 await conn.execute(
                     """
                     CREATE TABLE IF NOT EXISTS subagent_events (
@@ -1052,7 +1060,7 @@ class AioSQLiteSubagentEventStore:
         await self._ensure_initialized()
         created = created_at or _utc_timestamp()
         payload_json = json.dumps(payload, ensure_ascii=False)
-        async with aiosqlite.connect(str(self.db_path)) as conn:
+        async with open_async(self.db_path) as conn:
             await conn.execute("BEGIN IMMEDIATE")
             cursor = await conn.execute(
                 """
@@ -1130,7 +1138,7 @@ class AioSQLiteSubagentEventStore:
         query.append("ORDER BY seq ASC")
         query.append("LIMIT ?")
         params.append(limit)
-        async with aiosqlite.connect(str(self.db_path)) as conn:
+        async with open_async(self.db_path) as conn:
             cursor = await conn.execute("\n".join(query), tuple(params))
             rows = await cursor.fetchall()
             await cursor.close()

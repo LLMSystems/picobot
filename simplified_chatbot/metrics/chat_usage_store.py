@@ -17,6 +17,8 @@ try:
 except ImportError:  # pragma: no cover - aiosqlite ships in pyproject
     aiosqlite = None  # type: ignore[assignment]
 
+from simplified_chatbot.runtime.sqlite_pragmas import open_async
+
 
 @dataclass(frozen=True)
 class ChatUsageRow:
@@ -66,7 +68,7 @@ class ChatUsageStore:
         async with self._init_lock:
             if self._initialized:
                 return
-            async with aiosqlite.connect(str(self.db_path)) as conn:
+            async with open_async(self.db_path) as conn:
                 await conn.execute(
                     """
                     CREATE TABLE IF NOT EXISTS chat_usage_events (
@@ -103,7 +105,7 @@ class ChatUsageStore:
     ) -> None:
         await self.ensure_schema()
         ts_value = ts or datetime.now(timezone.utc).isoformat()
-        async with aiosqlite.connect(str(self.db_path)) as conn:
+        async with open_async(self.db_path) as conn:
             await conn.execute(
                 """
                 INSERT INTO chat_usage_events
@@ -135,7 +137,7 @@ class ChatUsageStore:
         if session_id is not None:
             where += " AND session_id = ?"
             params.append(session_id)
-        async with aiosqlite.connect(str(self.db_path)) as conn:
+        async with open_async(self.db_path) as conn:
             cursor = await conn.execute(
                 f"""
                 SELECT
@@ -181,7 +183,7 @@ class ChatUsageStore:
     async def list_since(self, since_iso: str) -> list[ChatUsageRow]:
         await self.ensure_schema()
         rows: list[ChatUsageRow] = []
-        async with aiosqlite.connect(str(self.db_path)) as conn:
+        async with open_async(self.db_path) as conn:
             cursor = await conn.execute(
                 """
                 SELECT id, ts, session_id, model, prompt_tokens,
@@ -212,7 +214,7 @@ class ChatUsageStore:
         cutoff = (
             datetime.now(timezone.utc) - timedelta(days=retention_days)
         ).isoformat()
-        async with aiosqlite.connect(str(self.db_path)) as conn:
+        async with open_async(self.db_path) as conn:
             cursor = await conn.execute(
                 "DELETE FROM chat_usage_events WHERE ts < ?",
                 (cutoff,),
@@ -224,7 +226,7 @@ class ChatUsageStore:
 
     async def row_count(self) -> int:
         await self.ensure_schema()
-        async with aiosqlite.connect(str(self.db_path)) as conn:
+        async with open_async(self.db_path) as conn:
             cursor = await conn.execute(
                 "SELECT COUNT(*) FROM chat_usage_events",
             )

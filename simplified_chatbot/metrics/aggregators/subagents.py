@@ -12,6 +12,8 @@ try:
 except ImportError:  # pragma: no cover - aiosqlite ships in pyproject
     aiosqlite = None  # type: ignore[assignment]
 
+from simplified_chatbot.runtime.sqlite_pragmas import open_async
+
 from simplified_chatbot.metrics.recorders import percentile
 
 
@@ -133,7 +135,7 @@ async def _load_subagent_rows(
         sql += " WHERE " + " AND ".join(where)
     out: list[_SubagentRow] = []
     try:
-        async with aiosqlite.connect(str(p)) as conn:
+        async with open_async(p) as conn:
             cursor = await conn.execute(sql, params)
             async for row in cursor:
                 phase, ok_raw, started_at, finished_at, usage_json, model = row
@@ -163,7 +165,7 @@ async def _longest_running_seconds(db_path: str | Path | None) -> float:
     if not p.exists():
         return 0.0
     try:
-        async with aiosqlite.connect(str(p)) as conn:
+        async with open_async(p) as conn:
             cursor = await conn.execute(
                 "SELECT started_at FROM subagent_runs "
                 "WHERE phase IN ('spawned', 'running')",
@@ -195,7 +197,7 @@ async def _count_running(db_path: str | Path | None) -> int:
     if not p.exists():
         return 0
     try:
-        async with aiosqlite.connect(str(p)) as conn:
+        async with open_async(p) as conn:
             cursor = await conn.execute(
                 "SELECT COUNT(*) FROM subagent_runs WHERE phase IN ('spawned', 'running')",
             )

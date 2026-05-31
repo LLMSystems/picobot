@@ -12,6 +12,8 @@ try:
 except ImportError:  # pragma: no cover - aiosqlite ships in pyproject
     aiosqlite = None  # type: ignore[assignment]
 
+from simplified_chatbot.runtime.sqlite_pragmas import open_async
+
 
 @dataclass
 class SessionStats:
@@ -27,7 +29,7 @@ async def aggregate_sessions(db_path: str | Path | None) -> SessionStats:
     if not p.exists():
         return SessionStats(total_sessions=0, active_24h=0, new_24h=0)
     cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
-    async with aiosqlite.connect(str(p)) as conn:
+    async with open_async(p) as conn:
         total = await _scalar(conn, "SELECT COUNT(*) FROM session_metadata")
         active = await _scalar(
             conn,
@@ -60,7 +62,7 @@ async def list_active_session_ids(
         return []
     cutoff = (datetime.now(timezone.utc) - timedelta(hours=lookback_hours)).isoformat()
     try:
-        async with aiosqlite.connect(str(p)) as conn:
+        async with open_async(p) as conn:
             cursor = await conn.execute(
                 """
                 SELECT session_id

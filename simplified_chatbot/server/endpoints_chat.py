@@ -61,8 +61,10 @@ async def _record_llm_calls(
     """Drain the buffered `llm_call_finished` events into the metrics layer.
 
     Buffering during the run + flushing here means a single multi-iteration
-    chat call records all of its provider calls (one row each) without
-    blocking the SSE/HTTP hot path or leaking fire-and-forget tasks.
+    chat call records all of its provider calls without blocking the SSE/HTTP
+    hot path or leaking fire-and-forget tasks. Flushed in one batch via
+    `record_llm_calls_many` — N iterations become 1 transaction + 1 fsync
+    instead of N.
 
     `chat_id` groups all LLM calls in one user turn — feeds the
     iterations-per-chat aggregation.
@@ -70,23 +72,27 @@ async def _record_llm_calls(
     if not items:
         return
     svc = getattr(request.app.state, "metrics", None)
-    record = getattr(svc, "record_llm_call", None)
-    if not callable(record):
+    batch_record = getattr(svc, "record_llm_calls_many", None)
+    if not callable(batch_record):
         return
-    for data in items:
-        ttft = data.get("ttft_ms")
-        try:
-            await record(
-                session_id=session_id,
-                model=data.get("model"),
-                latency_ms=int(data.get("latency_ms") or 0),
-                success=bool(data.get("success", True)),
-                error_type=data.get("error_type"),
-                ttft_ms=int(ttft) if ttft is not None else None,
-                chat_id=chat_id,
-            )
-        except Exception:
-            pass
+    payload = [
+        {
+            "session_id": session_id,
+            "chat_id": chat_id,
+            "model": data.get("model"),
+            "latency_ms": int(data.get("latency_ms") or 0),
+            "success": bool(data.get("success", True)),
+            "error_type": data.get("error_type"),
+            "ttft_ms": (
+                int(data["ttft_ms"]) if data.get("ttft_ms") is not None else None
+            ),
+        }
+        for data in items
+    ]
+    try:
+        await batch_record(payload)
+    except Exception:
+        pass
 
 
 @router.post("/chat", response_model=ChatResponse)

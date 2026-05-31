@@ -17,6 +17,8 @@ try:
 except ImportError:  # pragma: no cover - aiosqlite ships in pyproject
     aiosqlite = None  # type: ignore[assignment]
 
+from simplified_chatbot.runtime.sqlite_pragmas import open_async
+
 
 # error_type taxonomy: keep it small so dashboards/alerts can reason about it.
 ERROR_TYPE_TIMEOUT = "timeout"
@@ -104,7 +106,7 @@ class LlmCallStore:
         async with self._init_lock:
             if self._initialized:
                 return
-            async with aiosqlite.connect(str(self.db_path)) as conn:
+            async with open_async(self.db_path) as conn:
                 await conn.execute(
                     """
                     CREATE TABLE IF NOT EXISTS llm_call_events (
@@ -162,26 +164,60 @@ class LlmCallStore:
         chat_id: str | None = None,
         ts: str | None = None,
     ) -> None:
+        """Insert a single event. For multi-iteration chats prefer
+        `insert_many` — it amortises the per-connection + per-fsync overhead
+        across rows."""
+        await self.insert_many(
+            [
+                {
+                    "session_id": session_id,
+                    "model": model,
+                    "latency_ms": latency_ms,
+                    "success": success,
+                    "error_type": error_type,
+                    "ttft_ms": ttft_ms,
+                    "chat_id": chat_id,
+                    "ts": ts,
+                },
+            ],
+        )
+
+    async def insert_many(self, items: "list[dict]") -> None:
+        """Batch insert: one transaction + one fsync regardless of row count.
+
+        A typical multi-iteration chat produces N llm_call_finished events;
+        without batching that was N separate connections + N commits. The
+        batch shape is what `endpoints_chat._record_llm_calls` flushes.
+        """
+        if not items:
+            return
         await self.ensure_schema()
-        ts_value = ts or datetime.now(timezone.utc).isoformat()
-        async with aiosqlite.connect(str(self.db_path)) as conn:
-            await conn.execute(
+        default_ts = datetime.now(timezone.utc).isoformat()
+        rows = []
+        for it in items:
+            ts_value = it.get("ts") or default_ts
+            ttft = it.get("ttft_ms")
+            rows.append(
+                (
+                    ts_value,
+                    it["session_id"],
+                    it.get("model"),
+                    int(it.get("latency_ms") or 0),
+                    1 if it.get("success", True) else 0,
+                    it.get("error_type"),
+                    int(ttft) if ttft is not None else None,
+                    it.get("chat_id"),
+                ),
+            )
+        async with open_async(self.db_path) as conn:
+            await conn.executemany(
                 """
                 INSERT INTO llm_call_events
                     (ts, session_id, model, latency_ms, success, error_type,
                      ttft_ms, chat_id)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (
-                    ts_value,
-                    session_id,
-                    model,
-                    int(latency_ms or 0),
-                    1 if success else 0,
-                    error_type,
-                    int(ttft_ms) if ttft_ms is not None else None,
-                    chat_id,
-                ),
+                rows,
             )
             await conn.commit()
 
@@ -205,7 +241,7 @@ class LlmCallStore:
             params.append(session_id)
 
         out = LlmCallAggregate()
-        async with aiosqlite.connect(str(self.db_path)) as conn:
+        async with open_async(self.db_path) as conn:
             cursor = await conn.execute(
                 f"""
                 SELECT
@@ -265,7 +301,7 @@ class LlmCallStore:
         """Per-model rollup for the time window. Sorted by call count desc."""
         await self.ensure_schema()
         out: list[ModelCallAggregate] = []
-        async with aiosqlite.connect(str(self.db_path)) as conn:
+        async with open_async(self.db_path) as conn:
             cursor = await conn.execute(
                 """
                 SELECT COALESCE(model, 'unknown') AS m
@@ -337,7 +373,7 @@ class LlmCallStore:
         and would otherwise inflate the "chats" count.
         """
         await self.ensure_schema()
-        async with aiosqlite.connect(str(self.db_path)) as conn:
+        async with open_async(self.db_path) as conn:
             cursor = await conn.execute(
                 """
                 SELECT COUNT(*) AS iterations
@@ -362,7 +398,7 @@ class LlmCallStore:
     async def list_since(self, since_iso: str) -> list[LlmCallRow]:
         await self.ensure_schema()
         rows: list[LlmCallRow] = []
-        async with aiosqlite.connect(str(self.db_path)) as conn:
+        async with open_async(self.db_path) as conn:
             cursor = await conn.execute(
                 """
                 SELECT id, ts, session_id, model, latency_ms, success, error_type,
@@ -395,7 +431,7 @@ class LlmCallStore:
         cutoff = (
             datetime.now(timezone.utc) - timedelta(days=retention_days)
         ).isoformat()
-        async with aiosqlite.connect(str(self.db_path)) as conn:
+        async with open_async(self.db_path) as conn:
             cursor = await conn.execute(
                 "DELETE FROM llm_call_events WHERE ts < ?",
                 (cutoff,),
@@ -407,7 +443,7 @@ class LlmCallStore:
 
     async def row_count(self) -> int:
         await self.ensure_schema()
-        async with aiosqlite.connect(str(self.db_path)) as conn:
+        async with open_async(self.db_path) as conn:
             cursor = await conn.execute(
                 "SELECT COUNT(*) FROM llm_call_events",
             )

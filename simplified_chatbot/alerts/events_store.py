@@ -19,6 +19,8 @@ try:
 except ImportError:  # pragma: no cover - aiosqlite ships in pyproject
     aiosqlite = None  # type: ignore[assignment]
 
+from simplified_chatbot.runtime.sqlite_pragmas import open_async
+
 
 @dataclass
 class AlertEventRow:
@@ -55,7 +57,7 @@ class AlertEventsStore:
         async with self._init_lock:
             if self._initialized:
                 return
-            async with aiosqlite.connect(str(self.db_path)) as conn:
+            async with open_async(self.db_path) as conn:
                 await conn.execute(
                     """
                     CREATE TABLE IF NOT EXISTS alert_events (
@@ -108,7 +110,7 @@ class AlertEventsStore:
         context: dict[str, Any],
     ) -> int:
         await self.ensure_schema()
-        async with aiosqlite.connect(str(self.db_path)) as conn:
+        async with open_async(self.db_path) as conn:
             cursor = await conn.execute(
                 """
                 INSERT INTO alert_events
@@ -135,7 +137,7 @@ class AlertEventsStore:
 
     async def mark_resolved(self, *, event_id: int, resolved_at: str) -> None:
         await self.ensure_schema()
-        async with aiosqlite.connect(str(self.db_path)) as conn:
+        async with open_async(self.db_path) as conn:
             await conn.execute(
                 """
                 UPDATE alert_events
@@ -148,7 +150,7 @@ class AlertEventsStore:
 
     async def mark_acknowledged(self, *, event_id: int, acked_at: str) -> bool:
         await self.ensure_schema()
-        async with aiosqlite.connect(str(self.db_path)) as conn:
+        async with open_async(self.db_path) as conn:
             cursor = await conn.execute(
                 """
                 UPDATE alert_events
@@ -166,7 +168,7 @@ class AlertEventsStore:
         """Return events with resolved_at IS NULL — i.e. currently firing."""
         await self.ensure_schema()
         rows: list[AlertEventRow] = []
-        async with aiosqlite.connect(str(self.db_path)) as conn:
+        async with open_async(self.db_path) as conn:
             cursor = await conn.execute(
                 """
                 SELECT id, rule_name, severity, description, metric_path,
@@ -186,7 +188,7 @@ class AlertEventsStore:
         """Return the most recent N events regardless of state."""
         await self.ensure_schema()
         rows: list[AlertEventRow] = []
-        async with aiosqlite.connect(str(self.db_path)) as conn:
+        async with open_async(self.db_path) as conn:
             cursor = await conn.execute(
                 """
                 SELECT id, rule_name, severity, description, metric_path,
@@ -208,7 +210,7 @@ class AlertEventsStore:
         cutoff = (
             datetime.now(timezone.utc) - timedelta(days=retention_days)
         ).isoformat()
-        async with aiosqlite.connect(str(self.db_path)) as conn:
+        async with open_async(self.db_path) as conn:
             cursor = await conn.execute(
                 "DELETE FROM alert_events WHERE fired_at < ? AND resolved_at IS NOT NULL",
                 (cutoff,),
@@ -223,7 +225,7 @@ class AlertEventsStore:
     async def set_silence(self, *, rule_name: str, silenced_until: str) -> None:
         await self.ensure_schema()
         now = datetime.now(timezone.utc).isoformat()
-        async with aiosqlite.connect(str(self.db_path)) as conn:
+        async with open_async(self.db_path) as conn:
             await conn.execute(
                 """
                 INSERT INTO alert_silences (rule_name, silenced_until, silenced_at)
@@ -238,7 +240,7 @@ class AlertEventsStore:
 
     async def clear_silence(self, *, rule_name: str) -> None:
         await self.ensure_schema()
-        async with aiosqlite.connect(str(self.db_path)) as conn:
+        async with open_async(self.db_path) as conn:
             await conn.execute(
                 "DELETE FROM alert_silences WHERE rule_name = ?",
                 (rule_name,),
@@ -250,7 +252,7 @@ class AlertEventsStore:
         await self.ensure_schema()
         now = datetime.now(timezone.utc).isoformat()
         out: dict[str, str] = {}
-        async with aiosqlite.connect(str(self.db_path)) as conn:
+        async with open_async(self.db_path) as conn:
             cursor = await conn.execute(
                 "SELECT rule_name, silenced_until FROM alert_silences "
                 "WHERE silenced_until > ?",

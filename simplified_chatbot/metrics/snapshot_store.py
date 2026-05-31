@@ -17,6 +17,8 @@ try:
 except ImportError:  # pragma: no cover - aiosqlite ships in pyproject
     aiosqlite = None  # type: ignore[assignment]
 
+from simplified_chatbot.runtime.sqlite_pragmas import open_async
+
 
 @dataclass(frozen=True)
 class SnapshotRow:
@@ -68,7 +70,7 @@ class SnapshotStore:
         async with self._init_lock:
             if self._initialized:
                 return
-            async with aiosqlite.connect(str(self.db_path)) as conn:
+            async with open_async(self.db_path) as conn:
                 await conn.execute(
                     """
                     CREATE TABLE IF NOT EXISTS metrics_snapshots (
@@ -110,7 +112,7 @@ class SnapshotStore:
             )
             for r in rows
         ]
-        async with aiosqlite.connect(str(self.db_path)) as conn:
+        async with open_async(self.db_path) as conn:
             await conn.executemany(
                 """
                 INSERT INTO metrics_snapshots
@@ -126,7 +128,7 @@ class SnapshotStore:
         cutoff = (
             datetime.now(timezone.utc) - timedelta(days=retention_days)
         ).isoformat()
-        async with aiosqlite.connect(str(self.db_path)) as conn:
+        async with open_async(self.db_path) as conn:
             cursor = await conn.execute(
                 "DELETE FROM metrics_snapshots WHERE ts < ?",
                 (cutoff,),
@@ -211,7 +213,7 @@ class SnapshotStore:
             sql = sql.replace("{extra_where}", extra_where)
 
         rows: list[tuple[str, str | None, str | None, int, float | None]] = []
-        async with aiosqlite.connect(str(self.db_path)) as conn:
+        async with open_async(self.db_path) as conn:
             cursor = await conn.execute(sql, params)
             async for row in cursor:
                 rows.append(tuple(row))  # type: ignore[arg-type]
@@ -233,7 +235,7 @@ class SnapshotStore:
 
     async def row_count(self) -> int:
         await self.ensure_schema()
-        async with aiosqlite.connect(str(self.db_path)) as conn:
+        async with open_async(self.db_path) as conn:
             cursor = await conn.execute("SELECT COUNT(*) FROM metrics_snapshots")
             row = await cursor.fetchone()
             await cursor.close()

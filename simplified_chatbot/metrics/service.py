@@ -147,12 +147,11 @@ class MetricsService:
     async def build_session_snapshot(self, session_id: str) -> dict[str, Any] | None:
         """Assemble the `/metrics/sessions/{id}` payload, or None if no session."""
         from simplified_chatbot.metrics.aggregators.sessions import _scalar  # type: ignore
-
-        import aiosqlite  # local import to avoid hard dep at import time
+        from simplified_chatbot.runtime.sqlite_pragmas import open_async
 
         if self._db_path is None or not self._db_path.exists():
             return None
-        async with aiosqlite.connect(str(self._db_path)) as conn:
+        async with open_async(self._db_path) as conn:
             cursor = await conn.execute(
                 """
                 SELECT created_at, updated_at
@@ -329,6 +328,22 @@ class MetricsService:
                 ttft_ms=ttft_ms,
                 chat_id=chat_id,
             )
+        except Exception:
+            pass
+
+    async def record_llm_calls_many(
+        self,
+        items: "list[dict]",
+    ) -> None:
+        """Batch entrypoint — single fsync regardless of iteration count.
+
+        Each item must include `session_id`; other fields mirror `record_llm_call`.
+        Best-effort like the singular form: DB failures must not block chat.
+        """
+        if self.llm_call_store is None or not items:
+            return
+        try:
+            await self.llm_call_store.insert_many(items)
         except Exception:
             pass
 

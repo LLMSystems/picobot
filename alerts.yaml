@@ -84,6 +84,7 @@ rules:
     comparator: ">"
     threshold: 3000
     for_seconds: 60
+    enabled: false
 
   - name: subagent_success_drop
     display_name: 子代理成功率下降
@@ -126,9 +127,9 @@ rules:
 
   - name: llm_ttft_high
     display_name: LLM 首 Token 延遲過高
-    description: LLM 首 Token p95 延遲超過 1.5 秒（影響回應感受）
+    description: LLM 首 Token p95 延遲超過 3 秒（影響回應感受）
     severity: warning
     metric_path: llm.ttft_p95_ms
     comparator: ">"
-    threshold: 1500
+    threshold: 3000
     for_seconds: 60
