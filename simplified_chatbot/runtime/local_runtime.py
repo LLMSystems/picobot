@@ -22,14 +22,15 @@ from simplified_chatbot.config.loader import load_config
 from simplified_chatbot.skills.loader import SkillsLoader
 from simplified_chatbot.runtime.session_store import (
     AioSQLiteSessionMemoryStore,
+    AioSQLiteSubagentStore,
     AioSQLiteSubagentEventStore,
     AioSQLiteSessionStore,
-    AioSQLiteSubagentStore,
     AsyncSessionStore,
     InMemorySessionStore,
     JsonlSessionStore,
-    SessionStore,
+    SessionMemoryNoteRow,
     SessionMemoryRow,
+    SessionStore,
 )
 from simplified_chatbot.runtime.session_workspace import SessionWorkspaceManager
 from simplified_chatbot.tools.shell import ExecTool
@@ -583,7 +584,7 @@ class LocalAgentRuntime:
         else:
             await asyncio.to_thread(self.store.delete_session, session_id)
         if self.memory_store is not None:
-            await self.memory_store.delete_memory(session_id)
+            await self.memory_store.delete_session_data(session_id)
         self._session_chatbots.pop(session_id, None)
         self._session_locks.pop(session_id, None)
         self._session_event_subscribers.pop(session_id, None)
@@ -1097,6 +1098,71 @@ class LocalAgentRuntime:
     async def load_history_async(self, session_id: str) -> list[Message]:
         return await self._load_history_async(session_id)
 
+    async def load_session_memory_async(self, session_id: str) -> dict[str, object]:
+        if self.memory_store is None:
+            return {
+                "session_id": session_id,
+                "enabled": self._memory_enabled,
+                "has_summary": False,
+                "summary": "",
+                "compacted_message_count": 0,
+                "updated_at": None,
+                "notes": [],
+            }
+        memory = await self.memory_store.load_memory(session_id)
+        notes = await self.memory_store.list_notes(session_id)
+        if memory is None:
+            return {
+                "session_id": session_id,
+                "enabled": True,
+                "has_summary": False,
+                "summary": "",
+                "compacted_message_count": 0,
+                "updated_at": None,
+                "notes": [self._serialize_memory_note(note) for note in notes],
+            }
+        return {
+            "session_id": memory.session_id,
+            "enabled": True,
+            "has_summary": bool(memory.summary.strip()),
+            "summary": memory.summary,
+            "compacted_message_count": memory.compacted_message_count,
+            "updated_at": memory.updated_at,
+            "notes": [self._serialize_memory_note(note) for note in notes],
+        }
+
+    async def add_session_memory_note_async(
+        self,
+        session_id: str,
+        *,
+        content: str,
+        kind: str,
+    ) -> dict[str, object]:
+        if self.memory_store is None:
+            raise RuntimeError("session memory is not enabled")
+        note = await self.memory_store.add_note(
+            session_id,
+            content=content,
+            kind=kind,
+        )
+        return self._serialize_memory_note(note)
+
+    async def archive_session_memory_note_async(
+        self,
+        session_id: str,
+        note_id: int,
+    ) -> bool:
+        if self.memory_store is None:
+            raise RuntimeError("session memory is not enabled")
+        note = await self.memory_store.archive_note(session_id, note_id)
+        return note is not None
+
+    async def clear_session_memory_summary_async(self, session_id: str) -> dict[str, object]:
+        if self.memory_store is None:
+            raise RuntimeError("session memory is not enabled")
+        await self.memory_store.clear_summary(session_id)
+        return await self.load_session_memory_async(session_id)
+
     async def _load_history_async(self, session_id: str) -> list[Message]:
         if isinstance(self.store, AsyncSessionStore):
             return await self.store.load_history(session_id)
@@ -1146,11 +1212,13 @@ class LocalAgentRuntime:
             )
 
         memory = await self.memory_store.load_memory(session_id)
+        notes = await self.memory_store.list_notes(session_id)
         compacted_count = self._clamp_compacted_message_count(memory, history)
         summary = memory.summary if memory is not None else ""
         chatbot = self._get_chatbot_for_session(session_id)
         base_prompt = self._resolve_base_system_prompt(chatbot, system_prompt_override)
-        prompt_with_memory = self._build_memory_augmented_prompt(base_prompt, summary)
+        prompt_with_memory = self._build_memory_augmented_prompt(base_prompt, summary, notes)
+        has_memory_context = self._memory_context_available(summary, notes)
         live_history = [*history[compacted_count:], *injected]
         budget = self._memory_input_budget(max_tokens_override)
         estimated = self._estimate_memory_prompt_tokens(prompt_with_memory, live_history, message)
@@ -1168,7 +1236,7 @@ class LocalAgentRuntime:
             )
             return _PreparedMemoryContext(
                 history=live_history,
-                system_prompt_override=prompt_with_memory if summary else system_prompt_override,
+                system_prompt_override=prompt_with_memory if has_memory_context else system_prompt_override,
                 compacted_message_count=compacted_count,
                 runtime_notices=[],
             )
@@ -1209,7 +1277,7 @@ class LocalAgentRuntime:
                 )
                 return _PreparedMemoryContext(
                     history=live_history,
-                    system_prompt_override=prompt_with_memory if summary else system_prompt_override,
+                    system_prompt_override=prompt_with_memory if has_memory_context else system_prompt_override,
                     compacted_message_count=compacted_count,
                     runtime_notices=[
                         self._build_runtime_notice(
@@ -1232,7 +1300,7 @@ class LocalAgentRuntime:
                 summary=summary,
                 compacted_message_count=next_count,
             )
-            prompt_with_memory = self._build_memory_augmented_prompt(base_prompt, memory.summary)
+            prompt_with_memory = self._build_memory_augmented_prompt(base_prompt, memory.summary, notes)
             live_history = [*history[memory.compacted_message_count:], *injected]
             _emit_runtime_event(
                 on_event,
@@ -1275,7 +1343,7 @@ class LocalAgentRuntime:
             )
             return _PreparedMemoryContext(
                 history=live_history,
-                system_prompt_override=prompt_with_memory if summary else system_prompt_override,
+                system_prompt_override=prompt_with_memory if has_memory_context else system_prompt_override,
                 compacted_message_count=compacted_count,
                 runtime_notices=[
                     self._build_runtime_notice(
@@ -1307,17 +1375,61 @@ class LocalAgentRuntime:
         }
 
     @staticmethod
-    def _build_memory_augmented_prompt(base_prompt: str, summary: str) -> str:
+    def _build_memory_augmented_prompt(
+        base_prompt: str,
+        summary: str,
+        notes: list[SessionMemoryNoteRow],
+    ) -> str:
         cleaned = summary.strip()
-        if not cleaned or cleaned == "(nothing)":
+        cleaned_notes = [note for note in notes if note.content.strip()]
+        if (not cleaned or cleaned == "(nothing)") and not cleaned_notes:
             return base_prompt
-        return (
-            f"{base_prompt}\n\n---\n\n"
-            "# Session Memory\n\n"
-            "The following is a compact summary of earlier turns in this session. "
-            "Use it as continuity context; prefer current user instructions when they conflict.\n\n"
-            f"{cleaned}"
+        sections: list[str] = []
+        if cleaned and cleaned != "(nothing)":
+            sections.append(
+                "# Session Memory Summary\n\n"
+                "The following is a compact summary of earlier turns in this session. "
+                "Use it as continuity context; prefer current user instructions when they conflict.\n\n"
+                f"{cleaned}",
+            )
+        if cleaned_notes:
+            sections.append(
+                "# User Memory Notes\n\n"
+                "These notes were explicitly added or corrected by the user. "
+                "Treat them as high-priority session preferences or facts unless the current user message supersedes them.\n\n"
+                f"{LocalAgentRuntime._format_memory_notes_for_prompt(cleaned_notes)}",
+            )
+        return f"{base_prompt}\n\n---\n\n" + "\n\n".join(sections)
+
+    @staticmethod
+    def _memory_context_available(summary: str, notes: list[SessionMemoryNoteRow]) -> bool:
+        if summary.strip() and summary.strip() != "(nothing)":
+            return True
+        return any(note.content.strip() for note in notes)
+
+    @staticmethod
+    def _format_memory_notes_for_prompt(notes: list[SessionMemoryNoteRow]) -> str:
+        label_map = {
+            "note": "Note",
+            "preference": "Preference",
+            "correction": "Correction",
+        }
+        return "\n".join(
+            f"- {label_map.get(note.kind, 'Note')}: {note.content.strip()}"
+            for note in notes
+            if note.content.strip()
         )
+
+    @staticmethod
+    def _serialize_memory_note(note: SessionMemoryNoteRow) -> dict[str, object]:
+        return {
+            "id": note.id,
+            "session_id": note.session_id,
+            "kind": note.kind,
+            "content": note.content,
+            "created_at": note.created_at,
+            "updated_at": note.updated_at,
+        }
 
     def _memory_input_budget(self, max_tokens_override: int | None) -> int:
         config = getattr(self.chatbot, "config", None)

@@ -222,6 +222,40 @@ def test_aiosqlite_session_memory_store_round_trip(tmp_path: Path):
     assert deleted is None
 
 
+def test_aiosqlite_session_memory_store_notes_round_trip(tmp_path: Path):
+    pytest.importorskip("aiosqlite")
+    store = AioSQLiteSessionMemoryStore(tmp_path / "sessions_async.db")
+
+    async def _run():
+        first = await store.add_note(
+            "chat-1",
+            kind="preference",
+            content="Prefer Traditional Chinese responses",
+        )
+        second = await store.add_note(
+            "chat-1",
+            kind="correction",
+            content="Picobot and Nanobot are separate projects",
+        )
+        listed = await store.list_notes("chat-1")
+        archived = await store.archive_note("chat-1", first.id)
+        active_after_archive = await store.list_notes("chat-1")
+        all_notes = await store.list_notes("chat-1", include_archived=True)
+        await store.delete_session_data("chat-1")
+        after_delete = await store.list_notes("chat-1", include_archived=True)
+        return first, second, listed, archived, active_after_archive, all_notes, after_delete
+
+    first, second, listed, archived, active_after_archive, all_notes, after_delete = asyncio.run(_run())
+    assert first.kind == "preference"
+    assert second.kind == "correction"
+    assert [item.id for item in listed] == [second.id, first.id]
+    assert archived is not None
+    assert archived.archived_at is not None
+    assert [item.id for item in active_after_archive] == [second.id]
+    assert len(all_notes) == 2
+    assert after_delete == []
+
+
 def test_aiosqlite_subagent_store_upsert_and_get_run(tmp_path: Path):
     pytest.importorskip("aiosqlite")
     store = AioSQLiteSubagentStore(tmp_path / "subagents_async.db")

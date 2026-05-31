@@ -51,6 +51,33 @@ export interface SessionSummary {
   last_assistant_preview: string
 }
 
+export interface SessionMemoryResponse {
+  session_id: string
+  enabled: boolean
+  has_summary: boolean
+  summary: string
+  compacted_message_count: number
+  updated_at: string | null
+  notes: SessionMemoryNote[]
+}
+
+export type SessionMemoryNoteKind = 'note' | 'preference' | 'correction'
+
+export interface SessionMemoryNote {
+  id: number
+  session_id: string
+  kind: SessionMemoryNoteKind
+  content: string
+  created_at: string
+  updated_at: string
+}
+
+export interface SessionMemoryNoteDeleteResponse {
+  session_id: string
+  note_id: number
+  deleted: boolean
+}
+
 export type MessageRole = 'user' | 'assistant' | 'tool' | 'system'
 
 export interface ToolCallRef {

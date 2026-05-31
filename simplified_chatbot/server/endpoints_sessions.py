@@ -13,6 +13,10 @@ from simplified_chatbot.server.schemas import (
     DeleteSessionResponse,
     SessionCreateRequest,
     SessionListResponse,
+    SessionMemoryNote,
+    SessionMemoryNoteCreateRequest,
+    SessionMemoryNoteDeleteResponse,
+    SessionMemoryResponse,
     SessionMessagesResponse,
     SessionRenameRequest,
     SessionSummary,
@@ -71,6 +75,138 @@ async def get_session_messages(
             message=f"Session '{session_id}' not found",
         )
     return SessionMessagesResponse(session_id=session_id, messages=messages)
+
+
+@router.get(
+    "/sessions/{session_id}/memory",
+    response_model=SessionMemoryResponse,
+)
+async def get_session_memory(
+    request: Request,
+    session_id: str,
+) -> SessionMemoryResponse:
+    """Load one session's rolling memory summary."""
+    runtime = get_runtime(request)
+    summary = await runtime.get_session_summary_async(session_id)
+    if summary is None:
+        return error_response(
+            request,
+            status_code=404,
+            code="SESSION_NOT_FOUND",
+            message=f"Session '{session_id}' not found",
+        )
+    payload = await runtime.load_session_memory_async(session_id)
+    return SessionMemoryResponse.model_validate(payload)
+
+
+@router.post(
+    "/sessions/{session_id}/memory/notes",
+    response_model=SessionMemoryNote,
+)
+async def create_session_memory_note(
+    request: Request,
+    session_id: str,
+    payload: SessionMemoryNoteCreateRequest,
+) -> SessionMemoryNote:
+    """Create one user-managed memory note."""
+    runtime = get_runtime(request)
+    summary = await runtime.get_session_summary_async(session_id)
+    if summary is None:
+        return error_response(
+            request,
+            status_code=404,
+            code="SESSION_NOT_FOUND",
+            message=f"Session '{session_id}' not found",
+        )
+    try:
+        note = await runtime.add_session_memory_note_async(
+            session_id,
+            content=payload.content,
+            kind=payload.kind,
+        )
+    except ValueError as exc:
+        return error_response(
+            request,
+            status_code=422,
+            code="INVALID_MEMORY_NOTE",
+            message=str(exc),
+        )
+    except RuntimeError:
+        return error_response(
+            request,
+            status_code=409,
+            code="MEMORY_DISABLED",
+            message="Session memory is not enabled",
+        )
+    return SessionMemoryNote.model_validate(note)
+
+
+@router.delete(
+    "/sessions/{session_id}/memory/notes/{note_id}",
+    response_model=SessionMemoryNoteDeleteResponse,
+)
+async def delete_session_memory_note(
+    request: Request,
+    session_id: str,
+    note_id: int,
+) -> SessionMemoryNoteDeleteResponse:
+    """Archive one user-managed memory note."""
+    runtime = get_runtime(request)
+    summary = await runtime.get_session_summary_async(session_id)
+    if summary is None:
+        return error_response(
+            request,
+            status_code=404,
+            code="SESSION_NOT_FOUND",
+            message=f"Session '{session_id}' not found",
+        )
+    try:
+        deleted = await runtime.archive_session_memory_note_async(session_id, note_id)
+    except RuntimeError:
+        return error_response(
+            request,
+            status_code=409,
+            code="MEMORY_DISABLED",
+            message="Session memory is not enabled",
+        )
+    if not deleted:
+        return error_response(
+            request,
+            status_code=404,
+            code="MEMORY_NOTE_NOT_FOUND",
+            message=f"Memory note '{note_id}' not found in session '{session_id}'",
+        )
+    return SessionMemoryNoteDeleteResponse(session_id=session_id, note_id=note_id, deleted=True)
+
+
+@router.delete(
+    "/sessions/{session_id}/memory/summary",
+    response_model=SessionMemoryResponse,
+)
+async def clear_session_memory_summary(
+    request: Request,
+    session_id: str,
+) -> SessionMemoryResponse:
+    """Clear the rolling system summary while keeping user memory notes."""
+    runtime = get_runtime(request)
+    summary = await runtime.get_session_summary_async(session_id)
+    if summary is None:
+        return error_response(
+            request,
+            status_code=404,
+            code="SESSION_NOT_FOUND",
+            message=f"Session '{session_id}' not found",
+        )
+    try:
+        payload = await runtime.clear_session_memory_summary_async(session_id)
+    except RuntimeError:
+        return error_response(
+            request,
+            status_code=409,
+            code="MEMORY_DISABLED",
+            message="Session memory is not enabled",
+        )
+    return SessionMemoryResponse.model_validate(payload)
 
 
 @router.get(

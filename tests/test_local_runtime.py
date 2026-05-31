@@ -505,6 +505,42 @@ def test_local_runtime_memory_empty_summary_keeps_history_and_skips_memory(tmp_p
     assert "memory_compaction_failed" in event_names
 
 
+def test_local_runtime_memory_notes_are_injected_even_without_summary(tmp_path: Path):
+    pytest.importorskip("aiosqlite")
+    provider = _MemoryAwareProvider()
+    config = ChatbotConfig(
+        model="gpt-4.1-mini",
+        max_tokens=20,
+        context_window_tokens=4000,
+        memory_enabled=True,
+        memory_compression_ratio=0.5,
+    )
+    bot = SimplifiedChatbot(
+        config=config,
+        provider=provider,
+        system_prompt="Base system prompt.",
+    )
+    store = AioSQLiteSessionStore(tmp_path / "runtime.db")
+    runtime = LocalAgentRuntime(chatbot=bot, store=store)
+
+    async def _run():
+        await store.create_session("s1", {"title": "Memory notes"})
+        assert runtime.memory_store is not None
+        await runtime.memory_store.add_note(
+            "s1",
+            kind="preference",
+            content="Prefer responses in Traditional Chinese",
+        )
+        await runtime.handle_input_async("s1", "continue")
+
+    asyncio.run(_run())
+
+    assert provider.chat_calls
+    system_prompt = str(provider.chat_calls[-1][0].get("content", ""))
+    assert "User Memory Notes" in system_prompt
+    assert "Traditional Chinese" in system_prompt
+
+
 def test_local_runtime_with_jsonl_store_persists_to_files(tmp_path: Path):
     bot = _DummyChatbot()
     store = JsonlSessionStore(tmp_path / "sessions")
