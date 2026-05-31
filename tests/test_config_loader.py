@@ -66,6 +66,26 @@ def test_load_config_supports_available_models_alias(tmp_path):
     assert config.available_models == ["gpt-4.1-mini", "gpt-5-mini"]
 
 
+def test_load_config_supports_memory_aliases(tmp_path):
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "provider": "openai_compat",
+                "model": "gpt-4.1-mini",
+                "memoryEnabled": True,
+                "memoryCompressionRatio": 0.65,
+            },
+        ),
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+
+    assert config.memory_enabled is True
+    assert config.memory_compression_ratio == 0.65
+
+
 def test_load_config_requires_default_model_to_exist_in_available_models():
     from pydantic import ValidationError
 

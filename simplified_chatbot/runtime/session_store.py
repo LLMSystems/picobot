@@ -6,6 +6,7 @@ import json
 import re
 import sqlite3
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -18,6 +19,16 @@ except ImportError:  # pragma: no cover - optional dependency
     aiosqlite = None  # type: ignore[assignment]
 
 from simplified_chatbot.runtime.sqlite_pragmas import open_async
+
+
+@dataclass(slots=True)
+class SessionMemoryRow:
+    """Rolling memory summary for one chat session."""
+
+    session_id: str
+    summary: str
+    compacted_message_count: int
+    updated_at: str
 
 
 class SessionStore(ABC):
@@ -731,6 +742,110 @@ class AioSQLiteSessionStore(AsyncSessionStore):
             )
             await conn.commit()
         return merged
+
+
+class AioSQLiteSessionMemoryStore:
+    """Async SQLite-backed store for rolling per-session memory summaries."""
+
+    def __init__(self, db_path: str | Path) -> None:
+        if aiosqlite is None:
+            raise ImportError(
+                "AioSQLiteSessionMemoryStore requires 'aiosqlite'. Install with: pip install aiosqlite",
+            )
+        self.db_path = Path(db_path).expanduser().resolve()
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._initialized = False
+        self._init_lock: Any = None
+
+    async def ensure_schema(self) -> None:
+        await self._ensure_initialized()
+
+    async def _ensure_initialized(self) -> None:
+        if self._initialized:
+            return
+        if self._init_lock is None:
+            import asyncio
+
+            self._init_lock = asyncio.Lock()
+        async with self._init_lock:
+            if self._initialized:
+                return
+            async with open_async(self.db_path) as conn:
+                await conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS session_memory (
+                        session_id TEXT PRIMARY KEY,
+                        summary TEXT NOT NULL DEFAULT '',
+                        compacted_message_count INTEGER NOT NULL DEFAULT 0,
+                        updated_at TEXT NOT NULL
+                    )
+                    """,
+                )
+                await conn.commit()
+            self._initialized = True
+
+    async def load_memory(self, session_id: str) -> SessionMemoryRow | None:
+        await self._ensure_initialized()
+        async with open_async(self.db_path) as conn:
+            cursor = await conn.execute(
+                """
+                SELECT session_id, summary, compacted_message_count, updated_at
+                FROM session_memory
+                WHERE session_id = ?
+                """,
+                (session_id,),
+            )
+            row = await cursor.fetchone()
+            await cursor.close()
+        if row is None:
+            return None
+        return SessionMemoryRow(
+            session_id=str(row[0]),
+            summary=str(row[1] or ""),
+            compacted_message_count=max(0, int(row[2] or 0)),
+            updated_at=str(row[3] or ""),
+        )
+
+    async def save_memory(
+        self,
+        session_id: str,
+        *,
+        summary: str,
+        compacted_message_count: int,
+    ) -> SessionMemoryRow:
+        await self._ensure_initialized()
+        now = _utc_timestamp()
+        compacted = max(0, int(compacted_message_count))
+        async with open_async(self.db_path) as conn:
+            await conn.execute(
+                """
+                INSERT INTO session_memory (
+                    session_id, summary, compacted_message_count, updated_at
+                )
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(session_id) DO UPDATE SET
+                    summary = excluded.summary,
+                    compacted_message_count = excluded.compacted_message_count,
+                    updated_at = excluded.updated_at
+                """,
+                (session_id, summary, compacted, now),
+            )
+            await conn.commit()
+        return SessionMemoryRow(
+            session_id=session_id,
+            summary=summary,
+            compacted_message_count=compacted,
+            updated_at=now,
+        )
+
+    async def delete_memory(self, session_id: str) -> None:
+        await self._ensure_initialized()
+        async with open_async(self.db_path) as conn:
+            await conn.execute(
+                "DELETE FROM session_memory WHERE session_id = ?",
+                (session_id,),
+            )
+            await conn.commit()
 
 
 class AioSQLiteSubagentStore:

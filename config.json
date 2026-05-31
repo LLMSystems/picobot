@@ -11,6 +11,8 @@
   ],
   "maxTokens": 4000,
   "contextWindowTokens": 32000,
+  "memoryEnabled": true,
+  "memoryCompressionRatio": 0.5,
   "maxIterations": 40,
   "temperature": 0.2,
   "workspaceRootDir": "workspaces",
