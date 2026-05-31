@@ -44,6 +44,7 @@ class _PreparedMemoryContext:
     history: list[Message]
     system_prompt_override: str | None
     compacted_message_count: int
+    runtime_notices: list[dict[str, str]]
 
 
 class LocalAgentRuntime:
@@ -389,11 +390,15 @@ class LocalAgentRuntime:
             except Exception:
                 self._restore_pending_internal_messages(session_id, injected)
                 raise
+            persisted_messages = self._attach_runtime_notices(
+                result.messages,
+                prepared.runtime_notices,
+            )
             await self._save_history_async(
                 session_id,
                 self._restore_full_history_after_memory(
                     history,
-                    result.messages,
+                    persisted_messages,
                     prepared.compacted_message_count,
                 ),
             )
@@ -472,11 +477,15 @@ class LocalAgentRuntime:
             except Exception:
                 self._restore_pending_internal_messages(session_id, injected)
                 raise
+            persisted_messages = self._attach_runtime_notices(
+                result.messages,
+                prepared.runtime_notices,
+            )
             await self._save_history_async(
                 session_id,
                 self._restore_full_history_after_memory(
                     history,
-                    result.messages,
+                    persisted_messages,
                     prepared.compacted_message_count,
                 ),
             )
@@ -1133,6 +1142,7 @@ class LocalAgentRuntime:
                 history=[*history, *injected],
                 system_prompt_override=system_prompt_override,
                 compacted_message_count=0,
+                runtime_notices=[],
             )
 
         memory = await self.memory_store.load_memory(session_id)
@@ -1160,6 +1170,7 @@ class LocalAgentRuntime:
                 history=live_history,
                 system_prompt_override=prompt_with_memory if summary else system_prompt_override,
                 compacted_message_count=compacted_count,
+                runtime_notices=[],
             )
 
         target = max(1, int(budget * self._memory_compression_ratio))
@@ -1200,6 +1211,12 @@ class LocalAgentRuntime:
                     history=live_history,
                     system_prompt_override=prompt_with_memory if summary else system_prompt_override,
                     compacted_message_count=compacted_count,
+                    runtime_notices=[
+                        self._build_runtime_notice(
+                            kind="warning",
+                            text="上下文接近上限，但目前沒有可再整理的較早對話",
+                        ),
+                    ],
                 )
 
             summary = await self._generate_memory_summary_async(
@@ -1232,6 +1249,19 @@ class LocalAgentRuntime:
                 history=live_history,
                 system_prompt_override=prompt_with_memory,
                 compacted_message_count=memory.compacted_message_count,
+                runtime_notices=[
+                    self._build_runtime_notice(
+                        kind="success",
+                        text=(
+                            "已整理較早對話，後續會以摘要延續上下文"
+                            + (
+                                f"（本次整理 {max(0, memory.compacted_message_count - compacted_count)} 則）"
+                                if memory.compacted_message_count > compacted_count
+                                else ""
+                            )
+                        ),
+                    ),
+                ],
             )
         except Exception as exc:
             _emit_runtime_event(
@@ -1247,6 +1277,15 @@ class LocalAgentRuntime:
                 history=live_history,
                 system_prompt_override=prompt_with_memory if summary else system_prompt_override,
                 compacted_message_count=compacted_count,
+                runtime_notices=[
+                    self._build_runtime_notice(
+                        kind="error",
+                        text=(
+                            "整理較早對話失敗，已改用原始上下文繼續"
+                            + (f"：{exc}" if str(exc) else "")
+                        ),
+                    ),
+                ],
             )
 
     def _resolve_base_system_prompt(
@@ -1258,6 +1297,14 @@ class LocalAgentRuntime:
             return system_prompt_override.strip()
         prompt = getattr(chatbot, "system_prompt", None)
         return prompt if isinstance(prompt, str) else ""
+
+    @staticmethod
+    def _build_runtime_notice(*, kind: str, text: str) -> dict[str, str]:
+        return {
+            "key": "memory",
+            "kind": kind,
+            "text": text,
+        }
 
     @staticmethod
     def _build_memory_augmented_prompt(base_prompt: str, summary: str) -> str:
@@ -1418,6 +1465,43 @@ class LocalAgentRuntime:
             return result_messages
         prefix = original_history[: min(compacted_message_count, len(original_history))]
         return [*prefix, *result_messages]
+
+    @staticmethod
+    def _attach_runtime_notices(
+        messages: list[Message],
+        notices: list[dict[str, str]],
+    ) -> list[Message]:
+        if not notices:
+            return messages
+        attached = [dict(message) for message in messages]
+        for index in range(len(attached) - 1, -1, -1):
+            message = attached[index]
+            if message.get("role") != "assistant":
+                continue
+            metadata = dict(message.get("metadata") or {})
+            existing_raw = metadata.get("runtime_notices")
+            existing: list[dict[str, str]] = []
+            if isinstance(existing_raw, list):
+                for item in existing_raw:
+                    if not isinstance(item, dict):
+                        continue
+                    key = item.get("key")
+                    kind = item.get("kind")
+                    text = item.get("text")
+                    if (
+                        isinstance(key, str)
+                        and isinstance(kind, str)
+                        and isinstance(text, str)
+                    ):
+                        existing.append({"key": key, "kind": kind, "text": text})
+            by_key = {item["key"]: item for item in existing}
+            for notice in notices:
+                by_key[notice["key"]] = dict(notice)
+            metadata["runtime_notices"] = list(by_key.values())
+            message["metadata"] = metadata
+            attached[index] = message
+            return attached
+        return attached
 
     async def _run_chat_async(
         self,

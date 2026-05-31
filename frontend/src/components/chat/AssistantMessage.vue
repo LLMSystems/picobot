@@ -52,6 +52,21 @@ const hasTextContent = computed(() =>
   ),
 )
 
+const runtimeNotices = computed(() => props.message.runtimeNotices ?? [])
+
+function noticeClass(kind: 'info' | 'success' | 'warning' | 'error'): string {
+  switch (kind) {
+    case 'success':
+      return 'text-emerald-600 dark:text-emerald-400'
+    case 'warning':
+      return 'text-amber-600 dark:text-amber-400'
+    case 'error':
+      return 'text-destructive'
+    default:
+      return 'text-muted-foreground'
+  }
+}
+
 async function copy() {
   try {
     await navigator.clipboard.writeText(props.message.content)
@@ -114,6 +129,15 @@ async function copy() {
       >
         <AlertCircle class="size-3.5" />
         產生回應時發生錯誤
+      </div>
+
+      <div
+        v-for="notice in runtimeNotices"
+        :key="notice.key"
+        class="text-xs"
+        :class="noticeClass(notice.kind)"
+      >
+        {{ notice.text }}
       </div>
 
     </div>

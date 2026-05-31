@@ -428,6 +428,11 @@ def test_local_runtime_memory_compacts_and_preserves_full_sqlite_history(tmp_pat
     assert memory is not None
     assert memory.compacted_message_count > 0
     assert "SQLite" in memory.summary
+    runtime_notices = loaded[-1].get("metadata", {}).get("runtime_notices")
+    assert isinstance(runtime_notices, list)
+    assert runtime_notices
+    assert runtime_notices[0]["key"] == "memory"
+    assert runtime_notices[0]["kind"] == "success"
 
     event_names = [event for event, _ in events]
     assert "memory_compaction_started" in event_names
@@ -490,6 +495,11 @@ def test_local_runtime_memory_empty_summary_keeps_history_and_skips_memory(tmp_p
     assert loaded[-1]["content"] == "memory-ok"
     assert len(loaded) == len(history) + 2
     assert memory is None
+    runtime_notices = loaded[-1].get("metadata", {}).get("runtime_notices")
+    assert isinstance(runtime_notices, list)
+    assert runtime_notices
+    assert runtime_notices[0]["key"] == "memory"
+    assert runtime_notices[0]["kind"] == "error"
     event_names = [event for event, _ in events]
     assert "memory_compaction_started" in event_names
     assert "memory_compaction_failed" in event_names
