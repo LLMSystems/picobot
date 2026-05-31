@@ -32,9 +32,12 @@
 - 結構化檔案操作工具：`find_files`、`apply_patch`
 - 可直接掛到 FastAPI 的後端 API
 - 可逐步擴充的 skills、prompt、eval 架構
+- **Dashboard 指標 API**：`/metrics/current`、`/metrics/history`、`/metrics/stream`(SSE)、`/metrics/sessions/{id}`
+- **Alerts 規則引擎**：YAML 規則、狀態機（含 `for_seconds`）、`alert_events` 持久化、SSE push
 
 **前端 Web UI**
 
+- Chat / Dashboard 分頁，獨立 Shell；TopBar 一鍵切換
 - 多 session 管理（建立、重新命名、刪除）
 - SSE 串流即時顯示 AI 回答
 - Subagent 面板：執行中狀態、事件時間線、結果摘要
@@ -45,6 +48,8 @@
 - 可拖拉調整寬度的三欄版面（sidebar、主聊天、workspace）
 - 全螢幕檔案預覽 Modal
 - 深色 / 淺色主題切換
+- **Dashboard 頁面**：系統健康總覽、System / Agent / API 即時指標、echarts 趨勢圖（1h/24h/7d）、Per-session drill-down、Top tools / endpoints / Recent activity、Token by-model；左側 sticky anchor rail 導覽
+- **Alerts UI**：進行中告警卡（ack / 靜音 1h/6h/24h/7d）、歷史過濾與展開細節、跳轉對應趨勢圖、規則一覽 collapsible card；warning+ 自動 browser push
 
 ---
 
@@ -193,7 +198,23 @@ OPENAI_BASE_URL=http://localhost:11434/v1
 }
 ```
 
-### 4.4 啟動後端 Server
+### 4.4 告警規則 `alerts.yaml`（可選）
+
+在 repo root 放一份 `alerts.yaml` 就會啟用 Dashboard 的 Alerts 區塊。schema 與預設規則見 [alerts.yaml](alerts.yaml)、設計細節見 [dashboard_metrics.md §10](dashboard_metrics.md)。檔案不存在 server 一樣會啟動，只是不會有任何告警。
+
+```yaml
+rules:
+  - name: high_cpu_sustained
+    display_name: CPU 持續過高
+    description: CPU 持續高於 80%（超過 5 分鐘）
+    severity: warning           # info | warning | critical
+    metric_path: system.cpu_percent
+    comparator: ">"
+    threshold: 80
+    for_seconds: 300
+```
+
+### 4.5 啟動後端 Server
 
 ```bash
 python3 fastapi_server.py --config example_config.json --host 0.0.0.0 --port 8000
@@ -205,11 +226,16 @@ python3 fastapi_server.py --config example_config.json --host 0.0.0.0 --port 800
 python3 fastapi_server.py --config example_config.json --db-path sessions_async.db
 ```
 
+也可用 `--alerts-config /path/to/alerts.yaml` 指定告警設定檔（預設 `./alerts.yaml`）。
+
 預設會使用 AioSQLite 儲存：
 
 - session message history
 - subagent runs
 - subagent timeline events
+- metrics snapshots (7 天)
+- chat token usage events (7 天)
+- alert events + silences (30 天)
 
 或是
 
@@ -223,7 +249,7 @@ sh start_fastapi_server.sh
 HOST=0.0.0.0 PORT=8000 sh start_fastapi_server.sh
 ```
 
-### 4.5 啟動前端
+### 4.6 啟動前端
 
 需求：Node.js 18 以上
 
@@ -243,7 +269,7 @@ npm run build
 
 產出靜態檔案在 `frontend/dist/`，可直接由後端或任意靜態伺服器提供服務。
 
-### 4.6 使用 LocalAgentRuntime（純 Python）
+### 4.7 使用 LocalAgentRuntime（純 Python）
 
 ```python
 import asyncio
@@ -271,7 +297,7 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-### 4.7 測試
+### 4.8 測試
 
 ```bash
 python3 -m pytest tests -q

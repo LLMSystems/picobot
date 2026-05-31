@@ -1,13 +1,20 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
+import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from '@/components/ui/command'
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   MessagesSquare,
@@ -15,6 +22,8 @@ import {
   Wrench,
   CheckCheck,
   Bot,
+  Check,
+  ChevronsUpDown,
   CircleCheck,
   Coins,
   HardDrive,
@@ -31,8 +40,24 @@ import BarChart from './BarChart.vue'
 const metrics = useMetricsStore()
 const sessions = useSessionsStore()
 const selected = ref<string | null>(null)
+const pickerOpen = ref(false)
 
-const options = computed(() => sessions.list.slice(0, 50))
+// All sessions, sorted by recent activity. Search happens inside the
+// Command palette — no need to cap the list here.
+const options = computed(() => {
+  return [...sessions.list].sort((a, b) =>
+    (b.updated_at || '').localeCompare(a.updated_at || ''),
+  )
+})
+
+const selectedSession = computed(() =>
+  selected.value ? sessions.findById(selected.value) : undefined,
+)
+
+function pickSession(id: string) {
+  selected.value = id
+  pickerOpen.value = false
+}
 
 onMounted(async () => {
   if (!sessions.loaded) await sessions.fetchAll()
@@ -48,13 +73,23 @@ watch(
   { immediate: true },
 )
 
-watch(selected, async (id) => {
-  if (!id) {
-    metrics.clearSessionDetail()
-    return
-  }
-  await metrics.loadSession(id)
-})
+// `immediate: true` is important: when this component re-mounts (e.g. user
+// navigates Chat → Dashboard a second time) `sessions.loaded` is already
+// true, so the auto-select watch above fires synchronously during setup
+// AND sets `selected` BEFORE this watch is registered. Without immediate,
+// we'd miss that initial value and never call loadSession → the picker
+// shows a session but the detail panel says "請先選擇一個 session".
+watch(
+  selected,
+  async (id) => {
+    if (!id) {
+      metrics.clearSessionDetail()
+      return
+    }
+    await metrics.loadSession(id)
+  },
+  { immediate: true },
+)
 
 const detail = computed(() => metrics.sessionDetail)
 const workspaceLabel = computed(() => {
@@ -86,20 +121,46 @@ const toolBars = computed(() => {
           />
           單一 Session 深入分析
         </CardTitle>
-        <Select v-model="selected">
-          <SelectTrigger class="h-8 w-[260px] text-xs">
-            <SelectValue placeholder="選一個 session" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem
-              v-for="s in options"
-              :key="s.session_id"
-              :value="s.session_id"
+        <Popover v-model:open="pickerOpen">
+          <PopoverTrigger as-child>
+            <Button
+              variant="outline"
+              role="combobox"
+              :aria-expanded="pickerOpen"
+              class="h-8 w-[260px] justify-between text-xs font-normal"
             >
-              {{ s.title || s.session_id }}
-            </SelectItem>
-          </SelectContent>
-        </Select>
+              <span class="truncate">
+                {{ selectedSession?.title || selectedSession?.session_id || '選一個 session' }}
+              </span>
+              <ChevronsUpDown class="ml-2 size-3.5 shrink-0 opacity-50" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent class="w-[300px] p-0" align="end">
+            <Command>
+              <CommandInput placeholder="搜尋 session…" class="h-8 text-xs" />
+              <CommandList>
+                <CommandEmpty class="py-4 text-center text-xs text-muted-foreground">
+                  找不到符合的 session
+                </CommandEmpty>
+                <CommandGroup>
+                  <CommandItem
+                    v-for="s in options"
+                    :key="s.session_id"
+                    :value="`${s.title} ${s.session_id}`"
+                    class="text-xs"
+                    @select="pickSession(s.session_id)"
+                  >
+                    <Check
+                      class="mr-2 size-3.5"
+                      :class="selected === s.session_id ? 'opacity-100' : 'opacity-0'"
+                    />
+                    <span class="truncate">{{ s.title || s.session_id }}</span>
+                  </CommandItem>
+                </CommandGroup>
+              </CommandList>
+            </Command>
+          </PopoverContent>
+        </Popover>
       </div>
     </CardHeader>
     <CardContent class="space-y-4">
