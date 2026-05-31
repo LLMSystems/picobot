@@ -312,7 +312,10 @@ def test_agent_loop_emits_tool_events():
     )
 
     assert result.content == "The answer is 4."
-    assert events == [
+    # Filter out `llm_call_finished` (instrumentation events emitted around
+    # every provider call) — this test is asserting the tool event contract.
+    tool_events = [e for e in events if e[0] != "llm_call_finished"]
+    assert tool_events == [
         (
             "tool_call_started",
             {
@@ -487,7 +490,8 @@ def test_agent_loop_continue_async_respects_model_override_and_emits_tool_events
     )
 
     assert result.model == "gpt-5-mini"
-    assert events == [
+    tool_events = [e for e in events if e[0] != "llm_call_finished"]
+    assert tool_events == [
         (
             "tool_call_started",
             {

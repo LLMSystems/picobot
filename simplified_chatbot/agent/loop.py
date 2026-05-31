@@ -6,6 +6,7 @@ import asyncio
 from collections.abc import Callable
 import inspect
 import json
+import time
 from typing import Any
 
 from simplified_chatbot.agent.types import ContentBlock, Message, MessageContent, RunResult
@@ -15,6 +16,25 @@ from simplified_chatbot.tools.registry import ToolRegistry
 
 _TRIM_SAFETY_BUFFER_TOKENS = 1024
 EventCallback = Callable[[str, dict[str, Any]], None]
+
+
+def _classify_provider_error(exc: BaseException) -> str:
+    """Map a provider exception to the LLM-call error taxonomy.
+
+    Returns 'timeout' for asyncio/openai timeouts, else 'api_error'. Keeping
+    the openai import lazy here avoids forcing a hard dep on the chat-provider
+    interface when alternative providers are wired in.
+    """
+    if isinstance(exc, asyncio.TimeoutError):
+        return "timeout"
+    try:
+        import openai  # type: ignore[import-not-found]
+
+        if isinstance(exc, openai.APITimeoutError):
+            return "timeout"
+    except ImportError:
+        pass
+    return "api_error"
 
 
 class AgentLoop:
@@ -244,14 +264,40 @@ class AgentLoop:
                 {"role": "system", "content": effective_system_prompt},
                 *trimmed_conversation,
             ]
-            response = await self._call_provider_async(
-                request_messages,
-                model=effective_model,
-                stream=stream,
-                on_delta=on_delta,
-                tools=tool_definitions,
-                temperature=effective_temperature,
-                max_tokens=effective_max_tokens,
+            t0 = time.perf_counter()
+            try:
+                response = await self._call_provider_async(
+                    request_messages,
+                    model=effective_model,
+                    stream=stream,
+                    on_delta=on_delta,
+                    tools=tool_definitions,
+                    temperature=effective_temperature,
+                    max_tokens=effective_max_tokens,
+                )
+            except BaseException as exc:
+                latency_ms = int((time.perf_counter() - t0) * 1000)
+                self._emit_event(
+                    on_event,
+                    "llm_call_finished",
+                    {
+                        "model": effective_model,
+                        "latency_ms": latency_ms,
+                        "success": False,
+                        "error_type": _classify_provider_error(exc),
+                    },
+                )
+                raise
+            latency_ms = int((time.perf_counter() - t0) * 1000)
+            self._emit_event(
+                on_event,
+                "llm_call_finished",
+                {
+                    "model": effective_model,
+                    "latency_ms": latency_ms,
+                    "success": True,
+                    "error_type": None,
+                },
             )
             usage = response.usage or usage
 

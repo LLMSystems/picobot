@@ -66,3 +66,54 @@ rules:
     metric_path: subagents.longest_running_seconds
     comparator: ">"
     threshold: 1800
+
+  - name: high_memory
+    display_name: 記憶體用量過高
+    description: Process RSS 持續超過 1 GB（超過 2 分鐘）
+    severity: warning
+    metric_path: system.rss_bytes
+    comparator: ">"
+    threshold: 1073741824  # 1 GiB
+    for_seconds: 120
+
+  - name: api_high_latency
+    display_name: API 延遲過高
+    description: API p95 延遲超過 3 秒
+    severity: warning
+    metric_path: api.latency_p95_ms
+    comparator: ">"
+    threshold: 3000
+    for_seconds: 60
+
+  - name: subagent_success_drop
+    display_name: 子代理成功率下降
+    description: 24h 子代理成功率掉到 70% 以下
+    severity: warning
+    metric_path: subagents.success_rate_24h
+    comparator: "<"
+    threshold: 0.70
+
+  - name: llm_error_rate
+    display_name: LLM API 錯誤率過高
+    description: 1h 內 LLM 呼叫錯誤率超過 5%
+    severity: critical
+    metric_path: llm.error_rate_1h
+    comparator: ">"
+    threshold: 0.05
+
+  - name: llm_timeout_rate
+    display_name: LLM Timeout 率過高
+    description: 1h 內 LLM 呼叫 timeout 比率超過 10%
+    severity: warning
+    metric_path: llm.timeout_rate_1h
+    comparator: ">"
+    threshold: 0.10
+
+  - name: llm_latency_high
+    display_name: LLM 延遲過高
+    description: LLM 呼叫 p95 延遲超過 5 秒
+    severity: warning
+    metric_path: llm.latency_p95_ms
+    comparator: ">"
+    threshold: 5000
+    for_seconds: 60

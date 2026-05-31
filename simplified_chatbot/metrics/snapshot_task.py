@@ -130,6 +130,18 @@ class SnapshotTask:
                             )
                     except Exception:
                         logger.exception("chat usage prune failed")
+                llm_store = getattr(self._service, "llm_call_store", None)
+                if llm_store is not None:
+                    try:
+                        llm_pruned = await llm_store.prune_older_than(
+                            retention_days=self._retention_days,
+                        )
+                        if llm_pruned:
+                            logger.info(
+                                "pruned %d old llm_call rows", llm_pruned,
+                            )
+                    except Exception:
+                        logger.exception("llm call prune failed")
                 if self._alert_service is not None:
                     try:
                         await self._alert_service.prune()

@@ -51,75 +51,117 @@ async def _record_chat_usage(
         pass
 
 
+async def _record_llm_calls(
+    request: Request,
+    *,
+    session_id: str,
+    items: list[dict[str, Any]],
+) -> None:
+    """Drain the buffered `llm_call_finished` events into the metrics layer.
+
+    Buffering during the run + flushing here means a single multi-iteration
+    chat call records all of its provider calls (one row each) without
+    blocking the SSE/HTTP hot path or leaking fire-and-forget tasks.
+    """
+    if not items:
+        return
+    svc = getattr(request.app.state, "metrics", None)
+    record = getattr(svc, "record_llm_call", None)
+    if not callable(record):
+        return
+    for data in items:
+        try:
+            await record(
+                session_id=session_id,
+                model=data.get("model"),
+                latency_ms=int(data.get("latency_ms") or 0),
+                success=bool(data.get("success", True)),
+                error_type=data.get("error_type"),
+            )
+        except Exception:
+            pass
+
+
 @router.post("/chat", response_model=ChatResponse)
 async def chat(request: Request, payload: ChatRequest) -> ChatResponse:
     """Return one complete assistant response."""
     runtime = get_runtime(request)
     events: list[ChatTraceEvent] = []
+    llm_events: list[dict[str, Any]] = []
 
     def on_event(event: str, data: dict[str, Any]) -> None:
         events.append(ChatTraceEvent(event=event, data=data))
+        if event == "llm_call_finished":
+            llm_events.append(data)
 
     try:
-        content = await _build_chat_content(
-            runtime,
-            session_id=payload.session_id,
-            message=payload.message,
-            images=payload.images,
-        )
-        result = await runtime.handle_input_async(
-            payload.session_id,
-            content,
-            model_override=payload.model,
-            subagent_model_override=payload.subagent_model,
-            temperature_override=payload.temperature,
-            max_tokens_override=payload.max_tokens,
-            max_iterations_override=payload.max_iterations,
-            system_prompt_override=payload.system_prompt,
-            disabled_tools=payload.disabled_tools,
-            on_event=on_event,
-        )
-    except ModelNotAllowedError as exc:
-        return error_response(
-            request,
-            status_code=400,
-            code="MODEL_NOT_ALLOWED",
-            message=str(exc),
-        )
-    except KeyError:
-        return error_response(
-            request,
-            status_code=404,
-            code="SESSION_NOT_FOUND",
-            message=f"Session '{payload.session_id}' not found",
-        )
-    except FileNotFoundError as exc:
-        return error_response(
-            request,
-            status_code=404,
-            code="WORKSPACE_FILE_NOT_FOUND",
-            message=str(exc),
-        )
-    except IsADirectoryError as exc:
-        return error_response(
-            request,
-            status_code=400,
-            code="WORKSPACE_NOT_A_FILE",
-            message=str(exc),
-        )
-    except ValueError as exc:
-        return error_response(
-            request,
-            status_code=400,
-            code="MESSAGE_INVALID",
-            message=str(exc),
-        )
-    except RuntimeError as exc:
-        return error_response(
-            request,
-            status_code=500,
-            code="RUNTIME_ERROR",
-            message=str(exc),
+        try:
+            content = await _build_chat_content(
+                runtime,
+                session_id=payload.session_id,
+                message=payload.message,
+                images=payload.images,
+            )
+            result = await runtime.handle_input_async(
+                payload.session_id,
+                content,
+                model_override=payload.model,
+                subagent_model_override=payload.subagent_model,
+                temperature_override=payload.temperature,
+                max_tokens_override=payload.max_tokens,
+                max_iterations_override=payload.max_iterations,
+                system_prompt_override=payload.system_prompt,
+                disabled_tools=payload.disabled_tools,
+                on_event=on_event,
+            )
+        except ModelNotAllowedError as exc:
+            return error_response(
+                request,
+                status_code=400,
+                code="MODEL_NOT_ALLOWED",
+                message=str(exc),
+            )
+        except KeyError:
+            return error_response(
+                request,
+                status_code=404,
+                code="SESSION_NOT_FOUND",
+                message=f"Session '{payload.session_id}' not found",
+            )
+        except FileNotFoundError as exc:
+            return error_response(
+                request,
+                status_code=404,
+                code="WORKSPACE_FILE_NOT_FOUND",
+                message=str(exc),
+            )
+        except IsADirectoryError as exc:
+            return error_response(
+                request,
+                status_code=400,
+                code="WORKSPACE_NOT_A_FILE",
+                message=str(exc),
+            )
+        except ValueError as exc:
+            return error_response(
+                request,
+                status_code=400,
+                code="MESSAGE_INVALID",
+                message=str(exc),
+            )
+        except RuntimeError as exc:
+            return error_response(
+                request,
+                status_code=500,
+                code="RUNTIME_ERROR",
+                message=str(exc),
+            )
+    finally:
+        # Always flush LLM call records — even on early-return error paths the
+        # provider may have been called (e.g. one good iteration before a
+        # tool-validation failure).
+        await _record_llm_calls(
+            request, session_id=payload.session_id, items=llm_events,
         )
 
     await _record_chat_usage(
@@ -225,14 +267,22 @@ def _build_chat_stream_response(
     runtime = get_runtime(request)
     request_id = get_request_id(request)
     queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+    llm_events: list[dict[str, Any]] = []
 
     def on_delta(delta: str) -> None:
         queue.put_nowait({"event": "delta", "data": delta})
 
     def on_event(event: str, data: dict[str, Any]) -> None:
         queue.put_nowait({"event": event, "data": data})
+        if event == "llm_call_finished":
+            llm_events.append(data)
 
     async def produce() -> None:
+        # Defer the terminal queue.put until AFTER the LLM-event flush:
+        # stream()'s `task.cancel()` fires the moment the consumer sees a
+        # done/error event, and would otherwise interrupt the DB write
+        # mid-flight (CancelledError bypasses our broad except blocks).
+        terminal: dict[str, Any] | None = None
         try:
             result = await runtime.handle_input_stream_async(
                 session_id,
@@ -253,51 +303,49 @@ def _build_chat_stream_response(
                 model=getattr(result, "model", None),
                 usage=result.usage,
             )
-            await queue.put(
-                {
-                    "event": "done",
-                    "data": ChatStreamDone(
-                        session_id=session_id,
-                        content=result.content,
-                        usage=result.usage,
-                        tools_used=result.tools_used,
-                        stop_reason=result.stop_reason,
-                    ).model_dump(),
-                },
-            )
+            terminal = {
+                "event": "done",
+                "data": ChatStreamDone(
+                    session_id=session_id,
+                    content=result.content,
+                    usage=result.usage,
+                    tools_used=result.tools_used,
+                    stop_reason=result.stop_reason,
+                ).model_dump(),
+            }
         except ModelNotAllowedError as exc:
-            await queue.put(
-                {
-                    "event": "error",
-                    "data": {
-                        "code": "MODEL_NOT_ALLOWED",
-                        "message": str(exc),
-                        "request_id": request_id,
-                    },
+            terminal = {
+                "event": "error",
+                "data": {
+                    "code": "MODEL_NOT_ALLOWED",
+                    "message": str(exc),
+                    "request_id": request_id,
                 },
-            )
+            }
         except ValueError as exc:
-            await queue.put(
-                {
-                    "event": "error",
-                    "data": {
-                        "code": "MESSAGE_INVALID",
-                        "message": str(exc),
-                        "request_id": request_id,
-                    },
+            terminal = {
+                "event": "error",
+                "data": {
+                    "code": "MESSAGE_INVALID",
+                    "message": str(exc),
+                    "request_id": request_id,
                 },
-            )
+            }
         except Exception as exc:
-            await queue.put(
-                {
-                    "event": "error",
-                    "data": {
-                        "code": "INTERNAL_ERROR",
-                        "message": str(exc),
-                        "request_id": request_id,
-                    },
+            terminal = {
+                "event": "error",
+                "data": {
+                    "code": "INTERNAL_ERROR",
+                    "message": str(exc),
+                    "request_id": request_id,
                 },
-            )
+            }
+
+        await _record_llm_calls(
+            request, session_id=session_id, items=llm_events,
+        )
+        if terminal is not None:
+            await queue.put(terminal)
 
     metrics = getattr(request.app.state, "metrics", None)
     sse_counter = getattr(metrics, "sse_connections", None) if metrics else None

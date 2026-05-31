@@ -49,6 +49,10 @@ from simplified_chatbot.metrics.chat_usage_store import (
     ChatUsageAggregate,
     ChatUsageStore,
 )
+from simplified_chatbot.metrics.llm_call_store import (
+    LlmCallAggregate,
+    LlmCallStore,
+)
 
 
 _RANGE_TO_SECONDS = {
@@ -82,6 +86,7 @@ class MetricsService:
         workspace_root_dir: str | Path | None,
         snapshot_store: SnapshotStore | None = None,
         chat_usage_store: ChatUsageStore | None = None,
+        llm_call_store: LlmCallStore | None = None,
     ) -> None:
         self._db_path = Path(db_path).expanduser().resolve() if db_path else None
         self._process = ProcessCollector()
@@ -95,6 +100,7 @@ class MetricsService:
         self.sse_connections = SseConnectionCounter()
         self.snapshot_store = snapshot_store
         self.chat_usage_store = chat_usage_store
+        self.llm_call_store = llm_call_store
         self._chrome_status_provider = None  # set by app wiring
 
     def set_chrome_status_provider(self, provider) -> None:  # type: ignore[no-untyped-def]
@@ -111,6 +117,7 @@ class MetricsService:
         subagents = await aggregate_subagents(self._db_path)
         messages = await aggregate_messages(self._db_path)
         token_summary = await self._aggregate_chat_usage()
+        llm_summary = await self._aggregate_llm_calls()
         api_summary = summarize_api_stats(
             self.api_stats.records_since(60),
             self.api_stats.records_since(3600),
@@ -132,6 +139,7 @@ class MetricsService:
             "subagents": _subagents_block(subagents),
             "api": _api_block(api_summary),
             "usage": _usage_block(token_summary),
+            "llm": _llm_block(llm_summary),
         }
 
     async def build_session_snapshot(self, session_id: str) -> dict[str, Any] | None:
@@ -289,6 +297,47 @@ class MetricsService:
             # Persistence failure should never break the chat flow.
             pass
 
+    # ---- llm call write/read path ------------------------------------------
+
+    async def record_llm_call(
+        self,
+        *,
+        session_id: str,
+        model: str | None,
+        latency_ms: int,
+        success: bool,
+        error_type: str | None = None,
+    ) -> None:
+        """Persist one LLM provider call event for availability/latency metrics.
+
+        Best-effort: a DB failure here must not break the chat flow (the
+        caller is in the request-response hot path).
+        """
+        if self.llm_call_store is None:
+            return
+        try:
+            await self.llm_call_store.insert(
+                session_id=session_id,
+                model=model,
+                latency_ms=int(latency_ms or 0),
+                success=success,
+                error_type=error_type,
+            )
+        except Exception:
+            pass
+
+    async def _aggregate_llm_calls(self) -> LlmCallAggregate:
+        """Read 1h LLM-call rollup; returns zeros if no store configured."""
+        if self.llm_call_store is None:
+            return LlmCallAggregate()
+        since = (
+            datetime.now(timezone.utc) - timedelta(hours=1)
+        ).isoformat()
+        try:
+            return await self.llm_call_store.aggregate_since(since)
+        except Exception:
+            return LlmCallAggregate()
+
     async def _aggregate_chat_usage(
         self,
         *,
@@ -415,6 +464,18 @@ def _endpoint_dict(entry: EndpointSummary) -> dict[str, Any]:
         "latency_p95_ms": entry.latency_p95_ms,
         "error_4xx": entry.error_4xx,
         "error_5xx": entry.error_5xx,
+    }
+
+
+def _llm_block(summary: LlmCallAggregate) -> dict[str, Any]:
+    return {
+        "calls_1h": summary.calls,
+        "errors_1h": summary.errors,
+        "timeouts_1h": summary.timeouts,
+        "error_rate_1h": summary.error_rate,
+        "timeout_rate_1h": summary.timeout_rate,
+        "latency_p50_ms": summary.latency_p50_ms,
+        "latency_p95_ms": summary.latency_p95_ms,
     }
 
 
