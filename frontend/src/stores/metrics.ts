@@ -26,6 +26,10 @@ const HISTORY_SERIES: string[] = [
   'error_5xx_rate_1h',
   'runs_24h',
   'duration_p95_ms',
+  // llm metrics — share names with api (latency_p95_ms / error_rate) but
+  // live in a separate `llm` category; consumers filter via findSeries(..., 'llm').
+  'ttft_p95_ms',
+  'iterations_per_chat_avg',
 ]
 
 function toApiError(err: unknown): ApiError {

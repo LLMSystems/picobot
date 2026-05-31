@@ -55,6 +55,7 @@ async def _record_llm_calls(
     request: Request,
     *,
     session_id: str,
+    chat_id: str | None,
     items: list[dict[str, Any]],
 ) -> None:
     """Drain the buffered `llm_call_finished` events into the metrics layer.
@@ -62,6 +63,9 @@ async def _record_llm_calls(
     Buffering during the run + flushing here means a single multi-iteration
     chat call records all of its provider calls (one row each) without
     blocking the SSE/HTTP hot path or leaking fire-and-forget tasks.
+
+    `chat_id` groups all LLM calls in one user turn — feeds the
+    iterations-per-chat aggregation.
     """
     if not items:
         return
@@ -70,6 +74,7 @@ async def _record_llm_calls(
     if not callable(record):
         return
     for data in items:
+        ttft = data.get("ttft_ms")
         try:
             await record(
                 session_id=session_id,
@@ -77,6 +82,8 @@ async def _record_llm_calls(
                 latency_ms=int(data.get("latency_ms") or 0),
                 success=bool(data.get("success", True)),
                 error_type=data.get("error_type"),
+                ttft_ms=int(ttft) if ttft is not None else None,
+                chat_id=chat_id,
             )
         except Exception:
             pass
@@ -86,6 +93,9 @@ async def _record_llm_calls(
 async def chat(request: Request, payload: ChatRequest) -> ChatResponse:
     """Return one complete assistant response."""
     runtime = get_runtime(request)
+    # Reuse the per-request id middleware as the chat_id so all LLM iterations
+    # in this turn share a grouping key (drives iterations-per-chat metric).
+    chat_id = get_request_id(request)
     events: list[ChatTraceEvent] = []
     llm_events: list[dict[str, Any]] = []
 
@@ -161,7 +171,10 @@ async def chat(request: Request, payload: ChatRequest) -> ChatResponse:
         # provider may have been called (e.g. one good iteration before a
         # tool-validation failure).
         await _record_llm_calls(
-            request, session_id=payload.session_id, items=llm_events,
+            request,
+            session_id=payload.session_id,
+            chat_id=chat_id,
+            items=llm_events,
         )
 
     await _record_chat_usage(
@@ -342,7 +355,10 @@ def _build_chat_stream_response(
             }
 
         await _record_llm_calls(
-            request, session_id=session_id, items=llm_events,
+            request,
+            session_id=session_id,
+            chat_id=request_id,
+            items=llm_events,
         )
         if terminal is not None:
             await queue.put(terminal)

@@ -265,12 +265,28 @@ class AgentLoop:
                 *trimmed_conversation,
             ]
             t0 = time.perf_counter()
+            # TTFT: wrap the streaming delta callback so the first non-empty
+            # chunk's arrival timestamp can be measured. Non-streaming calls
+            # never trigger on_delta → ttft_ms stays None and the aggregation
+            # layer ignores it.
+            ttft_ms: int | None = None
+            wrapped_on_delta: Callable[[str], None] | None = None
+            if stream:
+                def _timing_on_delta(delta: str) -> None:
+                    nonlocal ttft_ms
+                    if ttft_ms is None and delta:
+                        ttft_ms = int((time.perf_counter() - t0) * 1000)
+                    if on_delta is not None:
+                        on_delta(delta)
+                wrapped_on_delta = _timing_on_delta
+            else:
+                wrapped_on_delta = on_delta
             try:
                 response = await self._call_provider_async(
                     request_messages,
                     model=effective_model,
                     stream=stream,
-                    on_delta=on_delta,
+                    on_delta=wrapped_on_delta,
                     tools=tool_definitions,
                     temperature=effective_temperature,
                     max_tokens=effective_max_tokens,
@@ -283,6 +299,7 @@ class AgentLoop:
                     {
                         "model": effective_model,
                         "latency_ms": latency_ms,
+                        "ttft_ms": ttft_ms,
                         "success": False,
                         "error_type": _classify_provider_error(exc),
                     },
@@ -295,6 +312,7 @@ class AgentLoop:
                 {
                     "model": effective_model,
                     "latency_ms": latency_ms,
+                    "ttft_ms": ttft_ms,
                     "success": True,
                     "error_type": None,
                 },

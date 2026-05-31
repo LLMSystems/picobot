@@ -475,6 +475,36 @@ export interface MetricsUsageBlock {
   by_model_24h: MetricsUsageEntry[]
 }
 
+export interface MetricsLlmModelEntry {
+  model: string
+  calls: number
+  errors: number
+  timeouts: number
+  error_rate: number
+  timeout_rate: number
+  latency_p50_ms: number
+  latency_p95_ms: number
+  ttft_p50_ms: number
+  ttft_p95_ms: number
+}
+
+export interface MetricsLlmBlock {
+  calls_10m: number
+  errors_10m: number
+  timeouts_10m: number
+  error_rate_10m: number
+  timeout_rate_10m: number
+  latency_p50_ms: number
+  latency_p95_ms: number
+  ttft_p50_ms: number
+  ttft_p95_ms: number
+  iterations_per_chat_avg: number
+  iterations_per_chat_max: number
+  iterations_per_chat_p95: number
+  chats_10m: number
+  by_model_10m: MetricsLlmModelEntry[]
+}
+
 export interface MetricsCurrentSnapshot {
   ts: string
   system: MetricsSystemBlock
@@ -482,6 +512,7 @@ export interface MetricsCurrentSnapshot {
   subagents: MetricsSubagentBlock
   api: MetricsApiBlock
   usage: MetricsUsageBlock
+  llm: MetricsLlmBlock
 }
 
 export interface MetricsSessionToolBreakdown {

@@ -51,6 +51,21 @@ _API_GAUGES = (
 
 _USAGE_TOTALS = ("tokens_in_24h", "tokens_out_24h")
 
+_LLM_GAUGES = (
+    "calls_10m",
+    "errors_10m",
+    "timeouts_10m",
+    "error_rate_10m",
+    "timeout_rate_10m",
+    "latency_p50_ms",
+    "latency_p95_ms",
+    "ttft_p50_ms",
+    "ttft_p95_ms",
+    "iterations_per_chat_avg",
+    "iterations_per_chat_p95",
+    "chats_10m",
+)
+
 _PER_SESSION_GAUGES = (
     "message_count",
     "iterations_total",
@@ -77,6 +92,7 @@ def build_global_rows(
     )
     rows.extend(_gauges(ts, "api", snapshot.get("api", {}), _API_GAUGES))
     rows.extend(_gauges(ts, "usage", snapshot.get("usage", {}), _USAGE_TOTALS))
+    rows.extend(_gauges(ts, "llm", snapshot.get("llm", {}), _LLM_GAUGES))
 
     sse_block = (snapshot.get("system") or {}).get("active_sse_connections") or {}
     for stream, count in sse_block.items():

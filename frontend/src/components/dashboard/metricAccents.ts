@@ -38,6 +38,12 @@ export type MetricKey =
   | 'latency'
   | 'errors'
   | 'endpoints'
+  // llm (provider call quality)
+  | 'llm_calls'
+  | 'llm_errors'
+  | 'llm_latency'
+  | 'llm_ttft'
+  | 'llm_iterations'
   // status pills (for HealthSummary)
   | 'healthy'
   | 'warn'
@@ -78,6 +84,13 @@ export const METRIC_ACCENTS: Record<MetricKey, AccentColor> = {
   latency: 'amber',
   errors: 'rose',
   endpoints: 'cyan',
+
+  // llm — distinct from api (which is HTTP layer) so dashboards stay readable
+  llm_calls: 'blue',
+  llm_errors: 'rose',
+  llm_latency: 'amber',
+  llm_ttft: 'sky',
+  llm_iterations: 'violet',
 
   // status pills
   healthy: 'green',

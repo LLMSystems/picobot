@@ -14,6 +14,7 @@ import {
   ListFilter,
   Coins,
   FocusIcon,
+  Sparkles,
 } from 'lucide-vue-next'
 import { useAlertsStore } from '@/stores/alerts'
 
@@ -31,6 +32,7 @@ const ANCHORS: AnchorItem[] = [
   { id: 'api-trends', label: 'API / 子代理', icon: Gauge },
   { id: 'lists', label: '熱門 / 活動', icon: ListFilter },
   { id: 'usage', label: 'Token 用量', icon: Coins },
+  { id: 'llm', label: 'LLM 品質', icon: Sparkles },
   { id: 'session', label: 'Session 細項', icon: FocusIcon },
 ]
 

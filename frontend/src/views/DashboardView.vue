@@ -4,6 +4,7 @@ import AlertRulesCard from '@/components/dashboard/AlertRulesCard.vue'
 import BarChart from '@/components/dashboard/BarChart.vue'
 import HealthSummaryRow from '@/components/dashboard/HealthSummaryRow.vue'
 import LineChart from '@/components/dashboard/LineChart.vue'
+import LlmSection from '@/components/dashboard/LlmSection.vue'
 import MetricsSection from '@/components/dashboard/MetricsSection.vue'
 import RangePicker from '@/components/dashboard/RangePicker.vue'
 import RecentActivityFeed from '@/components/dashboard/RecentActivityFeed.vue'
@@ -91,6 +92,9 @@ const latencyFiringWindows = computed(() => firingWindowsFor('api.latency_p95_ms
 const error5xxFiringWindows = computed(() => firingWindowsFor('api.error_5xx_rate_1h'))
 const error4xxFiringWindows = computed(() => firingWindowsFor('api.error_4xx_rate_1h'))
 const subagentRunsFiringWindows = computed(() => firingWindowsFor('subagents.longest_running_seconds'))
+const llmTtftFiringWindows = computed(() => firingWindowsFor('llm.ttft_p95_ms'))
+const llmLatencyFiringWindows = computed(() => firingWindowsFor('llm.latency_p95_ms'))
+const llmErrorFiringWindows = computed(() => firingWindowsFor('llm.error_rate_10m'))
 
 const snap = computed(() => metrics.current)
 const loading = computed(() => metrics.loading && !metrics.isReady)
@@ -586,6 +590,17 @@ const tokenByModelBars = computed(() => {
             </CardContent>
           </Card>
         </MetricsSection>
+        </section>
+
+        <section data-anchor="llm" class="scroll-mt-20">
+          <LlmSection
+            :snapshot="snap"
+            :firing-windows="{
+              ttft: llmTtftFiringWindows,
+              latency: llmLatencyFiringWindows,
+              error: llmErrorFiringWindows,
+            }"
+          />
         </section>
 
         <section data-anchor="session" class="scroll-mt-20">

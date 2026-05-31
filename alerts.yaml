@@ -95,17 +95,17 @@ rules:
 
   - name: llm_error_rate
     display_name: LLM API 錯誤率過高
-    description: 1h 內 LLM 呼叫錯誤率超過 5%
+    description: 10 分鐘內 LLM 呼叫錯誤率超過 5%
     severity: critical
-    metric_path: llm.error_rate_1h
+    metric_path: llm.error_rate_10m
     comparator: ">"
     threshold: 0.05
 
   - name: llm_timeout_rate
     display_name: LLM Timeout 率過高
-    description: 1h 內 LLM 呼叫 timeout 比率超過 10%
+    description: 10 分鐘內 LLM 呼叫 timeout 比率超過 10%
     severity: warning
-    metric_path: llm.timeout_rate_1h
+    metric_path: llm.timeout_rate_10m
     comparator: ">"
     threshold: 0.10
 
@@ -116,4 +116,13 @@ rules:
     metric_path: llm.latency_p95_ms
     comparator: ">"
     threshold: 5000
+    for_seconds: 60
+
+  - name: llm_ttft_high
+    display_name: LLM 首 Token 延遲過高
+    description: LLM 首 Token p95 延遲超過 1.5 秒（影響回應感受）
+    severity: warning
+    metric_path: llm.ttft_p95_ms
+    comparator: ">"
+    threshold: 1500
     for_seconds: 60

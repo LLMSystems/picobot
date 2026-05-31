@@ -50,8 +50,10 @@ from simplified_chatbot.metrics.chat_usage_store import (
     ChatUsageStore,
 )
 from simplified_chatbot.metrics.llm_call_store import (
+    IterationStats,
     LlmCallAggregate,
     LlmCallStore,
+    ModelCallAggregate,
 )
 
 
@@ -117,7 +119,7 @@ class MetricsService:
         subagents = await aggregate_subagents(self._db_path)
         messages = await aggregate_messages(self._db_path)
         token_summary = await self._aggregate_chat_usage()
-        llm_summary = await self._aggregate_llm_calls()
+        llm_overall, llm_iterations, llm_by_model = await self._aggregate_llm_calls()
         api_summary = summarize_api_stats(
             self.api_stats.records_since(60),
             self.api_stats.records_since(3600),
@@ -139,7 +141,7 @@ class MetricsService:
             "subagents": _subagents_block(subagents),
             "api": _api_block(api_summary),
             "usage": _usage_block(token_summary),
-            "llm": _llm_block(llm_summary),
+            "llm": _llm_block(llm_overall, llm_iterations, llm_by_model),
         }
 
     async def build_session_snapshot(self, session_id: str) -> dict[str, Any] | None:
@@ -307,6 +309,8 @@ class MetricsService:
         latency_ms: int,
         success: bool,
         error_type: str | None = None,
+        ttft_ms: int | None = None,
+        chat_id: str | None = None,
     ) -> None:
         """Persist one LLM provider call event for availability/latency metrics.
 
@@ -322,21 +326,43 @@ class MetricsService:
                 latency_ms=int(latency_ms or 0),
                 success=success,
                 error_type=error_type,
+                ttft_ms=ttft_ms,
+                chat_id=chat_id,
             )
         except Exception:
             pass
 
-    async def _aggregate_llm_calls(self) -> LlmCallAggregate:
-        """Read 1h LLM-call rollup; returns zeros if no store configured."""
+    async def _aggregate_llm_calls(
+        self,
+    ) -> tuple[LlmCallAggregate, IterationStats, list[ModelCallAggregate]]:
+        """Read 10-min LLM-call rollup + iterations + per-model breakdown.
+
+        Window choice: a 1h rolling p95 over picobot's low-traffic baseline
+        leaves the trend lines flat for an entire hour after each chat (a
+        single call's effect sticks until it drops out of the window). 10 min
+        keeps the chart responsive while still smoothing one-off noise.
+
+        Returns zeros / empty lists if no store is configured. Each subquery
+        is best-effort: a failure in one section shouldn't blank the others.
+        """
         if self.llm_call_store is None:
-            return LlmCallAggregate()
+            return LlmCallAggregate(), IterationStats(), []
         since = (
-            datetime.now(timezone.utc) - timedelta(hours=1)
+            datetime.now(timezone.utc) - timedelta(minutes=10)
         ).isoformat()
         try:
-            return await self.llm_call_store.aggregate_since(since)
+            overall = await self.llm_call_store.aggregate_since(since)
         except Exception:
-            return LlmCallAggregate()
+            overall = LlmCallAggregate()
+        try:
+            iterations = await self.llm_call_store.aggregate_iterations_since(since)
+        except Exception:
+            iterations = IterationStats()
+        try:
+            by_model = await self.llm_call_store.aggregate_by_model_since(since)
+        except Exception:
+            by_model = []
+        return overall, iterations, by_model
 
     async def _aggregate_chat_usage(
         self,
@@ -467,15 +493,40 @@ def _endpoint_dict(entry: EndpointSummary) -> dict[str, Any]:
     }
 
 
-def _llm_block(summary: LlmCallAggregate) -> dict[str, Any]:
+def _llm_block(
+    summary: LlmCallAggregate,
+    iterations: IterationStats,
+    by_model: list[ModelCallAggregate],
+) -> dict[str, Any]:
     return {
-        "calls_1h": summary.calls,
-        "errors_1h": summary.errors,
-        "timeouts_1h": summary.timeouts,
-        "error_rate_1h": summary.error_rate,
-        "timeout_rate_1h": summary.timeout_rate,
+        "calls_10m": summary.calls,
+        "errors_10m": summary.errors,
+        "timeouts_10m": summary.timeouts,
+        "error_rate_10m": summary.error_rate,
+        "timeout_rate_10m": summary.timeout_rate,
         "latency_p50_ms": summary.latency_p50_ms,
         "latency_p95_ms": summary.latency_p95_ms,
+        "ttft_p50_ms": summary.ttft_p50_ms,
+        "ttft_p95_ms": summary.ttft_p95_ms,
+        "iterations_per_chat_avg": iterations.avg,
+        "iterations_per_chat_max": iterations.max,
+        "iterations_per_chat_p95": iterations.p95,
+        "chats_10m": iterations.chats,
+        "by_model_10m": [
+            {
+                "model": m.model,
+                "calls": m.calls,
+                "errors": m.errors,
+                "timeouts": m.timeouts,
+                "error_rate": m.error_rate,
+                "timeout_rate": m.timeout_rate,
+                "latency_p50_ms": m.latency_p50_ms,
+                "latency_p95_ms": m.latency_p95_ms,
+                "ttft_p50_ms": m.ttft_p50_ms,
+                "ttft_p95_ms": m.ttft_p95_ms,
+            }
+            for m in by_model
+        ],
     }
 
 
