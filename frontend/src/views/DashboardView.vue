@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AlertsSection from '@/components/dashboard/AlertsSection.vue'
 import BarChart from '@/components/dashboard/BarChart.vue'
 import HealthSummaryRow from '@/components/dashboard/HealthSummaryRow.vue'
 import LineChart from '@/components/dashboard/LineChart.vue'
@@ -18,8 +19,10 @@ import { metricAccent } from '@/components/dashboard/metricAccents'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
-import type { MetricsRange } from '@/lib/types'
+import type { MetricsRange, AlertEvent } from '@/lib/types'
+import type { FiringWindow } from '@/components/dashboard/LineChart.vue'
 import { useMetricsStore } from '@/stores/metrics'
+import { useAlertsStore } from '@/stores/alerts'
 import {
     Activity,
     ArrowDownToLine,
@@ -45,9 +48,48 @@ import {
 import { computed, onBeforeUnmount, onMounted } from 'vue'
 
 const metrics = useMetricsStore()
+const alerts = useAlertsStore()
 
-onMounted(() => metrics.startPolling())
+onMounted(() => {
+  metrics.startPolling()
+  // Pull alert history once so the markArea bands on trends charts have data
+  // to draw — AlertsSection only loads history on user expand.
+  if (alerts.history.length === 0) {
+    void alerts.refreshHistory(100)
+  }
+})
 onBeforeUnmount(() => metrics.stopPolling())
+
+// Build firing windows per metric_path so each chart only shows the alerts
+// that are actually about its metric. Includes both resolved windows (from
+// history) and currently-active firings.
+function firingWindowsFor(metricPath: string): FiringWindow[] {
+  const out: FiringWindow[] = []
+  const seen = new Set<number>()
+  const push = (ev: AlertEvent) => {
+    if (seen.has(ev.id)) return
+    if (ev.metric_path !== metricPath) return
+    seen.add(ev.id)
+    out.push({
+      start: ev.fired_at,
+      end: ev.resolved_at,
+      severity: ev.severity,
+      ruleName: ev.rule_name,
+    })
+  }
+  for (const ev of alerts.active) push(ev)
+  for (const ev of alerts.history) push(ev)
+  return out
+}
+
+const cpuFiringWindows = computed(() => firingWindowsFor('system.cpu_percent'))
+const rssFiringWindows = computed(() => firingWindowsFor('system.rss_bytes'))
+const toolCallsFiringWindows = computed(() => firingWindowsFor('agent.tool_calls_total'))
+const tokensInFiringWindows = computed(() => firingWindowsFor('usage.tokens_in_24h'))
+const latencyFiringWindows = computed(() => firingWindowsFor('api.latency_p95_ms'))
+const error5xxFiringWindows = computed(() => firingWindowsFor('api.error_5xx_rate_1h'))
+const error4xxFiringWindows = computed(() => firingWindowsFor('api.error_4xx_rate_1h'))
+const subagentRunsFiringWindows = computed(() => firingWindowsFor('subagents.longest_running_seconds'))
 
 const snap = computed(() => metrics.current)
 const loading = computed(() => metrics.loading && !metrics.isReady)
@@ -212,6 +254,10 @@ const tokenByModelBars = computed(() => {
       </template>
 
       <template v-else-if="snap">
+        <section data-anchor="alerts" class="scroll-mt-20">
+          <AlertsSection />
+        </section>
+
         <section data-anchor="health" class="scroll-mt-20">
           <MetricsSection title="系統健康總覽">
             <HealthSummaryRow :snapshot="snap" :loading="false" />
@@ -323,6 +369,7 @@ const tokenByModelBars = computed(() => {
                 <LineChart
                   :series="cpuSeries"
                   :accent="metricAccent('cpu')"
+                  :firing-windows="cpuFiringWindows"
                   :y-formatter="(v) => `${v.toFixed(1)}%`"
                 />
               </CardContent>
@@ -338,6 +385,7 @@ const tokenByModelBars = computed(() => {
                 <LineChart
                   :series="rssSeries"
                   :accent="metricAccent('memory')"
+                  :firing-windows="rssFiringWindows"
                   :y-formatter="(v) => formatBytes(v)"
                 />
               </CardContent>
@@ -354,6 +402,7 @@ const tokenByModelBars = computed(() => {
                   :series="tokenSeries"
                   :accent="metricAccent('tokens_in')"
                   :extra-accents="[metricAccent('tokens_out')]"
+                  :firing-windows="tokensInFiringWindows"
                 />
               </CardContent>
             </Card>
@@ -365,7 +414,11 @@ const tokenByModelBars = computed(() => {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <LineChart :series="toolCallsSeries" :accent="metricAccent('tool_calls')" />
+                <LineChart
+                  :series="toolCallsSeries"
+                  :accent="metricAccent('tool_calls')"
+                  :firing-windows="toolCallsFiringWindows"
+                />
               </CardContent>
             </Card>
           </div>
@@ -405,6 +458,7 @@ const tokenByModelBars = computed(() => {
                 <LineChart
                   :series="latencySeries"
                   :accent="metricAccent('latency')"
+                  :firing-windows="latencyFiringWindows"
                   :height="180"
                   :y-formatter="(v) => formatMs(v)"
                 />
@@ -422,6 +476,7 @@ const tokenByModelBars = computed(() => {
                   :series="errorSeries"
                   :accent="metricAccent('warn')"
                   :extra-accents="[metricAccent('errors')]"
+                  :firing-windows="[...error4xxFiringWindows, ...error5xxFiringWindows]"
                   :height="180"
                   as-percent
                 />
@@ -439,6 +494,7 @@ const tokenByModelBars = computed(() => {
                   :series="[...subagentRunsSeries, ...subagentDurationSeries]"
                   :accent="metricAccent('subagent_running')"
                   :extra-accents="[metricAccent('subagent_p95')]"
+                  :firing-windows="subagentRunsFiringWindows"
                   :height="180"
                 />
               </CardContent>

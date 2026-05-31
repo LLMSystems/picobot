@@ -7,6 +7,7 @@
 import { onBeforeUnmount, onMounted, ref, watch, type Component } from 'vue'
 import {
   Activity,
+  AlertTriangle,
   Cpu,
   TrendingUp,
   Gauge,
@@ -14,6 +15,7 @@ import {
   Coins,
   FocusIcon,
 } from 'lucide-vue-next'
+import { useAlertsStore } from '@/stores/alerts'
 
 export interface AnchorItem {
   id: string
@@ -22,6 +24,7 @@ export interface AnchorItem {
 }
 
 const ANCHORS: AnchorItem[] = [
+  { id: 'alerts', label: '告警', icon: AlertTriangle },
   { id: 'health', label: '系統健康總覽', icon: Activity },
   { id: 'resources', label: '系統 / Agent', icon: Cpu },
   { id: 'trends', label: '趨勢', icon: TrendingUp },
@@ -139,6 +142,8 @@ onBeforeUnmount(() => {
 })
 
 defineExpose({ rebuild: () => buildObserver(props.scrollContainer) })
+
+const alerts = useAlertsStore()
 </script>
 
 <template>
@@ -163,6 +168,17 @@ defineExpose({ rebuild: () => buildObserver(props.scrollContainer) })
       />
       <component :is="item.icon" class="size-3.5" />
       <span class="truncate">{{ item.label }}</span>
+      <span
+        v-if="item.id === 'alerts' && alerts.activeCount > 0"
+        class="ml-auto inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-semibold leading-none"
+        :class="alerts.highestSeverity === 'critical'
+          ? 'bg-rose-500 text-white'
+          : alerts.highestSeverity === 'warning'
+            ? 'bg-amber-500 text-white'
+            : 'bg-blue-500 text-white'"
+      >
+        {{ alerts.activeCount }}
+      </span>
     </button>
   </nav>
 </template>

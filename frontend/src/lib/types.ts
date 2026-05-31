@@ -514,6 +514,50 @@ export interface MetricsHistoryResponse {
   series: MetricsHistorySeries[]
 }
 
+// ---- alerts ----------------------------------------------------------------
+
+export type AlertSeverity = 'info' | 'warning' | 'critical'
+
+export interface AlertRule {
+  name: string
+  display_name: string | null
+  description: string
+  severity: AlertSeverity
+  metric_path: string
+  comparator: string
+  threshold: number | boolean | string
+  for_seconds: number
+}
+
+export interface AlertEvent {
+  id: number
+  rule_name: string
+  display_name: string | null
+  severity: AlertSeverity
+  description: string
+  metric_path: string
+  comparator: string
+  threshold: string
+  fired_at: string
+  resolved_at: string | null
+  acknowledged_at: string | null
+  trigger_value: number | null
+  context: Record<string, unknown>
+}
+
+export interface AlertsActiveResponse {
+  items: AlertEvent[]
+  silences: Record<string, string>
+}
+
+export interface AlertsHistoryResponse {
+  items: AlertEvent[]
+}
+
+export interface AlertsRulesResponse {
+  rules: AlertRule[]
+}
+
 export interface MetricsSessionSnapshot {
   session_id: string
   created_at: string | null

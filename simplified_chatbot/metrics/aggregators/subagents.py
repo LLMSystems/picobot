@@ -22,6 +22,7 @@ class SubagentStats:
     duration_p50_ms: float = 0.0
     duration_p95_ms: float = 0.0
     running_now: int = 0
+    longest_running_seconds: float = 0.0  # longest currently-running subagent age
     tokens_in_24h: int = 0
     tokens_out_24h: int = 0
 
@@ -42,6 +43,7 @@ async def aggregate_subagents(db_path: str | Path | None) -> SubagentStats:
     if not rows:
         running = await _count_running(db_path)
         out.running_now = running
+        out.longest_running_seconds = await _longest_running_seconds(db_path)
         return out
 
     durations: list[float] = []
@@ -63,6 +65,7 @@ async def aggregate_subagents(db_path: str | Path | None) -> SubagentStats:
     out.duration_p50_ms = percentile(durations, 0.5)
     out.duration_p95_ms = percentile(durations, 0.95)
     out.running_now = await _count_running(db_path)
+    out.longest_running_seconds = await _longest_running_seconds(db_path)
     return out
 
 
@@ -150,6 +153,39 @@ async def _load_subagent_rows(
     except Exception:
         return out
     return out
+
+
+async def _longest_running_seconds(db_path: str | Path | None) -> float:
+    """Return the elapsed seconds for the longest currently-running subagent."""
+    if db_path is None or aiosqlite is None:
+        return 0.0
+    p = Path(db_path)
+    if not p.exists():
+        return 0.0
+    try:
+        async with aiosqlite.connect(str(p)) as conn:
+            cursor = await conn.execute(
+                "SELECT started_at FROM subagent_runs "
+                "WHERE phase IN ('spawned', 'running')",
+            )
+            longest = 0.0
+            now = datetime.now(timezone.utc)
+            async for (started_at,) in cursor:
+                if not started_at:
+                    continue
+                try:
+                    start = datetime.fromisoformat(
+                        str(started_at).replace("Z", "+00:00"),
+                    )
+                except Exception:
+                    continue
+                seconds = max(0.0, (now - start).total_seconds())
+                if seconds > longest:
+                    longest = seconds
+            await cursor.close()
+            return longest
+    except Exception:
+        return 0.0
 
 
 async def _count_running(db_path: str | Path | None) -> int:

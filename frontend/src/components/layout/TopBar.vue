@@ -6,6 +6,7 @@ import { useCapabilitiesStore } from '@/stores/capabilities'
 import { Button } from '@/components/ui/button'
 import { Menu, Pencil, Moon, Sun, PanelRight, Bell, BellOff, Download, Settings } from 'lucide-vue-next'
 import ModeSwitcher from '@/components/layout/ModeSwitcher.vue'
+import AlertsBadge from '@/components/layout/AlertsBadge.vue'
 import SettingsDialog from '@/components/settings/SettingsDialog.vue'
 import { useSettingsStore } from '@/stores/settings'
 import {
@@ -181,6 +182,7 @@ function cancel() {
     </div>
 
     <div class="flex items-center gap-2 text-xs text-muted-foreground">
+      <AlertsBadge />
       <ModeSwitcher />
       <DropdownMenu v-if="currentSession">
         <DropdownMenuTrigger as-child>

@@ -24,6 +24,9 @@ import type {
   MetricsSessionSnapshot,
   MetricsRange,
   MetricsBucket,
+  AlertsActiveResponse,
+  AlertsHistoryResponse,
+  AlertsRulesResponse,
 } from './types'
 import { ApiError } from './errors'
 
@@ -278,5 +281,33 @@ export const api = {
         series: params.series.join(','),
         bucket: params.bucket,
       })}`,
+    ),
+
+  alertsActive: () => request<AlertsActiveResponse>('/alerts/active'),
+
+  alertsHistory: (params: { limit?: number } = {}) =>
+    request<AlertsHistoryResponse>(`/alerts/history${qs(params)}`),
+
+  alertsRules: () => request<AlertsRulesResponse>('/alerts/rules'),
+
+  ackAlert: (eventId: number) =>
+    request<{ event_id: number; acknowledged: boolean }>(
+      `/alerts/${eventId}/ack`,
+      { method: 'POST' },
+    ),
+
+  silenceAlertRule: (ruleName: string, durationSeconds: number) =>
+    request<{ rule_name: string; silenced_until: string }>(
+      `/alerts/rules/${encodeURIComponent(ruleName)}/silence`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ duration_seconds: durationSeconds }),
+      },
+    ),
+
+  unsilenceAlertRule: (ruleName: string) =>
+    request<{ rule_name: string; silenced_until: null }>(
+      `/alerts/rules/${encodeURIComponent(ruleName)}/silence`,
+      { method: 'DELETE' },
     ),
 }

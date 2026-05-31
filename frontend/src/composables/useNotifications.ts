@@ -83,6 +83,33 @@ export function useNotifications() {
     }
   }
 
+  /**
+   * Force a notification even when the document has focus — used for alert
+   * events where the user should hear about a problem regardless of where
+   * their attention is.
+   */
+  function notifyAlert(opts: { title: string; body?: string; tag: string }) {
+    if (!canNotify.value) return
+    try {
+      const n = new Notification(opts.title, {
+        body: opts.body,
+        icon: '/favicon.ico',
+        tag: opts.tag,
+        requireInteraction: true,
+      })
+      n.onclick = () => {
+        try {
+          window.focus()
+          n.close()
+        } catch {
+          // ignore
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+
   return {
     supported,
     enabled,
@@ -92,5 +119,6 @@ export function useNotifications() {
     disable,
     toggle,
     notify,
+    notifyAlert,
   }
 }

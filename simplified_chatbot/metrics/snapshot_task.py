@@ -33,6 +33,7 @@ class SnapshotTask:
         prune_every_ticks: int = 10,
         per_session_lookback_hours: int = 24,
         per_session_limit: int = 100,
+        alert_service: "Any" = None,  # optional AlertService
     ) -> None:
         self._service = service
         self._store = store
@@ -42,6 +43,7 @@ class SnapshotTask:
         self._prune_every = max(1, prune_every_ticks)
         self._lookback_hours = per_session_lookback_hours
         self._per_session_limit = per_session_limit
+        self._alert_service = alert_service
         self._task: asyncio.Task[None] | None = None
         self._stop_event = asyncio.Event()
         self._tick_count = 0
@@ -100,6 +102,15 @@ class SnapshotTask:
                     continue
                 rows.extend(build_session_rows(ts=ts, session_id=sid, session_snapshot=per))
             await self._store.insert_rows(rows)
+
+            # Evaluate alert rules against the same snapshot so timestamps
+            # line up with the trend charts.
+            if self._alert_service is not None:
+                try:
+                    await self._alert_service.evaluate(snapshot)
+                except Exception:
+                    logger.exception("alert evaluation failed")
+
             self._tick_count += 1
             if self._tick_count % self._prune_every == 0:
                 pruned = await self._store.prune_older_than(
@@ -107,5 +118,10 @@ class SnapshotTask:
                 )
                 if pruned:
                     logger.info("pruned %d old metrics rows", pruned)
+                if self._alert_service is not None:
+                    try:
+                        await self._alert_service.prune()
+                    except Exception:
+                        logger.exception("alert prune failed")
         except Exception:
             logger.exception("snapshot tick failed")

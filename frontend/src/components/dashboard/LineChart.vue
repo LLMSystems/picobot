@@ -9,6 +9,13 @@ import type { MetricsHistorySeries } from '@/lib/types'
 
 ensureEchartsRegistered()
 
+export interface FiringWindow {
+  start: string       // ISO timestamp
+  end: string | null  // null = still firing → render up to current time
+  severity?: 'info' | 'warning' | 'critical'
+  ruleName?: string
+}
+
 const props = defineProps<{
   title?: string
   series: MetricsHistorySeries[]
@@ -21,6 +28,8 @@ const props = defineProps<{
   accent?: AccentColor
   /** Additional palette overrides for series 2..n (uses default echarts colours otherwise). */
   extraAccents?: AccentColor[]
+  /** Alert firing windows to highlight as red/amber/blue background bands. */
+  firingWindows?: FiringWindow[]
 }>()
 
 function paletteFor(index: number): { line: string; area: string } | null {
@@ -33,6 +42,27 @@ function paletteFor(index: number): { line: string; area: string } | null {
     return { line: a.hexLine, area: a.hexArea }
   }
   return null
+}
+
+// Echarts markArea takes pairs of points: [{ coord: ['startX', null] }, { coord: ['endX', null] }].
+// We render one pair per firing window, with severity-tinted fill so the
+// reader can see at a glance "this dip happened during a critical alert".
+function buildMarkAreaData(): any[] {
+  if (!props.firingWindows || props.firingWindows.length === 0) return []
+  const nowIso = new Date().toISOString()
+  const colorFor = (sev?: string): string => {
+    if (sev === 'critical') return 'rgba(244, 63, 94, 0.16)'
+    if (sev === 'warning') return 'rgba(245, 158, 11, 0.16)'
+    return 'rgba(59, 130, 246, 0.14)'
+  }
+  return props.firingWindows.map((w) => [
+    {
+      name: w.ruleName ?? 'alert',
+      xAxis: w.start,
+      itemStyle: { color: colorFor(w.severity) },
+    },
+    { xAxis: w.end ?? nowIso },
+  ])
 }
 
 const option = computed<EChartsOption>(() => {
@@ -74,7 +104,7 @@ const option = computed<EChartsOption>(() => {
     },
     series: props.series.map((s, i) => {
       const palette = paletteFor(i)
-      return {
+      const seriesDef: any = {
         name: seriesNames[i],
         type: 'line',
         smooth: props.smooth ?? true,
@@ -94,6 +124,27 @@ const option = computed<EChartsOption>(() => {
             : undefined,
         data: s.points.map((p) => [p.ts, p.value]),
       }
+      // Attach markArea only to the first series — echarts renders it once
+      // regardless of which series owns it, and putting it on >1 series
+      // doubles up the bands.
+      if (i === 0) {
+        const markAreaData = buildMarkAreaData()
+        if (markAreaData.length > 0) {
+          seriesDef.markArea = {
+            silent: false,
+            label: { show: false },
+            tooltip: {
+              formatter: (params: any) => {
+                const name = params.name || 'alert'
+                return `<div style="font-weight:600">${name}</div>` +
+                  `<div style="color:#888;font-size:11px">firing window</div>`
+              },
+            },
+            data: markAreaData,
+          }
+        }
+      }
+      return seriesDef
     }),
   }
 })

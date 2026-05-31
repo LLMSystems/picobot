@@ -11,3 +11,4 @@ websockets
 pytest-asyncio
 pytest
 psutil>=5.9.0,<8.0.0
+pyyaml>=6.0,<7.0

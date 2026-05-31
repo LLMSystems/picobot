@@ -23,6 +23,7 @@ export default defineConfig({
       '/skills': { target: BACKEND, changeOrigin: true },
       '/health': { target: BACKEND, changeOrigin: true },
       '/metrics': { target: BACKEND, changeOrigin: true },
+      '/alerts': { target: BACKEND, changeOrigin: true },
       '/ws': { target: BACKEND, changeOrigin: true, ws: true },
     },
   },

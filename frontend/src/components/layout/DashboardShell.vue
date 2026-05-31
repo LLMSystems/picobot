@@ -2,6 +2,7 @@
 import { ref } from 'vue'
 import ConnectionBanner from '@/components/common/ConnectionBanner.vue'
 import ModeSwitcher from '@/components/layout/ModeSwitcher.vue'
+import AlertsBadge from '@/components/layout/AlertsBadge.vue'
 import DashboardAnchorRail from '@/components/dashboard/DashboardAnchorRail.vue'
 import { Button } from '@/components/ui/button'
 import { Moon, Sun } from 'lucide-vue-next'
@@ -33,6 +34,7 @@ const scrollRoot = ref<HTMLElement | null>(null)
         <ModeSwitcher />
       </div>
       <div class="flex-1" />
+      <AlertsBadge />
       <Button
         variant="ghost"
         size="icon"

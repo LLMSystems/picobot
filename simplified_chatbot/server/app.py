@@ -25,11 +25,15 @@ from simplified_chatbot.server.endpoints_sessions import router as sessions_rout
 from simplified_chatbot.server.endpoints_skills import router as skills_router
 from simplified_chatbot.server.endpoints_workspace import router as workspace_router
 from simplified_chatbot.server.endpoints_metrics import router as metrics_router
+from simplified_chatbot.server.endpoints_alerts import router as alerts_router
 from simplified_chatbot.server.browser.chrome_process import ChromeProcess
 from simplified_chatbot.metrics.service import MetricsService
 from simplified_chatbot.metrics.middleware import ApiStatsMiddleware
 from simplified_chatbot.metrics.snapshot_store import SnapshotStore
 from simplified_chatbot.metrics.snapshot_task import SnapshotTask
+from simplified_chatbot.alerts.events_store import AlertEventsStore
+from simplified_chatbot.alerts.rules import load_rules
+from simplified_chatbot.alerts.service import AlertService
 
 try:
     from simplified_chatbot.server.endpoints_screencast import router as screencast_router
@@ -43,6 +47,7 @@ def create_app(
     db_path: str | Path | None = None,
     runtime: LocalAgentRuntime | None = None,
     cors_allowed_origins: list[str] | None = None,
+    alerts_config_path: str | Path | None = None,
 ) -> FastAPI:
     """Create a FastAPI app backed by the local async runtime."""
     
@@ -55,6 +60,14 @@ def create_app(
     @asynccontextmanager
     async def lifespan(app_: FastAPI):
         await chrome.start()
+        # Re-hydrate alert firing state from DB before the snapshot task starts
+        # evaluating; otherwise a fresh server would re-fire all active alerts.
+        alerts = getattr(app_.state, "alerts", None)
+        if alerts is not None:
+            try:
+                await alerts.hydrate_from_db()
+            except Exception:
+                pass
         snapshot_task = getattr(app_.state, "snapshot_task", None)
         if snapshot_task is not None:
             await snapshot_task.start()
@@ -157,12 +170,23 @@ def create_app(
     metrics = _build_metrics_service(runtime, chrome)
     app.state.metrics = metrics
     app.add_middleware(ApiStatsMiddleware, recorder=metrics.api_stats)
+
+    alert_service = _build_alert_service(
+        metrics_db_path=getattr(metrics, "_db_path", None),
+        alerts_config_path=alerts_config_path,
+    )
+    app.state.alerts = alert_service
+
     if metrics.snapshot_store is not None:
         snapshot_db_path = getattr(metrics, "_db_path", None)
         app.state.snapshot_task = SnapshotTask(
             service=metrics,
             store=metrics.snapshot_store,
             db_path=str(snapshot_db_path) if snapshot_db_path else None,
+            # 10s — drives both snapshot persistence AND alert evaluation,
+            # so alerts fire within ~10s of their condition becoming true.
+            interval_seconds=10,
+            alert_service=alert_service,
         )
 
     app.include_router(chat_router)
@@ -172,9 +196,35 @@ def create_app(
     app.include_router(skills_router)
     app.include_router(health_router)
     app.include_router(metrics_router)
+    app.include_router(alerts_router)
     if screencast_router is not None:
         app.include_router(screencast_router)
     return app
+
+
+def _build_alert_service(
+    *,
+    metrics_db_path: Path | None,
+    alerts_config_path: str | Path | None,
+) -> AlertService | None:
+    """Load alert rules from YAML and wire an AlertService.
+
+    Returns None if no rules path was given or the config file is empty —
+    the rest of the dashboard keeps working without an alerts layer.
+    """
+    if metrics_db_path is None:
+        return None
+    # Default to alerts.yaml sitting next to the working directory.
+    rules_path = (
+        Path(alerts_config_path).expanduser().resolve()
+        if alerts_config_path is not None
+        else (Path.cwd() / "alerts.yaml")
+    )
+    rules = load_rules(rules_path) if rules_path.exists() else []
+    if not rules:
+        return None
+    store = AlertEventsStore(metrics_db_path)
+    return AlertService(store=store, rules=rules)
 
 
 def _build_metrics_service(

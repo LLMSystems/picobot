@@ -1,0 +1,68 @@
+# Picobot Alert Rules
+#
+# Each rule fires when a metric (referenced by dotted path into the snapshot
+# returned by /metrics/current) satisfies a comparator-threshold test.
+#
+# `display_name` (optional) is the human-readable label shown in the UI; the
+# raw `name` is still used as the unique identifier and for the API path
+# (e.g. `/alerts/rules/{name}/silence`).
+#
+# `for_seconds` (optional) requires the condition to hold continuously for at
+# least N seconds before firing — useful for damping out spikes.
+#
+# Severity affects UI styling and notification delivery:
+#   - info     → UI only
+#   - warning  → UI + browser notification
+#   - critical → UI + browser notification (red)
+#
+# To disable a rule without deleting it, set `enabled: false`.
+
+rules:
+  - name: high_cpu_sustained
+    display_name: CPU 持續過高
+    description: CPU 持續高於 80%（超過 5 分鐘）
+    severity: warning
+    metric_path: system.cpu_percent
+    comparator: ">"
+    threshold: 80
+    for_seconds: 300
+
+  - name: api_5xx_burst
+    display_name: API 5xx 錯誤爆量
+    description: API 5xx 錯誤比率超過 5%
+    severity: critical
+    metric_path: api.error_5xx_rate_1h
+    comparator: ">"
+    threshold: 0.05
+
+  - name: tool_success_drop
+    display_name: 工具成功率下降
+    description: 工具成功率掉到 80% 以下
+    severity: warning
+    metric_path: agent.tool_success_rate
+    comparator: "<"
+    threshold: 0.80
+
+  - name: chrome_down
+    display_name: 瀏覽器已停止
+    description: 瀏覽器 process 已停止（原本應 alive）
+    severity: critical
+    metric_path: system.chrome_alive
+    comparator: "=="
+    threshold: false
+
+  - name: db_size_warn
+    display_name: 資料庫過大
+    description: sessions.db 超過 5 GB
+    severity: warning
+    metric_path: system.db_file_bytes
+    comparator: ">"
+    threshold: 5368709120  # 5 GiB
+
+  - name: subagent_stuck
+    display_name: 子代理執行過久
+    description: 有 subagent 執行超過 30 分鐘
+    severity: warning
+    metric_path: subagents.longest_running_seconds
+    comparator: ">"
+    threshold: 1800

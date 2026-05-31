@@ -313,6 +313,7 @@ def _subagents_block(stats: SubagentStats) -> dict[str, Any]:
         "duration_p50_ms": stats.duration_p50_ms,
         "duration_p95_ms": stats.duration_p95_ms,
         "running_now": stats.running_now,
+        "longest_running_seconds": stats.longest_running_seconds,
         "tokens_in_24h": stats.tokens_in_24h,
         "tokens_out_24h": stats.tokens_out_24h,
     }
