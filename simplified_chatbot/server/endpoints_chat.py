@@ -26,22 +26,26 @@ from simplified_chatbot.server.sse import encode_sse
 router = APIRouter()
 
 
-def _record_chat_usage(
+async def _record_chat_usage(
     request: Request,
     *,
     session_id: str,
     model: str | None,
     usage: dict[str, int] | None,
 ) -> None:
-    """Push a chat-call usage record into the metrics ring buffer, if available."""
+    """Push a chat-call usage record into the metrics layer, if available.
+
+    Delegates to `MetricsService.record_chat_usage` which writes both the
+    in-memory ring (for cheap reads in tests) and the persistent
+    `chat_usage_events` table (so totals survive process restarts).
+    """
     svc = getattr(request.app.state, "metrics", None)
     if svc is None:
         return
-    recorder = getattr(svc, "chat_usage", None)
-    if recorder is None:
-        return
     try:
-        recorder.record(session_id=session_id, model=model, usage=usage)
+        await svc.record_chat_usage(
+            session_id=session_id, model=model, usage=usage,
+        )
     except Exception:
         # Recording must never break the chat flow.
         pass
@@ -118,7 +122,7 @@ async def chat(request: Request, payload: ChatRequest) -> ChatResponse:
             message=str(exc),
         )
 
-    _record_chat_usage(
+    await _record_chat_usage(
         request,
         session_id=payload.session_id,
         model=getattr(result, "model", None),
@@ -243,7 +247,7 @@ def _build_chat_stream_response(
                 disabled_tools=disabled_tools,
                 on_event=on_event,
             )
-            _record_chat_usage(
+            await _record_chat_usage(
                 request,
                 session_id=session_id,
                 model=getattr(result, "model", None),

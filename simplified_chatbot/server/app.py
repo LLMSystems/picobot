@@ -31,6 +31,7 @@ from simplified_chatbot.metrics.service import MetricsService
 from simplified_chatbot.metrics.middleware import ApiStatsMiddleware
 from simplified_chatbot.metrics.snapshot_store import SnapshotStore
 from simplified_chatbot.metrics.snapshot_task import SnapshotTask
+from simplified_chatbot.metrics.chat_usage_store import ChatUsageStore
 from simplified_chatbot.alerts.events_store import AlertEventsStore
 from simplified_chatbot.alerts.rules import load_rules
 from simplified_chatbot.alerts.service import AlertService
@@ -242,10 +243,12 @@ def _build_metrics_service(
             runtime.workspace_manager, "workspace_root", None,
         )
     snapshot_store = SnapshotStore(db_path) if db_path is not None else None
+    chat_usage_store = ChatUsageStore(db_path) if db_path is not None else None
     service = MetricsService(
         db_path=db_path,
         workspace_root_dir=workspace_root,
         snapshot_store=snapshot_store,
+        chat_usage_store=chat_usage_store,
     )
     service.set_chrome_status_provider(
         lambda: chrome.proc is not None and chrome.proc.poll() is None,

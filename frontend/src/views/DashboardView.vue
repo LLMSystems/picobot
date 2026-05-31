@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import AlertsSection from '@/components/dashboard/AlertsSection.vue'
+import AlertRulesCard from '@/components/dashboard/AlertRulesCard.vue'
 import BarChart from '@/components/dashboard/BarChart.vue'
 import HealthSummaryRow from '@/components/dashboard/HealthSummaryRow.vue'
 import LineChart from '@/components/dashboard/LineChart.vue'
@@ -254,8 +255,9 @@ const tokenByModelBars = computed(() => {
       </template>
 
       <template v-else-if="snap">
-        <section data-anchor="alerts" class="scroll-mt-20">
+        <section data-anchor="alerts" class="scroll-mt-20 space-y-3">
           <AlertsSection />
+          <AlertRulesCard />
         </section>
 
         <section data-anchor="health" class="scroll-mt-20">
@@ -540,7 +542,7 @@ const tokenByModelBars = computed(() => {
         <section data-anchor="usage" class="scroll-mt-20">
         <MetricsSection
           title="Token 用量（24h）"
-          subtitle="僅統計目前 process 期間累積的 chat tokens（Phase 1 限制）"
+          subtitle="持久化儲存於 chat_usage_events，保留 7 天"
         >
           <div class="grid grid-cols-2 gap-3 md:grid-cols-3">
             <StatCard

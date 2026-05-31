@@ -68,8 +68,16 @@ async def aggregate_messages(
     else:
         sql = "SELECT payload FROM session_messages WHERE session_id = ?"
         params = (session_id,)
-    async with aiosqlite.connect(str(p)) as conn:
-        cursor = await conn.execute(sql, params)
+    try:
+        conn_ctx = aiosqlite.connect(str(p))
+    except Exception:
+        return out
+    async with conn_ctx as conn:
+        try:
+            cursor = await conn.execute(sql, params)
+        except Exception:
+            # DB exists but session_messages hasn't been created yet.
+            return out
         tool_call_pending: dict[str, str] = {}
         async for (raw,) in cursor:
             try:

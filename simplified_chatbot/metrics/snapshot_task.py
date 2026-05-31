@@ -118,6 +118,18 @@ class SnapshotTask:
                 )
                 if pruned:
                     logger.info("pruned %d old metrics rows", pruned)
+                chat_store = getattr(self._service, "chat_usage_store", None)
+                if chat_store is not None:
+                    try:
+                        chat_pruned = await chat_store.prune_older_than(
+                            retention_days=self._retention_days,
+                        )
+                        if chat_pruned:
+                            logger.info(
+                                "pruned %d old chat_usage rows", chat_pruned,
+                            )
+                    except Exception:
+                        logger.exception("chat usage prune failed")
                 if self._alert_service is not None:
                     try:
                         await self._alert_service.prune()

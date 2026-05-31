@@ -36,6 +36,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional AioSQLite session DB path (default: ./sessions.db).",
     )
     parser.add_argument(
+        "--alerts-config",
+        default="alerts.yaml",
+        help="Path to the alert rules YAML (default: ./alerts.yaml; "
+             "alerts disabled if file is missing or empty).",
+    )
+    parser.add_argument(
         "--reload",
         action="store_true",
         help="Enable uvicorn auto-reload for local development.",
@@ -63,6 +69,7 @@ def main() -> int:
     app = create_app(
         config_path=config_path,
         db_path=db_path,
+        alerts_config_path=args.alerts_config,
     )
 
     print("picobot FastAPI server")

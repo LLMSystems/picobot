@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import asdict, is_dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -26,6 +27,7 @@ from simplified_chatbot.metrics.aggregators.subagents import (
     aggregate_subagents_for_session,
 )
 from simplified_chatbot.metrics.aggregators.tokens import (
+    ModelUsageEntry,
     TokenUsageSummary,
     summarize_chat_usage,
     summarize_chat_usage_for_session,
@@ -42,6 +44,10 @@ from simplified_chatbot.metrics.snapshot_store import (
     SnapshotStore,
     TimeseriesKey,
     TimeseriesPoint,
+)
+from simplified_chatbot.metrics.chat_usage_store import (
+    ChatUsageAggregate,
+    ChatUsageStore,
 )
 
 
@@ -75,15 +81,20 @@ class MetricsService:
         db_path: str | Path | None,
         workspace_root_dir: str | Path | None,
         snapshot_store: SnapshotStore | None = None,
+        chat_usage_store: ChatUsageStore | None = None,
     ) -> None:
         self._db_path = Path(db_path).expanduser().resolve() if db_path else None
         self._process = ProcessCollector()
         self._sqlite = SqliteStatsCollector(self._db_path)
         self._workspace = WorkspaceCollector(workspace_root_dir)
+        # In-memory ring is kept around for tests + as a short-term cache, but
+        # the DB store (when configured) is the source of truth for summaries
+        # so values survive restarts.
         self.chat_usage = ChatUsageRecorder()
         self.api_stats = ApiStatsRecorder()
         self.sse_connections = SseConnectionCounter()
         self.snapshot_store = snapshot_store
+        self.chat_usage_store = chat_usage_store
         self._chrome_status_provider = None  # set by app wiring
 
     def set_chrome_status_provider(self, provider) -> None:  # type: ignore[no-untyped-def]
@@ -99,8 +110,7 @@ class MetricsService:
         sessions = await aggregate_sessions(self._db_path)
         subagents = await aggregate_subagents(self._db_path)
         messages = await aggregate_messages(self._db_path)
-        chat_usage = self.chat_usage.snapshot()
-        token_summary = summarize_chat_usage(chat_usage)
+        token_summary = await self._aggregate_chat_usage()
         api_summary = summarize_api_stats(
             self.api_stats.records_since(60),
             self.api_stats.records_since(3600),
@@ -149,9 +159,7 @@ class MetricsService:
 
         messages = await aggregate_messages(self._db_path, session_id=session_id)
         sub_stats = await aggregate_subagents_for_session(self._db_path, session_id)
-        chat_usage = summarize_chat_usage_for_session(
-            self.chat_usage.snapshot(), session_id,
-        )
+        chat_usage = await self._aggregate_chat_usage(session_id=session_id)
         await self._workspace.collect()  # ensure fresh cache if stale
         workspace_bytes = self._workspace.session_bytes(session_id)
         workspace_measured_at = self._workspace.measured_at
@@ -241,6 +249,75 @@ class MetricsService:
             "bucket": bucket_label,
             "series": out_series,
         }
+
+    # ---- chat usage write path ---------------------------------------------
+
+    async def record_chat_usage(
+        self,
+        *,
+        session_id: str,
+        model: str | None,
+        usage: dict[str, int] | None,
+    ) -> None:
+        """Single entry point for chat endpoints to record a usage event.
+
+        Writes synchronously to the in-memory ring (cheap reads + tests) AND
+        awaits a DB write to `chat_usage_store` so values survive restarts.
+        Awaiting is fine: chat endpoints already await seconds of model work,
+        and the insert is microseconds. Fire-and-forget would leak when the
+        caller's event loop tears down before the task can run.
+        """
+        if not usage:
+            return
+        self.chat_usage.record(
+            session_id=session_id, model=model, usage=usage,
+        )
+        if self.chat_usage_store is None:
+            return
+        prompt = int(usage.get("prompt_tokens", 0) or 0)
+        completion = int(usage.get("completion_tokens", 0) or 0)
+        total = int(usage.get("total_tokens", 0) or 0) or (prompt + completion)
+        try:
+            await self.chat_usage_store.insert(
+                session_id=session_id,
+                model=model,
+                prompt_tokens=prompt,
+                completion_tokens=completion,
+                total_tokens=total,
+            )
+        except Exception:
+            # Persistence failure should never break the chat flow.
+            pass
+
+    async def _aggregate_chat_usage(
+        self,
+        *,
+        session_id: str | None = None,
+    ) -> TokenUsageSummary:
+        """Read 24h chat usage from the DB store; fall back to ring if no store."""
+        if self.chat_usage_store is None:
+            ring = self.chat_usage.snapshot()
+            if session_id is not None:
+                return summarize_chat_usage_for_session(ring, session_id)
+            return summarize_chat_usage(ring)
+        since = (
+            datetime.now(timezone.utc) - timedelta(hours=24)
+        ).isoformat()
+        agg = await self.chat_usage_store.aggregate_since(
+            since, session_id=session_id,
+        )
+        return TokenUsageSummary(
+            tokens_in_24h=agg.tokens_in,
+            tokens_out_24h=agg.tokens_out,
+            by_model_24h=[
+                ModelUsageEntry(
+                    model=m.model,
+                    tokens_in=m.tokens_in,
+                    tokens_out=m.tokens_out,
+                )
+                for m in agg.by_model
+            ],
+        )
 
     # ---- internals -----------------------------------------------------------
 

@@ -59,19 +59,24 @@ async def list_active_session_ids(
     if not p.exists():
         return []
     cutoff = (datetime.now(timezone.utc) - timedelta(hours=lookback_hours)).isoformat()
-    async with aiosqlite.connect(str(p)) as conn:
-        cursor = await conn.execute(
-            """
-            SELECT session_id
-            FROM session_metadata
-            WHERE updated_at >= ?
-            ORDER BY updated_at DESC
-            LIMIT ?
-            """,
-            (cutoff, limit),
-        )
-        rows = await cursor.fetchall()
-        await cursor.close()
+    try:
+        async with aiosqlite.connect(str(p)) as conn:
+            cursor = await conn.execute(
+                """
+                SELECT session_id
+                FROM session_metadata
+                WHERE updated_at >= ?
+                ORDER BY updated_at DESC
+                LIMIT ?
+                """,
+                (cutoff, limit),
+            )
+            rows = await cursor.fetchall()
+            await cursor.close()
+    except Exception:
+        # DB file exists (e.g. another store created it) but session_metadata
+        # hasn't been initialised yet — treat as no sessions.
+        return []
     return [str(row[0]) for row in rows]
 
 

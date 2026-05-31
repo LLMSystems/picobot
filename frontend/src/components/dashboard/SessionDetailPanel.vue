@@ -155,9 +155,8 @@ const toolBars = computed(() => {
             :color="metricAccent('subagent_success')"
           />
           <StatCard
-            label="Tokens（輸入 / 輸出）"
+            label="Tokens（輸入 / 輸出，24h）"
             :value="`${formatNumber(detail.chat_tokens_in)} / ${formatNumber(detail.chat_tokens_out)}`"
-            hint="僅統計目前 process 期間"
             :icon="Coins"
             :color="metricAccent('tokens_in')"
           />
