@@ -28,6 +28,7 @@ export default defineConfig(({ command }) => ({
       '/health': { target: BACKEND, changeOrigin: true },
       '/metrics': { target: BACKEND, changeOrigin: true },
       '/alerts': { target: BACKEND, changeOrigin: true },
+      '/browser': { target: BACKEND, changeOrigin: true },
       '/ws': { target: BACKEND, changeOrigin: true, ws: true },
     },
   },

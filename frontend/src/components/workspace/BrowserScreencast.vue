@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import {
   Loader2,
   RefreshCw,
@@ -10,10 +10,35 @@ import {
   Maximize2,
   ArrowLeft,
   ArrowRight,
+  Plus,
+  X,
+  Monitor,
+  Settings2,
+  Check,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
-import { useBrowserScreencast } from '@/composables/useBrowserScreencast'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import {
+  useBrowserScreencast,
+  type ViewportSettings,
+  type QualitySettings,
+} from '@/composables/useBrowserScreencast'
+import { useBrowserTabs } from '@/composables/useBrowserTabs'
 import { virtualKeyCodeFor, textForKey } from '@/lib/browserKeymap'
+
+const {
+  tabs: browserTabs,
+  refresh: refreshTabs,
+  open: openTabApi,
+  close: closeTabApi,
+} = useBrowserTabs()
 
 const {
   status,
@@ -21,11 +46,28 @@ const {
   errorMessage,
   fps,
   metadata,
+  currentTargetId,
+  switching,
+  viewport,
+  quality,
   connect,
   disconnect,
   sendInput,
   navigate,
-} = useBrowserScreencast()
+  switchTarget,
+  setViewport,
+  resetViewport,
+  setQuality,
+} = useBrowserScreencast({
+  onTabsChanged: async ({ currentClosed }) => {
+    const list = await refreshTabs()
+    // If the tab we were streaming got closed, jump to whichever tab is left.
+    if (currentClosed && list.length > 0) {
+      const fallback = list[0]
+      switchTarget(fallback.targetId)
+    }
+  },
+})
 
 const fullscreenOpen = ref(false)
 const interactive = ref(true)
@@ -46,7 +88,7 @@ const statusLabel = computed(() => {
     case 'connecting':
       return '連線中…'
     case 'live':
-      return `LIVE · ${fps.value} fps`
+      return switching.value ? '切換分頁中…' : `LIVE · ${fps.value} fps`
     case 'chrome_offline':
       return 'Chrome 未啟動'
     case 'error':
@@ -58,7 +100,7 @@ const statusLabel = computed(() => {
 const statusDotClass = computed(() => {
   switch (status.value) {
     case 'live':
-      return 'bg-emerald-500 animate-pulse'
+      return switching.value ? 'bg-amber-500' : 'bg-emerald-500 animate-pulse'
     case 'connecting':
     case 'checking':
       return 'bg-amber-500'
@@ -77,7 +119,7 @@ const resolutionLabel = computed(() => {
 })
 
 function reconnect() {
-  void connect()
+  void boot()
 }
 
 function toggleInteractive() {
@@ -221,14 +263,10 @@ function onCompositionEnd(e: CompositionEvent) {
   isComposing.value = false
   const text = e.data
   if (text) sendInput({ event: 'insertText', text })
-  // Always clear so the invisible textarea doesn't accumulate state.
   if (overlayRef.value) overlayRef.value.value = ''
 }
 
 function onOverlayInput(e: Event) {
-  // Keep the invisible textarea empty. Latin chars go through keydown→keychar;
-  // CJK characters are delivered via compositionend → insertText. We don't want
-  // the textarea to hold stale value.
   if (isComposing.value) return
   const ta = e.target as HTMLTextAreaElement
   ta.value = ''
@@ -258,8 +296,139 @@ function openFullscreen() {
   fullscreenOpen.value = true
 }
 
+function onTabClick(targetId: string) {
+  if (targetId === currentTargetId.value) return
+  switchTarget(targetId)
+}
+
+async function onNewTab() {
+  const id = await openTabApi()
+  if (id) switchTarget(id)
+}
+
+async function onCloseTab(targetId: string, e: MouseEvent) {
+  e.stopPropagation()
+  // Backend will emit tabs_changed; the onTabsChanged callback handles
+  // fallback if the closed tab was the active one.
+  await closeTabApi(targetId)
+}
+
+interface ViewportPreset {
+  id: string
+  label: string
+  value: ViewportSettings | null
+}
+
+const VIEWPORT_PRESETS: ViewportPreset[] = [
+  { id: 'default', label: '預設（瀏覽器原生）', value: null },
+  { id: 'desktop', label: 'Desktop 1920×1080', value: { width: 1920, height: 1080 } },
+  { id: 'laptop', label: 'Laptop 1366×768', value: { width: 1366, height: 768 } },
+  { id: 'tablet', label: 'Tablet 768×1024', value: { width: 768, height: 1024 } },
+  { id: 'mobile', label: 'Mobile 375×667', value: { width: 375, height: 667, deviceScaleFactor: 2, mobile: true } },
+]
+
+interface QualityPreset {
+  id: string
+  label: string
+  value: QualitySettings
+}
+
+const QUALITY_PRESETS: QualityPreset[] = [
+  { id: 'high', label: '高（1920×1080 · q85）', value: { maxWidth: 1920, maxHeight: 1080, quality: 85, everyNthFrame: 1 } },
+  { id: 'medium', label: '中（1280×720 · q70）', value: { maxWidth: 1280, maxHeight: 720, quality: 70, everyNthFrame: 1 } },
+  { id: 'low', label: '低（854×480 · q50）', value: { maxWidth: 854, maxHeight: 480, quality: 50, everyNthFrame: 1 } },
+  { id: 'eco', label: '省頻寬（640×360 · q40 · 2fps）', value: { maxWidth: 640, maxHeight: 360, quality: 40, everyNthFrame: 15 } },
+]
+
+const viewportContainerRef = ref<HTMLDivElement | null>(null)
+
+const viewportLabel = computed(() => {
+  const v = viewport.value
+  if (!v) return '預設'
+  return `${v.width}×${v.height}`
+})
+
+const qualityLabel = computed(() => {
+  const q = quality.value
+  const match = QUALITY_PRESETS.find(
+    (p) =>
+      p.value.maxWidth === q.maxWidth &&
+      p.value.maxHeight === q.maxHeight &&
+      p.value.quality === q.quality &&
+      p.value.everyNthFrame === q.everyNthFrame,
+  )
+  return match ? match.label.split('（')[0] : `${q.maxWidth}×${q.maxHeight}`
+})
+
+function applyViewportPreset(preset: ViewportPreset) {
+  if (preset.value === null) resetViewport()
+  else setViewport(preset.value)
+}
+
+function fitViewportToPanel() {
+  const el = viewportContainerRef.value
+  if (!el) return
+  const rect = el.getBoundingClientRect()
+  if (rect.width < 64 || rect.height < 64) return
+  setViewport({
+    width: Math.round(rect.width),
+    height: Math.round(rect.height),
+    deviceScaleFactor: window.devicePixelRatio || 1,
+  })
+}
+
+function applyQualityPreset(preset: QualityPreset) {
+  setQuality(preset.value)
+}
+
+function isViewportActive(preset: ViewportPreset): boolean {
+  if (preset.value === null) return viewport.value === null
+  if (!viewport.value) return false
+  return (
+    viewport.value.width === preset.value.width &&
+    viewport.value.height === preset.value.height &&
+    (viewport.value.mobile ?? false) === (preset.value.mobile ?? false)
+  )
+}
+
+function isQualityActive(preset: QualityPreset): boolean {
+  const q = quality.value
+  return (
+    q.maxWidth === preset.value.maxWidth &&
+    q.maxHeight === preset.value.maxHeight &&
+    q.quality === preset.value.quality &&
+    q.everyNthFrame === preset.value.everyNthFrame
+  )
+}
+
+function tabLabel(tab: { title: string; url: string }): string {
+  if (tab.title) return tab.title
+  if (tab.url) {
+    try {
+      const u = new URL(tab.url)
+      return u.hostname || tab.url
+    } catch {
+      return tab.url
+    }
+  }
+  return '新分頁'
+}
+
+async function boot() {
+  // Discover tabs first so we connect directly to whatever is open.
+  const list = await refreshTabs()
+  const target = list[0]?.targetId
+  await connect(target)
+}
+
+// URL bar should mirror the active tab's URL when we know it.
+watch(currentTargetId, (id) => {
+  const tab = browserTabs.value.find((t) => t.targetId === id)
+  if (tab) urlInput.value = tab.url
+})
+
 onMounted(() => {
-  void connect()
+  void boot()
 })
 
 defineExpose({ disconnect })
@@ -281,6 +450,67 @@ defineExpose({ disconnect })
       </span>
 
       <div class="ml-auto flex items-center gap-1">
+        <DropdownMenu v-if="status === 'live'">
+          <DropdownMenuTrigger as-child>
+            <Button
+              size="sm"
+              variant="ghost"
+              class="h-6 px-2 text-xs"
+              title="切換頁面 viewport（影響網頁 layout）"
+            >
+              <Monitor class="mr-1 size-3" />
+              {{ viewportLabel }}
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" class="w-56">
+            <DropdownMenuLabel class="text-[11px]">頁面 viewport</DropdownMenuLabel>
+            <DropdownMenuItem
+              v-for="preset in VIEWPORT_PRESETS"
+              :key="preset.id"
+              class="text-xs"
+              @click="applyViewportPreset(preset)"
+            >
+              <Check
+                class="mr-2 size-3"
+                :class="isViewportActive(preset) ? 'opacity-100' : 'opacity-0'"
+              />
+              {{ preset.label }}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem class="text-xs" @click="fitViewportToPanel">
+              <Maximize2 class="mr-2 size-3" />
+              填滿目前面板
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <DropdownMenu v-if="status === 'live'">
+          <DropdownMenuTrigger as-child>
+            <Button
+              size="sm"
+              variant="ghost"
+              class="h-6 px-2 text-xs"
+              title="串流畫質（不影響網頁 layout）"
+            >
+              <Settings2 class="mr-1 size-3" />
+              {{ qualityLabel }}
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" class="w-64">
+            <DropdownMenuLabel class="text-[11px]">串流畫質</DropdownMenuLabel>
+            <DropdownMenuItem
+              v-for="preset in QUALITY_PRESETS"
+              :key="preset.id"
+              class="text-xs"
+              @click="applyQualityPreset(preset)"
+            >
+              <Check
+                class="mr-2 size-3"
+                :class="isQualityActive(preset) ? 'opacity-100' : 'opacity-0'"
+              />
+              {{ preset.label }}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
         <Button
           v-if="status === 'live'"
           size="sm"
@@ -314,6 +544,44 @@ defineExpose({ disconnect })
           重連
         </Button>
       </div>
+    </div>
+
+    <div
+      v-if="status === 'live' && browserTabs.length > 0"
+      class="flex h-8 shrink-0 items-center gap-1 overflow-x-auto border-b bg-muted/20 px-2"
+    >
+      <button
+        v-for="tab in browserTabs"
+        :key="tab.targetId"
+        type="button"
+        :class="[
+          'group flex h-6 min-w-0 max-w-[180px] shrink-0 items-center gap-1 rounded px-2 text-xs transition-colors',
+          tab.targetId === currentTargetId
+            ? 'bg-background ring-1 ring-border'
+            : 'text-muted-foreground hover:bg-background/60',
+        ]"
+        :title="tab.url || tab.title"
+        @click="onTabClick(tab.targetId)"
+      >
+        <span class="truncate">{{ tabLabel(tab) }}</span>
+        <span
+          v-if="browserTabs.length > 1"
+          class="ml-0.5 grid size-4 shrink-0 place-items-center rounded text-muted-foreground opacity-0 hover:bg-muted hover:text-foreground group-hover:opacity-100"
+          role="button"
+          title="關閉分頁"
+          @click="(e: MouseEvent) => onCloseTab(tab.targetId, e)"
+        >
+          <X class="size-3" />
+        </span>
+      </button>
+      <button
+        type="button"
+        class="ml-1 grid size-6 shrink-0 place-items-center rounded text-muted-foreground hover:bg-background/60 hover:text-foreground"
+        title="新增分頁"
+        @click="onNewTab"
+      >
+        <Plus class="size-3.5" />
+      </button>
     </div>
 
     <div
@@ -357,6 +625,7 @@ defineExpose({ disconnect })
     </div>
 
     <div
+      ref="viewportContainerRef"
       class="relative flex flex-1 min-h-0 items-center justify-center overflow-hidden bg-black/90"
     >
       <template v-if="frameDataUrl && status === 'live'">
@@ -387,6 +656,12 @@ defineExpose({ disconnect })
           @compositionend="onCompositionEnd"
           @input="onOverlayInput"
         />
+      </template>
+      <template v-else-if="status === 'live' && switching">
+        <div class="flex flex-col items-center gap-2 text-muted-foreground">
+          <Loader2 class="size-6 animate-spin" />
+          <span class="text-xs">切換分頁中…</span>
+        </div>
       </template>
       <template v-else-if="status === 'connecting' || status === 'checking'">
         <div class="flex flex-col items-center gap-2 text-muted-foreground">

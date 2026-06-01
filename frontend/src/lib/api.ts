@@ -48,6 +48,7 @@ export const API_BASE = (import.meta.env.VITE_API_BASE ?? '').replace(/\/$/, '')
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
+    cache: 'no-store',
     ...init,
     headers: {
       'Content-Type': 'application/json',
@@ -58,7 +59,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 async function requestRaw<T>(path: string, init: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, init)
+  const res = await fetch(`${API_BASE}${path}`, { cache: 'no-store', ...init })
   return parseResponse<T>(res)
 }
 
@@ -86,6 +87,29 @@ export const api = {
 
   chromeHealth: () =>
     request<{ chrome_alive: boolean; cdp_port: number }>('/health/chrome'),
+
+  listBrowserTabs: () =>
+    request<{ tabs: { targetId: string; title: string; url: string }[] }>(
+      '/browser/tabs',
+    ),
+
+  createBrowserTab: (body: { url?: string } = {}) =>
+    request<{ targetId: string; url: string }>('/browser/tabs', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  closeBrowserTab: (targetId: string) =>
+    request<{ targetId: string; closed: boolean }>(
+      `/browser/tabs/${encodeURIComponent(targetId)}`,
+      { method: 'DELETE' },
+    ),
+
+  activateBrowserTab: (targetId: string) =>
+    request<{ targetId: string; activated: boolean }>(
+      `/browser/tabs/${encodeURIComponent(targetId)}/activate`,
+      { method: 'POST' },
+    ),
 
   capabilities: () => request<Capabilities>('/capabilities'),
 
