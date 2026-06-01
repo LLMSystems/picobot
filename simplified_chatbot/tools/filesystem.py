@@ -125,6 +125,7 @@ class ReadFileTool(Tool):
 
     _MAX_CHARS = 128_000
     _DEFAULT_LIMIT = 2000
+    read_only = True
 
     def __init__(
         self,
@@ -677,6 +678,7 @@ class ListDirTool(Tool):
     """List directory contents with optional recursion."""
 
     _DEFAULT_MAX = 200
+    read_only = True
 
     def __init__(
         self,

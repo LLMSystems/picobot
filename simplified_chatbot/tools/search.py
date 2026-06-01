@@ -188,6 +188,8 @@ class _SearchTool(Tool):
 class FindFilesTool(_SearchTool):
     """Find files by path fragment, glob, or file type."""
 
+    read_only = True
+
     @property
     def name(self) -> str:
         return "find_files"
@@ -333,6 +335,8 @@ class FindFilesTool(_SearchTool):
 )
 class GlobTool(_SearchTool):
     """Find paths by glob pattern, optionally filtered by name fragment or file type."""
+
+    read_only = True
 
     @property
     def name(self) -> str:
@@ -504,6 +508,8 @@ class GlobTool(_SearchTool):
 )
 class GrepTool(_SearchTool):
     """Search file contents using regex or fixed strings."""
+
+    read_only = True
 
     @property
     def name(self) -> str:

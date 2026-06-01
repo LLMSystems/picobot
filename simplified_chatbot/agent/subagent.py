@@ -652,6 +652,7 @@ class SubagentManager:
 _TERMINAL_PHASES = frozenset({"done", "error", "cancelled"})
 _SUCCESS_STOP_REASONS = frozenset({"completed", "stop"})
 _SUBAGENT_EVENT_MAP = {
+    "reasoning_delta": "subagent_reasoning_delta",
     "tool_call_started": "subagent_tool_call_started",
     "tool_call_finished": "subagent_tool_call_finished",
     "iteration_completed": "subagent_iteration_completed",

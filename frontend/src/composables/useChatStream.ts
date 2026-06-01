@@ -57,6 +57,7 @@ export async function runStream(
   for await (const evt of parseSse(res.body, signal)) {
     switch (evt.event) {
       case 'run_started':
+      case 'reasoning_delta':
       case 'tool_call_started':
       case 'tool_call_finished':
       case 'workspace_changed':

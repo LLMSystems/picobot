@@ -25,6 +25,8 @@ from simplified_chatbot.tools.base import Tool, tool_parameters
 class ReadSkillTool(Tool):
     """Read SKILL.md content by skill name without breaking workspace boundaries."""
 
+    read_only = True
+
     def __init__(
         self,
         *,

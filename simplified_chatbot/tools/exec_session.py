@@ -452,6 +452,8 @@ class WriteStdinTool(Tool):
 class ListExecSessionsTool(Tool):
     """List active exec sessions."""
 
+    read_only = True
+
     def __init__(
         self,
         *,

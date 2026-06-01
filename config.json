@@ -1,10 +1,15 @@
 {
   "provider": "openai_compat",
-  "model": "gpt-4o-mini",
-  "subagentModel": "gpt-4o-mini",
+  "model": "deepseek/deepseek-chat-v3.1",
+  "subagentModel": "deepseek/deepseek-chat-v3.1",
   "maxConcurrentSubagents": 20,
   "availableModels": [
-    "gpt-4.1-mini",
+    "qwen/qwen3-30b-a3b-thinking-2507",
+    "qwen/qwen3-coder-30b-a3b-instruct",
+    "deepseek/deepseek-chat-v3.1",
+    "google/gemini-2.5-flash-lite",
+    "google/gemini-2.5-flash",
+    "z-ai/glm-4.5-air",
     "gpt-4o-mini",
     "gpt-5-nano",
     "gpt-5-mini"

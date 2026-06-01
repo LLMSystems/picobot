@@ -117,6 +117,8 @@ def _serialize_persisted_result(payload: dict[str, Any]) -> dict[str, Any]:
 class ListSubagentsTool(Tool):
     """List known subagents so the main agent can recover task ids and phases."""
 
+    read_only = True
+
     def __init__(
         self,
         manager: SubagentManager,
@@ -204,6 +206,8 @@ class ListSubagentsTool(Tool):
 )
 class SubagentStatusTool(Tool):
     """Inspect the current status of a specific subagent."""
+
+    read_only = True
 
     def __init__(
         self,
@@ -308,6 +312,8 @@ class SubagentStatusTool(Tool):
 )
 class SubagentWaitTool(Tool):
     """Inspect a subagent or wait for it to finish, returning result or current status."""
+
+    read_only = True
 
     def __init__(
         self,

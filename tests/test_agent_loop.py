@@ -6,8 +6,10 @@ from simplified_chatbot.agent.loop import AgentLoop
 from simplified_chatbot.agent.types import Message
 from simplified_chatbot.config.schema import ChatbotConfig
 from simplified_chatbot.providers.base import ProviderResponse, ToolCallRequest
+from simplified_chatbot.tools.base import Tool, tool_parameters
 from simplified_chatbot.tools.fake_tools import build_fake_tool_registry
 from simplified_chatbot.tools.filesystem import build_default_tool_registry
+from simplified_chatbot.tools.registry import ToolRegistry
 
 
 class DummyProvider:
@@ -69,6 +71,48 @@ class DummyProvider:
         return ProviderResponse(
             content="Nice to stream",
             usage={"prompt_tokens": 7, "completion_tokens": 3, "total_tokens": 10},
+        )
+
+
+class ReasoningProvider:
+    def generate(
+        self,
+        messages,
+        *,
+        model: str,
+        max_tokens: int,
+        temperature: float,
+        timeout: float,
+        tools=None,
+    ) -> ProviderResponse:
+        return ProviderResponse(
+            content="Final answer",
+            reasoning_content="先分析問題",
+            usage={"prompt_tokens": 4, "completion_tokens": 2, "total_tokens": 6},
+        )
+
+    def stream_generate(
+        self,
+        messages,
+        *,
+        model: str,
+        max_tokens: int,
+        temperature: float,
+        timeout: float,
+        on_delta=None,
+        on_reasoning_delta=None,
+        tools=None,
+    ) -> ProviderResponse:
+        if on_reasoning_delta is not None:
+            on_reasoning_delta("先")
+            on_reasoning_delta("想")
+        if on_delta is not None:
+            on_delta("答")
+            on_delta("案")
+        return ProviderResponse(
+            content="答案",
+            reasoning_content="先想",
+            usage={"prompt_tokens": 5, "completion_tokens": 2, "total_tokens": 7},
         )
 
 
@@ -178,6 +222,48 @@ def test_agent_loop_stream_returns_aggregated_result_and_emits_deltas():
     assert deltas == ["Nice ", "to ", "stream"]
     assert result.content == "Nice to stream"
     assert result.messages[-1] == {"role": "assistant", "content": "Nice to stream"}
+
+
+def test_agent_loop_emits_reasoning_events_for_non_stream_responses():
+    config = ChatbotConfig(model="gpt-4.1-mini")
+    loop = AgentLoop(
+        provider=ReasoningProvider(),
+        config=config,
+        system_prompt="System prompt",
+    )
+    events: list[tuple[str, dict[str, object]]] = []
+
+    result = loop.run(
+        "Hello",
+        on_event=lambda event, data: events.append((event, data)),
+    )
+
+    assert result.content == "Final answer"
+    assert result.messages[-1]["metadata"] == {"reasoning_content": "先分析問題"}
+    assert ("reasoning_delta", {"delta": "先分析問題"}) in events
+
+
+def test_agent_loop_stream_preserves_reasoning_metadata_and_events():
+    config = ChatbotConfig(model="gpt-4.1-mini")
+    loop = AgentLoop(
+        provider=ReasoningProvider(),
+        config=config,
+        system_prompt="System prompt",
+    )
+    deltas: list[str] = []
+    events: list[tuple[str, dict[str, object]]] = []
+
+    result = loop.run_stream(
+        "Hello",
+        on_delta=deltas.append,
+        on_event=lambda event, data: events.append((event, data)),
+    )
+
+    assert deltas == ["答", "案"]
+    assert result.content == "答案"
+    assert result.messages[-1]["metadata"] == {"reasoning_content": "先想"}
+    assert ("reasoning_delta", {"delta": "先"}) in events
+    assert ("reasoning_delta", {"delta": "想"}) in events
 
 
 def test_agent_loop_run_async_returns_result():
@@ -510,3 +596,250 @@ def test_agent_loop_continue_async_respects_model_override_and_emits_tool_events
             },
         ),
     ]
+
+
+class MultiToolCallingProvider:
+    def __init__(self, tool_calls: list[ToolCallRequest]) -> None:
+        self._tool_calls = tool_calls
+        self._iteration = 0
+
+    async def generate_async(
+        self,
+        messages,
+        *,
+        model: str,
+        max_tokens: int,
+        temperature: float,
+        timeout: float,
+        tools=None,
+    ) -> ProviderResponse:
+        self._iteration += 1
+        if self._iteration == 1:
+            return ProviderResponse(
+                content="",
+                tool_calls=self._tool_calls,
+                finish_reason="tool_calls",
+            )
+        return ProviderResponse(
+            content="Finished.",
+            finish_reason="stop",
+        )
+
+    async def stream_generate_async(self, *args, **kwargs):
+        raise AssertionError("stream_generate_async should not be called in this test")
+
+
+@tool_parameters(
+    {
+        "type": "object",
+        "properties": {
+            "value": {
+                "type": "string",
+            },
+        },
+        "required": ["value"],
+    },
+)
+class TrackingTool(Tool):
+    def __init__(
+        self,
+        *,
+        tool_name: str,
+        delay: float,
+        tracker: dict[str, object],
+        read_only: bool,
+    ) -> None:
+        self._tool_name = tool_name
+        self._delay = delay
+        self._tracker = tracker
+        self.read_only = read_only
+
+    @property
+    def name(self) -> str:
+        return self._tool_name
+
+    @property
+    def description(self) -> str:
+        return f"Tracking tool {self._tool_name}"
+
+    async def execute(self, value: str, **kwargs) -> str:
+        self._tracker["starts"].append(self._tool_name)
+        self._tracker["current"] += 1
+        self._tracker["max"] = max(
+            self._tracker["max"],
+            self._tracker["current"],
+        )
+        try:
+            await asyncio.sleep(self._delay)
+            self._tracker["finishes"].append(self._tool_name)
+            return f"{self._tool_name}:{value}"
+        finally:
+            self._tracker["current"] -= 1
+
+
+def _build_tracking_registry(
+    *,
+    read_only: bool,
+    tracker: dict[str, object],
+) -> ToolRegistry:
+    registry = ToolRegistry()
+    registry.register(
+        TrackingTool(
+            tool_name="alpha_tool",
+            delay=0.05,
+            tracker=tracker,
+            read_only=read_only,
+        ),
+    )
+    registry.register(
+        TrackingTool(
+            tool_name="beta_tool",
+            delay=0.01,
+            tracker=tracker,
+            read_only=read_only,
+        ),
+    )
+    return registry
+
+
+def _build_tracking_events() -> dict[str, object]:
+    return {
+        "starts": [],
+        "finishes": [],
+        "current": 0,
+        "max": 0,
+    }
+
+
+def test_agent_loop_runs_concurrency_safe_tools_in_parallel():
+    config = ChatbotConfig(model="gpt-4.1-mini", max_iterations=3)
+    tracker = _build_tracking_events()
+    provider = MultiToolCallingProvider(
+        [
+            ToolCallRequest(
+                id="call_alpha",
+                name="alpha_tool",
+                arguments={"value": "first"},
+            ),
+            ToolCallRequest(
+                id="call_beta",
+                name="beta_tool",
+                arguments={"value": "second"},
+            ),
+        ],
+    )
+    loop = AgentLoop(
+        provider=provider,
+        config=config,
+        system_prompt="System prompt",
+        tools=_build_tracking_registry(read_only=True, tracker=tracker),
+    )
+    events: list[tuple[str, dict[str, object]]] = []
+
+    result = asyncio.run(
+        loop.run_async(
+            "Run both tools",
+            on_event=lambda event, data: events.append((event, data)),
+        ),
+    )
+
+    assert result.content == "Finished."
+    assert tracker["max"] == 2
+    assert tracker["starts"] == ["alpha_tool", "beta_tool"]
+    assert tracker["finishes"] == ["beta_tool", "alpha_tool"]
+    assert result.messages[2] == {
+        "role": "tool",
+        "tool_call_id": "call_alpha",
+        "name": "alpha_tool",
+        "content": "alpha_tool:first",
+    }
+    assert result.messages[3] == {
+        "role": "tool",
+        "tool_call_id": "call_beta",
+        "name": "beta_tool",
+        "content": "beta_tool:second",
+    }
+    tool_events = [event for event in events if event[0] != "llm_call_finished"]
+    assert tool_events == [
+        (
+            "tool_call_started",
+            {
+                "id": "call_alpha",
+                "name": "alpha_tool",
+                "arguments": {"value": "first"},
+            },
+        ),
+        (
+            "tool_call_started",
+            {
+                "id": "call_beta",
+                "name": "beta_tool",
+                "arguments": {"value": "second"},
+            },
+        ),
+        (
+            "tool_call_finished",
+            {
+                "id": "call_alpha",
+                "name": "alpha_tool",
+                "ok": True,
+                "result": "alpha_tool:first",
+            },
+        ),
+        (
+            "tool_call_finished",
+            {
+                "id": "call_beta",
+                "name": "beta_tool",
+                "ok": True,
+                "result": "beta_tool:second",
+            },
+        ),
+    ]
+
+
+def test_agent_loop_keeps_non_concurrency_safe_tools_serial():
+    config = ChatbotConfig(model="gpt-4.1-mini", max_iterations=3)
+    tracker = _build_tracking_events()
+    provider = MultiToolCallingProvider(
+        [
+            ToolCallRequest(
+                id="call_alpha",
+                name="alpha_tool",
+                arguments={"value": "first"},
+            ),
+            ToolCallRequest(
+                id="call_beta",
+                name="beta_tool",
+                arguments={"value": "second"},
+            ),
+        ],
+    )
+    loop = AgentLoop(
+        provider=provider,
+        config=config,
+        system_prompt="System prompt",
+        tools=_build_tracking_registry(read_only=False, tracker=tracker),
+    )
+
+    result = asyncio.run(loop.run_async("Run both tools"))
+
+    assert result.content == "Finished."
+    assert tracker["max"] == 1
+    assert tracker["starts"] == ["alpha_tool", "beta_tool"]
+    assert tracker["finishes"] == ["alpha_tool", "beta_tool"]
+
+
+def test_default_tool_registry_marks_safe_and_unsafe_tools(tmp_path):
+    registry = build_default_tool_registry(workspace=tmp_path)
+
+    assert registry.get("read_file") is not None
+    assert registry.get("read_file").concurrency_safe is True
+    assert registry.get("glob") is not None
+    assert registry.get("glob").concurrency_safe is True
+    assert registry.get("write_file") is not None
+    assert registry.get("write_file").concurrency_safe is False
+    assert registry.get("apply_patch") is not None
+    assert registry.get("apply_patch").concurrency_safe is False
+    assert registry.get("exec") is not None
+    assert registry.get("exec").concurrency_safe is False

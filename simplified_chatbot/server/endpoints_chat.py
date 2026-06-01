@@ -71,6 +71,12 @@ async def _record_llm_calls(
     """
     if not items:
         return
+    filtered = [
+        data for data in items
+        if str(data.get("purpose") or "") != "memory_compaction"
+    ]
+    if not filtered:
+        return
     svc = getattr(request.app.state, "metrics", None)
     batch_record = getattr(svc, "record_llm_calls_many", None)
     if not callable(batch_record):
@@ -87,7 +93,7 @@ async def _record_llm_calls(
                 int(data["ttft_ms"]) if data.get("ttft_ms") is not None else None
             ),
         }
-        for data in items
+        for data in filtered
     ]
     try:
         await batch_record(payload)

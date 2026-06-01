@@ -157,6 +157,62 @@ class _EventfulToolChatbot:
         raise AssertionError("sync run_stream() should not be used")
 
 
+class _ReasoningChatbot:
+    async def run_stream_async(
+        self,
+        message: str,
+        history: list[Message] | None = None,
+        *,
+        on_delta=None,
+        on_event=None,
+    ) -> _DummyResult:
+        if on_event is not None:
+            on_event("reasoning_delta", {"delta": "先想"})
+        if on_delta is not None:
+            on_delta("done:")
+            on_delta(message)
+        history = history or []
+        content = f"done:{message}"
+        messages: list[Message] = [
+            *history,
+            {"role": "user", "content": message},
+            {
+                "role": "assistant",
+                "content": content,
+                "metadata": {"reasoning_content": "先想"},
+            },
+        ]
+        return _DummyResult(messages=messages, content=content)
+
+    async def run_async(
+        self,
+        message: str,
+        history: list[Message] | None = None,
+        *,
+        on_event=None,
+    ) -> _DummyResult:
+        if on_event is not None:
+            on_event("reasoning_delta", {"delta": "先想"})
+        history = history or []
+        content = f"done:{message}"
+        messages: list[Message] = [
+            *history,
+            {"role": "user", "content": message},
+            {
+                "role": "assistant",
+                "content": content,
+                "metadata": {"reasoning_content": "先想"},
+            },
+        ]
+        return _DummyResult(messages=messages, content=content)
+
+    def run(self, *args, **kwargs):
+        raise AssertionError("sync run() should not be used")
+
+    def run_stream(self, *args, **kwargs):
+        raise AssertionError("sync run_stream() should not be used")
+
+
 class _CapabilityChatbot(_AsyncOnlyChatbot):
     def __init__(self, tmp_path) -> None:
         self.config = ChatbotConfig(
@@ -482,6 +538,26 @@ def test_get_chat_stream_emits_tool_events(tmp_path):
     assert "event: done" in body
 
 
+def test_get_chat_stream_emits_reasoning_events_and_persists_metadata(tmp_path):
+    store = AioSQLiteSessionStore(tmp_path / "sessions.db")
+    runtime = LocalAgentRuntime(chatbot=_ReasoningChatbot(), store=store)
+    app = create_app(runtime=runtime)
+    client = TestClient(app)
+
+    with client.stream(
+        "GET",
+        "/chat/stream",
+        params={"session_id": "s1", "message": "hello"},
+    ) as response:
+        body = "".join(response.iter_text())
+
+    assert response.status_code == 200
+    assert "event: reasoning_delta" in body
+    assert '"delta": "先想"' in body
+    history = asyncio.run(store.load_history("s1"))
+    assert history[-1]["metadata"] == {"reasoning_content": "先想"}
+
+
 def test_post_chat_returns_trace_events(tmp_path):
     store = AioSQLiteSessionStore(tmp_path / "sessions.db")
     runtime = LocalAgentRuntime(chatbot=_EventfulToolChatbot(), store=store)
@@ -525,6 +601,30 @@ def test_post_chat_returns_trace_events(tmp_path):
             },
         ],
     }
+
+
+def test_post_chat_returns_reasoning_trace_events(tmp_path):
+    store = AioSQLiteSessionStore(tmp_path / "sessions.db")
+    runtime = LocalAgentRuntime(chatbot=_ReasoningChatbot(), store=store)
+    app = create_app(runtime=runtime)
+    client = TestClient(app)
+
+    response = client.post(
+        "/chat",
+        json={"session_id": "s1", "message": "hello"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["events"] == [
+        {
+            "event": "run_started",
+            "data": {"session_id": "s1", "message": "hello"},
+        },
+        {
+            "event": "reasoning_delta",
+            "data": {"delta": "先想"},
+        },
+    ]
 
 
 def test_get_sessions_lists_persisted_sessions(tmp_path):

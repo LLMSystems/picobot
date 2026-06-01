@@ -60,6 +60,17 @@ function reconstructFromTimeline(events: SubagentTimelineEvent[]): {
   for (const ev of sorted) {
     const payload = (ev.payload?.data ?? ev.payload) as Record<string, unknown>
     switch (ev.event_type) {
+      case 'subagent_reasoning_delta': {
+        const d = payload?.delta
+        if (typeof d !== 'string' || !d) break
+        const last = segments[segments.length - 1]
+        if (last && last.type === 'reasoning') {
+          last.content += d
+        } else {
+          segments.push({ type: 'reasoning', content: d })
+        }
+        break
+      }
       case 'subagent_delta': {
         const d = payload?.delta
         if (typeof d !== 'string' || !d) break

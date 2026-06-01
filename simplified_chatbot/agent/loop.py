@@ -11,7 +11,7 @@ from typing import Any
 
 from simplified_chatbot.agent.types import ContentBlock, Message, MessageContent, RunResult
 from simplified_chatbot.config.schema import ChatbotConfig
-from simplified_chatbot.providers.base import ChatProvider
+from simplified_chatbot.providers.base import ChatProvider, ToolCallRequest
 from simplified_chatbot.tools.registry import ToolRegistry
 
 _TRIM_SAFETY_BUFFER_TOKENS = 1024
@@ -278,14 +278,32 @@ class AgentLoop:
             # layer ignores it.
             ttft_ms: int | None = None
             wrapped_on_delta: Callable[[str], None] | None = None
+            wrapped_on_reasoning_delta: Callable[[str], None] | None = None
             if stream:
-                def _timing_on_delta(delta: str) -> None:
+                def _mark_ttft() -> None:
+                    # TTFT = time until the first streamed token of ANY kind.
+                    # For reasoning models the first token is a reasoning token,
+                    # so we must record it here too — otherwise ttft_ms would be
+                    # inflated to include the entire thinking phase.
                     nonlocal ttft_ms
-                    if ttft_ms is None and delta:
+                    if ttft_ms is None:
                         ttft_ms = int((time.perf_counter() - t0) * 1000)
+                def _timing_on_delta(delta: str) -> None:
+                    if delta:
+                        _mark_ttft()
                     if on_delta is not None:
                         on_delta(delta)
                 wrapped_on_delta = _timing_on_delta
+                def _event_on_reasoning_delta(delta: str) -> None:
+                    if not delta:
+                        return
+                    _mark_ttft()
+                    self._emit_event(
+                        on_event,
+                        "reasoning_delta",
+                        {"delta": delta},
+                    )
+                wrapped_on_reasoning_delta = _event_on_reasoning_delta
             else:
                 wrapped_on_delta = on_delta
             try:
@@ -294,6 +312,7 @@ class AgentLoop:
                     model=effective_model,
                     stream=stream,
                     on_delta=wrapped_on_delta,
+                    on_reasoning_delta=wrapped_on_reasoning_delta,
                     tools=tool_definitions,
                     temperature=effective_temperature,
                     max_tokens=effective_max_tokens,
@@ -312,6 +331,12 @@ class AgentLoop:
                     },
                 )
                 raise
+            if response.reasoning_content and not stream:
+                self._emit_event(
+                    on_event,
+                    "reasoning_delta",
+                    {"delta": response.reasoning_content},
+                )
             latency_ms = int((time.perf_counter() - t0) * 1000)
             self._emit_event(
                 on_event,
@@ -327,70 +352,77 @@ class AgentLoop:
             usage = response.usage or usage
 
             if response.should_execute_tools:
+                assistant_message: Message = {
+                    "role": "assistant",
+                    "content": response.content,
+                    "tool_calls": [
+                        tool_call.to_openai_tool_call()
+                        for tool_call in response.tool_calls
+                    ],
+                }
+                if metadata := self._build_assistant_metadata(response):
+                    assistant_message["metadata"] = metadata
                 conversation.append(
-                    {
-                        "role": "assistant",
-                        "content": response.content,
-                        "tool_calls": [
-                            tool_call.to_openai_tool_call()
-                            for tool_call in response.tool_calls
-                        ],
-                    },
+                    assistant_message,
                 )
-                for tool_call in response.tool_calls:
-                    tools_used.append(tool_call.name)
-                    self._emit_event(
-                        on_event,
-                        "tool_call_started",
-                        {
-                            "id": tool_call.id,
-                            "name": tool_call.name,
-                            "arguments": tool_call.arguments,
-                        },
-                    )
-                    try:
-                        result = await self._execute_tool_async(
-                            tool_call.name,
-                            tool_call.arguments,
+                for batch in self._partition_tool_batches(response.tool_calls):
+                    for tool_call in batch:
+                        tools_used.append(tool_call.name)
+                        self._emit_event(
+                            on_event,
+                            "tool_call_started",
+                            {
+                                "id": tool_call.id,
+                                "name": tool_call.name,
+                                "arguments": tool_call.arguments,
+                            },
                         )
-                    except Exception as exc:
+                    batch_results = await self._execute_tool_batch_async(batch)
+                    first_error: BaseException | None = None
+                    for tool_call, result in zip(batch, batch_results, strict=True):
+                        if isinstance(result, BaseException):
+                            self._emit_event(
+                                on_event,
+                                "tool_call_finished",
+                                {
+                                    "id": tool_call.id,
+                                    "name": tool_call.name,
+                                    "ok": False,
+                                    "error": str(result),
+                                },
+                            )
+                            if first_error is None:
+                                first_error = result
+                            continue
                         self._emit_event(
                             on_event,
                             "tool_call_finished",
                             {
                                 "id": tool_call.id,
                                 "name": tool_call.name,
-                                "ok": False,
-                                "error": str(exc),
+                                "ok": True,
+                                "result": self._serialize_event_result(result),
                             },
                         )
-                        raise
-                    self._emit_event(
-                        on_event,
-                        "tool_call_finished",
-                        {
-                            "id": tool_call.id,
-                            "name": tool_call.name,
-                            "ok": True,
-                            "result": self._serialize_event_result(result),
-                        },
-                    )
-                    conversation.append(
-                        {
-                            "role": "tool",
-                            "tool_call_id": tool_call.id,
-                            "name": tool_call.name,
-                            "content": self._normalize_tool_result(result),
-                        },
-                    )
+                        conversation.append(
+                            {
+                                "role": "tool",
+                                "tool_call_id": tool_call.id,
+                                "name": tool_call.name,
+                                "content": self._normalize_tool_result(result),
+                            },
+                        )
+                    if first_error is not None:
+                        raise first_error
                 continue
 
-            conversation.append(
-                {
-                    "role": "assistant",
-                    "content": response.content,
-                },
-            )
+            assistant_message = {
+                "role": "assistant",
+                "content": response.content,
+            }
+            if metadata := self._build_assistant_metadata(response):
+                assistant_message["metadata"] = metadata
+            conversation.append(assistant_message)
             return RunResult(
                 content=response.content,
                 messages=conversation,
@@ -430,6 +462,46 @@ class AgentLoop:
             return await result
         return result
 
+    async def _execute_tool_batch_async(
+        self,
+        tool_calls: list[ToolCallRequest],
+    ) -> list[object | BaseException]:
+        if len(tool_calls) <= 1:
+            try:
+                result = await self._execute_tool_async(
+                    tool_calls[0].name,
+                    tool_calls[0].arguments,
+                )
+                return [result]
+            except BaseException as exc:
+                return [exc]
+
+        tasks = [
+            self._execute_tool_async(tool_call.name, tool_call.arguments)
+            for tool_call in tool_calls
+        ]
+        return list(await asyncio.gather(*tasks, return_exceptions=True))
+
+    def _partition_tool_batches(
+        self,
+        tool_calls: list[ToolCallRequest],
+    ) -> list[list[ToolCallRequest]]:
+        batches: list[list[ToolCallRequest]] = []
+        current_batch: list[ToolCallRequest] = []
+        for tool_call in tool_calls:
+            tool = self._tools.get(tool_call.name)
+            concurrency_safe = bool(tool and tool.concurrency_safe)
+            if not concurrency_safe:
+                if current_batch:
+                    batches.append(current_batch)
+                    current_batch = []
+                batches.append([tool_call])
+                continue
+            current_batch.append(tool_call)
+        if current_batch:
+            batches.append(current_batch)
+        return batches
+
     def _trim_conversation(
         self,
         conversation: list[Message],
@@ -463,6 +535,7 @@ class AgentLoop:
         model: str,
         stream: bool,
         on_delta: Callable[[str], None] | None,
+        on_reasoning_delta: Callable[[str], None] | None = None,
         tools: list[dict[str, object]] | None,
         temperature: float | None = None,
         max_tokens: int | None = None,
@@ -473,50 +546,66 @@ class AgentLoop:
         if stream:
             stream_generate_async = getattr(self._provider, "stream_generate_async", None)
             if callable(stream_generate_async):
-                response = stream_generate_async(
-                    messages,
-                    model=model,
-                    max_tokens=effective_max_tokens,
-                    temperature=effective_temperature,
-                    timeout=self._config.request_timeout,
-                    on_delta=on_delta,
-                    tools=tools,
-                )
+                response = stream_generate_async(messages, **self._filter_supported_provider_kwargs(
+                    stream_generate_async,
+                    {
+                        "model": model,
+                        "max_tokens": effective_max_tokens,
+                        "temperature": effective_temperature,
+                        "timeout": self._config.request_timeout,
+                        "on_delta": on_delta,
+                        "on_reasoning_delta": on_reasoning_delta,
+                        "tools": tools,
+                    },
+                ))
                 if inspect.isawaitable(response):
                     return await response
                 return response
             return await asyncio.to_thread(
                 self._provider.stream_generate,
                 messages,
-                model=model,
-                max_tokens=effective_max_tokens,
-                temperature=effective_temperature,
-                timeout=self._config.request_timeout,
-                on_delta=on_delta,
-                tools=tools,
+                **self._filter_supported_provider_kwargs(
+                    self._provider.stream_generate,
+                    {
+                        "model": model,
+                        "max_tokens": effective_max_tokens,
+                        "temperature": effective_temperature,
+                        "timeout": self._config.request_timeout,
+                        "on_delta": on_delta,
+                        "on_reasoning_delta": on_reasoning_delta,
+                        "tools": tools,
+                    },
+                )
             )
 
         generate_async = getattr(self._provider, "generate_async", None)
         if callable(generate_async):
-            response = generate_async(
-                messages,
-                model=model,
-                max_tokens=effective_max_tokens,
-                temperature=effective_temperature,
-                timeout=self._config.request_timeout,
-                tools=tools,
-            )
+            response = generate_async(messages, **self._filter_supported_provider_kwargs(
+                generate_async,
+                {
+                    "model": model,
+                    "max_tokens": effective_max_tokens,
+                    "temperature": effective_temperature,
+                    "timeout": self._config.request_timeout,
+                    "tools": tools,
+                },
+            ))
             if inspect.isawaitable(response):
                 return await response
             return response
         return await asyncio.to_thread(
             self._provider.generate,
             messages,
-            model=model,
-            max_tokens=effective_max_tokens,
-            temperature=effective_temperature,
-            timeout=self._config.request_timeout,
-            tools=tools,
+            **self._filter_supported_provider_kwargs(
+                self._provider.generate,
+                {
+                    "model": model,
+                    "max_tokens": effective_max_tokens,
+                    "temperature": effective_temperature,
+                    "timeout": self._config.request_timeout,
+                    "tools": tools,
+                },
+            )
         )
 
     def _resolve_effective_model(self, model_override: str | None) -> str:
@@ -562,6 +651,30 @@ class AgentLoop:
         except TypeError:
             return str(result)
         return result
+
+    @staticmethod
+    def _build_assistant_metadata(response: Any) -> dict[str, object] | None:
+        reasoning = getattr(response, "reasoning_content", "")
+        if isinstance(reasoning, str) and reasoning:
+            return {"reasoning_content": reasoning}
+        return None
+
+    @staticmethod
+    def _filter_supported_provider_kwargs(
+        method: Callable[..., object],
+        kwargs: dict[str, object],
+    ) -> dict[str, object]:
+        signature = inspect.signature(method)
+        if any(
+            parameter.kind == inspect.Parameter.VAR_KEYWORD
+            for parameter in signature.parameters.values()
+        ):
+            return kwargs
+        return {
+            key: value
+            for key, value in kwargs.items()
+            if key in signature.parameters
+        }
 
     @staticmethod
     def _emit_event(

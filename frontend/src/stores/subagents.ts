@@ -17,6 +17,10 @@ interface SubagentStreamingState {
   segments: DisplayMessageSegment[]
 }
 
+function hasTextSegment(segments: DisplayMessageSegment[]): boolean {
+  return segments.some((segment) => segment.type === 'text')
+}
+
 const TERMINAL_PHASES: ReadonlySet<SubagentPhase> = new Set([
   'done',
   'failed',
@@ -38,6 +42,7 @@ function parseLive(raw: string): SubagentLiveEvent | null {
 const LIVE_EVENT_NAMES = [
   'subagent_spawned',
   'subagent_phase_changed',
+  'subagent_reasoning_delta',
   'subagent_delta',
   'subagent_tool_call_started',
   'subagent_tool_call_finished',
@@ -49,6 +54,7 @@ const LIVE_EVENT_NAMES = [
 
 const ASSISTANT_EVENT_NAMES = [
   'assistant_started',
+  'assistant_reasoning_delta',
   'assistant_delta',
   'assistant_run_started',
   'assistant_tool_call_started',
@@ -299,6 +305,18 @@ export const useSubagentStore = defineStore('subagents', () => {
     }
   }
 
+  function handleReasoningDelta(ev: SubagentLiveEvent): void {
+    const data = ev.data as { delta?: string }
+    if (typeof data.delta !== 'string' || !data.delta) return
+    const s = ensureStreaming(ev.task_id)
+    const last = s.segments[s.segments.length - 1]
+    if (last && last.type === 'reasoning') {
+      last.content += data.delta
+    } else {
+      s.segments.push({ type: 'reasoning', content: data.delta })
+    }
+  }
+
   function handleToolStarted(ev: SubagentLiveEvent): void {
     const data = ev.data as {
       id?: string
@@ -361,6 +379,11 @@ export const useSubagentStore = defineStore('subagents', () => {
     if (data.usage) {
       patch.usage = { ...(existing?.usage ?? {}), ...data.usage }
     }
+    const streamingState = streaming.value.get(ev.task_id)
+    if (streamingState && data.content && !hasTextSegment(streamingState.segments)) {
+      streamingState.content = data.content
+      streamingState.segments.push({ type: 'text', content: data.content })
+    }
     updateSummary(ev.task_id, patch)
     notifyTerminal(ev.task_id)
   }
@@ -371,6 +394,11 @@ export const useSubagentStore = defineStore('subagents', () => {
       stop_reason?: string | null
       content?: string | null
       error?: string | null
+    }
+    const streamingState = streaming.value.get(ev.task_id)
+    if (streamingState && data.content && !hasTextSegment(streamingState.segments)) {
+      streamingState.content = data.content
+      streamingState.segments.push({ type: 'text', content: data.content })
     }
     updateSummary(ev.task_id, {
       phase: 'failed',
@@ -387,6 +415,11 @@ export const useSubagentStore = defineStore('subagents', () => {
     const data = ev.data as {
       stop_reason?: string | null
       content?: string | null
+    }
+    const streamingState = streaming.value.get(ev.task_id)
+    if (streamingState && data.content && !hasTextSegment(streamingState.segments)) {
+      streamingState.content = data.content
+      streamingState.segments.push({ type: 'text', content: data.content })
     }
     updateSummary(ev.task_id, {
       phase: 'cancelled',
@@ -405,6 +438,9 @@ export const useSubagentStore = defineStore('subagents', () => {
         break
       case 'subagent_phase_changed':
         handlePhaseChanged(ev)
+        break
+      case 'subagent_reasoning_delta':
+        handleReasoningDelta(ev)
         break
       case 'subagent_delta':
         handleDelta(ev)
