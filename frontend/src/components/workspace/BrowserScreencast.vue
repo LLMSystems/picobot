@@ -62,9 +62,9 @@ const {
   onTabsChanged: async ({ currentClosed }) => {
     const list = await refreshTabs()
     // If the tab we were streaming got closed, jump to whichever tab is left.
-    if (currentClosed && list.length > 0) {
+    if (currentClosed) {
       const fallback = list[0]
-      switchTarget(fallback.targetId)
+      if (fallback) switchTarget(fallback.targetId)
     }
   },
 })
