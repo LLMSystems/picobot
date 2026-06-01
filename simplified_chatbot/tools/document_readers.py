@@ -91,6 +91,8 @@ def _parse_page_ranges(pages: str, page_count: int) -> list[int]:
 class ReadPdfTool(Tool):
     """Read text from PDF documents inside the workspace."""
 
+    read_only = True
+
     def __init__(
         self,
         workspace: Path | None = None,
@@ -217,6 +219,8 @@ def _iter_docx_blocks(document: Any) -> list[str]:
 class ReadDocxTool(Tool):
     """Read text and simple tables from DOCX files inside the workspace."""
 
+    read_only = True
+
     def __init__(
         self,
         workspace: Path | None = None,
@@ -305,6 +309,7 @@ class ReadXlsxTool(Tool):
     """Read worksheet data from XLSX files inside the workspace."""
 
     _DEFAULT_MAX_ROWS = 200
+    read_only = True
 
     def __init__(
         self,
@@ -446,6 +451,8 @@ def _extract_xlsx(
 )
 class ReadDocumentTool(Tool):
     """Read text from PDF, DOCX, or XLSX files; dispatches by file extension."""
+
+    read_only = True
 
     def __init__(
         self,

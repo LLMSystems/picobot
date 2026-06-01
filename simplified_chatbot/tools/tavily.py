@@ -74,6 +74,7 @@ class TavilySearchTool(Tool):
     _DEFAULT_BASE_URL = "https://api.tavily.com"
     _DEFAULT_TIMEOUT = 30
     _MAX_SNIPPET_CHARS = 1200
+    read_only = True
 
     def __init__(
         self,

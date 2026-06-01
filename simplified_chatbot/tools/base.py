@@ -117,6 +117,8 @@ class Tool(ABC):
     _TYPE_MAP = _JSON_TYPE_MAP
     _BOOL_TRUE = frozenset(("true", "1", "yes"))
     _BOOL_FALSE = frozenset(("false", "0", "no"))
+    read_only = False
+    exclusive = False
 
     @property
     @abstractmethod
@@ -136,6 +138,11 @@ class Tool(ABC):
     @abstractmethod
     async def execute(self, **kwargs: Any) -> Any:
         """Run the tool."""
+
+    @property
+    def concurrency_safe(self) -> bool:
+        """Whether this tool is safe to run alongside adjacent tool calls."""
+        return self.read_only and not self.exclusive
 
     @classmethod
     def _resolve_type(cls, value: Any) -> str | None:

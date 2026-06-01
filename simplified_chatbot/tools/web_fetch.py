@@ -103,6 +103,8 @@ def _truncate(text: str, max_chars: int) -> tuple[str, bool]:
 class WebFetchTool(Tool):
     """Fetch a single URL and return readable text or raw body."""
 
+    read_only = True
+
     def __init__(self, *, user_agent: str | None = None) -> None:
         self._user_agent = user_agent or _DEFAULT_USER_AGENT
 

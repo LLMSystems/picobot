@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import sqlite3
 import pytest
 
 pytest.importorskip("fastapi")
@@ -36,6 +37,64 @@ class _DummyChatbot:
         on_event=None,
     ) -> _DummyResult:
         history = history or []
+        messages: list[Message] = [
+            *history,
+            {"role": "user", "content": message},
+            {"role": "assistant", "content": f"echo:{message}"},
+        ]
+        return _DummyResult(content=f"echo:{message}", messages=messages)
+
+    async def run_stream_async(
+        self,
+        message: str,
+        history: list[Message] | None = None,
+        *,
+        on_delta=None,
+        on_event=None,
+    ) -> _DummyResult:
+        if on_delta is not None:
+            on_delta("echo:")
+            on_delta(message)
+        return await self.run_async(message, history=history, on_event=on_event)
+
+    def run(self, *args, **kwargs):
+        raise AssertionError("sync run() not used in tests")
+
+    def run_stream(self, *args, **kwargs):
+        raise AssertionError("sync run_stream() not used in tests")
+
+
+class _MetricsEventChatbot:
+    async def run_async(
+        self,
+        message: str,
+        history: list[Message] | None = None,
+        *,
+        on_event=None,
+    ) -> _DummyResult:
+        history = history or []
+        if on_event is not None:
+            on_event(
+                "llm_call_finished",
+                {
+                    "model": "gpt-4.1-mini",
+                    "latency_ms": 9000,
+                    "ttft_ms": None,
+                    "success": True,
+                    "error_type": None,
+                    "purpose": "memory_compaction",
+                },
+            )
+            on_event(
+                "llm_call_finished",
+                {
+                    "model": "gpt-4.1-mini",
+                    "latency_ms": 1200,
+                    "ttft_ms": 600,
+                    "success": True,
+                    "error_type": None,
+                },
+            )
         messages: list[Message] = [
             *history,
             {"role": "user", "content": message},
@@ -100,6 +159,29 @@ def test_chat_call_pushes_usage_into_metrics(tmp_path):
     assert "dummy-model" in by_model
     assert by_model["dummy-model"]["tokens_in"] == 10
     assert by_model["dummy-model"]["tokens_out"] == 20
+
+
+def test_memory_compaction_llm_events_are_excluded_from_metrics(tmp_path):
+    store = AioSQLiteSessionStore(tmp_path / "sessions.db")
+    runtime = LocalAgentRuntime(chatbot=_MetricsEventChatbot(), store=store)
+    app = create_app(runtime=runtime)
+    client = TestClient(app)
+
+    chat_resp = client.post(
+        "/chat",
+        json={"session_id": "s1", "message": "hi"},
+    )
+    assert chat_resp.status_code == 200
+
+    conn = sqlite3.connect(str(tmp_path / "sessions.db"))
+    try:
+        row = conn.execute(
+            "SELECT COUNT(*), MIN(latency_ms), MAX(latency_ms) FROM llm_call_events",
+        ).fetchone()
+    finally:
+        conn.close()
+
+    assert row == (1, 1200, 1200)
 
 
 def test_metrics_session_returns_per_session_detail(tmp_path):

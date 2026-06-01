@@ -1,8 +1,8 @@
 [project]
-name = "simplified-chatbot"
+name = "picobot-agent"
 version = "0.1.0"
 description = "A minimal configurable chatbot core extracted from nanobot."
-readme = "doc/development_direction.md"
+readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "aiosqlite>=0.20.0,<1.0.0",

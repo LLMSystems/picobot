@@ -11,7 +11,7 @@ from typing import Any
 
 from simplified_chatbot.agent.types import ContentBlock, Message, MessageContent, RunResult
 from simplified_chatbot.config.schema import ChatbotConfig
-from simplified_chatbot.providers.base import ChatProvider
+from simplified_chatbot.providers.base import ChatProvider, ToolCallRequest
 from simplified_chatbot.tools.registry import ToolRegistry
 
 _TRIM_SAFETY_BUFFER_TOKENS = 1024
@@ -337,52 +337,55 @@ class AgentLoop:
                         ],
                     },
                 )
-                for tool_call in response.tool_calls:
-                    tools_used.append(tool_call.name)
-                    self._emit_event(
-                        on_event,
-                        "tool_call_started",
-                        {
-                            "id": tool_call.id,
-                            "name": tool_call.name,
-                            "arguments": tool_call.arguments,
-                        },
-                    )
-                    try:
-                        result = await self._execute_tool_async(
-                            tool_call.name,
-                            tool_call.arguments,
+                for batch in self._partition_tool_batches(response.tool_calls):
+                    for tool_call in batch:
+                        tools_used.append(tool_call.name)
+                        self._emit_event(
+                            on_event,
+                            "tool_call_started",
+                            {
+                                "id": tool_call.id,
+                                "name": tool_call.name,
+                                "arguments": tool_call.arguments,
+                            },
                         )
-                    except Exception as exc:
+                    batch_results = await self._execute_tool_batch_async(batch)
+                    first_error: BaseException | None = None
+                    for tool_call, result in zip(batch, batch_results, strict=True):
+                        if isinstance(result, BaseException):
+                            self._emit_event(
+                                on_event,
+                                "tool_call_finished",
+                                {
+                                    "id": tool_call.id,
+                                    "name": tool_call.name,
+                                    "ok": False,
+                                    "error": str(result),
+                                },
+                            )
+                            if first_error is None:
+                                first_error = result
+                            continue
                         self._emit_event(
                             on_event,
                             "tool_call_finished",
                             {
                                 "id": tool_call.id,
                                 "name": tool_call.name,
-                                "ok": False,
-                                "error": str(exc),
+                                "ok": True,
+                                "result": self._serialize_event_result(result),
                             },
                         )
-                        raise
-                    self._emit_event(
-                        on_event,
-                        "tool_call_finished",
-                        {
-                            "id": tool_call.id,
-                            "name": tool_call.name,
-                            "ok": True,
-                            "result": self._serialize_event_result(result),
-                        },
-                    )
-                    conversation.append(
-                        {
-                            "role": "tool",
-                            "tool_call_id": tool_call.id,
-                            "name": tool_call.name,
-                            "content": self._normalize_tool_result(result),
-                        },
-                    )
+                        conversation.append(
+                            {
+                                "role": "tool",
+                                "tool_call_id": tool_call.id,
+                                "name": tool_call.name,
+                                "content": self._normalize_tool_result(result),
+                            },
+                        )
+                    if first_error is not None:
+                        raise first_error
                 continue
 
             conversation.append(
@@ -429,6 +432,46 @@ class AgentLoop:
         if inspect.isawaitable(result):
             return await result
         return result
+
+    async def _execute_tool_batch_async(
+        self,
+        tool_calls: list[ToolCallRequest],
+    ) -> list[object | BaseException]:
+        if len(tool_calls) <= 1:
+            try:
+                result = await self._execute_tool_async(
+                    tool_calls[0].name,
+                    tool_calls[0].arguments,
+                )
+                return [result]
+            except BaseException as exc:
+                return [exc]
+
+        tasks = [
+            self._execute_tool_async(tool_call.name, tool_call.arguments)
+            for tool_call in tool_calls
+        ]
+        return list(await asyncio.gather(*tasks, return_exceptions=True))
+
+    def _partition_tool_batches(
+        self,
+        tool_calls: list[ToolCallRequest],
+    ) -> list[list[ToolCallRequest]]:
+        batches: list[list[ToolCallRequest]] = []
+        current_batch: list[ToolCallRequest] = []
+        for tool_call in tool_calls:
+            tool = self._tools.get(tool_call.name)
+            concurrency_safe = bool(tool and tool.concurrency_safe)
+            if not concurrency_safe:
+                if current_batch:
+                    batches.append(current_batch)
+                    current_batch = []
+                batches.append([tool_call])
+                continue
+            current_batch.append(tool_call)
+        if current_batch:
+            batches.append(current_batch)
+        return batches
 
     def _trim_conversation(
         self,

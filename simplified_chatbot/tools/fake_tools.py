@@ -38,6 +38,8 @@ _ARITHMETIC_NODES = (
     },
 )
 class EchoTool(Tool):
+    read_only = True
+
     @property
     def name(self) -> str:
         return "echo"
@@ -68,6 +70,7 @@ class GetWeatherTool(Tool):
         "tokyo": "Tokyo: sunny, 24C",
         "new york": "New York: rainy, 19C",
     }
+    read_only = True
 
     @property
     def name(self) -> str:
@@ -95,6 +98,8 @@ class GetWeatherTool(Tool):
     },
 )
 class CalculatorTool(Tool):
+    read_only = True
+
     @property
     def name(self) -> str:
         return "calculator"
