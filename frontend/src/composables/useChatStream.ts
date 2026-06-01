@@ -3,23 +3,17 @@ import { ApiError } from '@/lib/errors'
 import { API_BASE } from '@/lib/api'
 import type {
   ApiErrorBody,
+  ChatRuntimeEvent,
   ChatImageInput,
   ChatOverrides,
-  DisplayToolCall,
   DoneData,
   StreamErrorData,
-  ToolCallFinishedData,
-  ToolCallStartedData,
-  WorkspaceChangedData,
 } from '@/lib/types'
 
 export interface StreamHandlers {
-  onRunStarted?: () => void
-  onToolStart: (tc: DisplayToolCall) => void
-  onToolFinish: (tc: { id: string; result: unknown; ok: boolean; status: 'ok' | 'failed' }) => void
+  onRuntimeEvent?: (event: ChatRuntimeEvent) => void
   onDelta: (text: string) => void
   onDone: (data: DoneData) => void
-  onWorkspaceChanged?: (data: WorkspaceChangedData) => void
 }
 
 export async function runStream(
@@ -63,31 +57,18 @@ export async function runStream(
   for await (const evt of parseSse(res.body, signal)) {
     switch (evt.event) {
       case 'run_started':
-        h.onRunStarted?.()
-        break
-      case 'tool_call_started': {
-        const d = JSON.parse(evt.data) as ToolCallStartedData
-        h.onToolStart({
-          id: d.id,
-          name: d.name,
-          arguments: d.arguments ?? {},
-          status: 'running',
+      case 'tool_call_started':
+      case 'tool_call_finished':
+      case 'workspace_changed':
+      case 'memory_compaction_started':
+      case 'memory_compaction_finished':
+      case 'memory_compaction_skipped':
+      case 'memory_compaction_failed': {
+        const data = JSON.parse(evt.data) as ChatRuntimeEvent['data']
+        h.onRuntimeEvent?.({
+          event: evt.event,
+          data,
         })
-        break
-      }
-      case 'tool_call_finished': {
-        const d = JSON.parse(evt.data) as ToolCallFinishedData
-        h.onToolFinish({
-          id: d.id,
-          result: d.result,
-          ok: d.ok,
-          status: d.ok ? 'ok' : 'failed',
-        })
-        break
-      }
-      case 'workspace_changed': {
-        const d = JSON.parse(evt.data) as WorkspaceChangedData
-        h.onWorkspaceChanged?.(d)
         break
       }
       case 'delta':

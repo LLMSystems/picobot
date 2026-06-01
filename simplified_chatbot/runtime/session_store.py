@@ -6,6 +6,7 @@ import json
 import re
 import sqlite3
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -18,6 +19,29 @@ except ImportError:  # pragma: no cover - optional dependency
     aiosqlite = None  # type: ignore[assignment]
 
 from simplified_chatbot.runtime.sqlite_pragmas import open_async
+
+
+@dataclass(slots=True)
+class SessionMemoryRow:
+    """Rolling memory summary for one chat session."""
+
+    session_id: str
+    summary: str
+    compacted_message_count: int
+    updated_at: str
+
+
+@dataclass(slots=True)
+class SessionMemoryNoteRow:
+    """One user-managed memory note attached to a chat session."""
+
+    id: int
+    session_id: str
+    kind: str
+    content: str
+    created_at: str
+    updated_at: str
+    archived_at: str | None = None
 
 
 class SessionStore(ABC):
@@ -731,6 +755,263 @@ class AioSQLiteSessionStore(AsyncSessionStore):
             )
             await conn.commit()
         return merged
+
+
+class AioSQLiteSessionMemoryStore:
+    """Async SQLite-backed store for rolling summaries and user memory notes."""
+
+    def __init__(self, db_path: str | Path) -> None:
+        if aiosqlite is None:
+            raise ImportError(
+                "AioSQLiteSessionMemoryStore requires 'aiosqlite'. Install with: pip install aiosqlite",
+            )
+        self.db_path = Path(db_path).expanduser().resolve()
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._initialized = False
+        self._init_lock: Any = None
+
+    async def ensure_schema(self) -> None:
+        await self._ensure_initialized()
+
+    async def _ensure_initialized(self) -> None:
+        if self._initialized:
+            return
+        if self._init_lock is None:
+            import asyncio
+
+            self._init_lock = asyncio.Lock()
+        async with self._init_lock:
+            if self._initialized:
+                return
+            async with open_async(self.db_path) as conn:
+                await conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS session_memory (
+                        session_id TEXT PRIMARY KEY,
+                        summary TEXT NOT NULL DEFAULT '',
+                        compacted_message_count INTEGER NOT NULL DEFAULT 0,
+                        updated_at TEXT NOT NULL
+                    )
+                    """,
+                )
+                await conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS session_memory_notes (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        session_id TEXT NOT NULL,
+                        kind TEXT NOT NULL DEFAULT 'note',
+                        content TEXT NOT NULL,
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL,
+                        archived_at TEXT
+                    )
+                    """,
+                )
+                await conn.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_session_memory_notes_session
+                    ON session_memory_notes(session_id, archived_at, updated_at DESC)
+                    """,
+                )
+                await conn.commit()
+            self._initialized = True
+
+    async def load_memory(self, session_id: str) -> SessionMemoryRow | None:
+        await self._ensure_initialized()
+        async with open_async(self.db_path) as conn:
+            cursor = await conn.execute(
+                """
+                SELECT session_id, summary, compacted_message_count, updated_at
+                FROM session_memory
+                WHERE session_id = ?
+                """,
+                (session_id,),
+            )
+            row = await cursor.fetchone()
+            await cursor.close()
+        if row is None:
+            return None
+        return SessionMemoryRow(
+            session_id=str(row[0]),
+            summary=str(row[1] or ""),
+            compacted_message_count=max(0, int(row[2] or 0)),
+            updated_at=str(row[3] or ""),
+        )
+
+    async def save_memory(
+        self,
+        session_id: str,
+        *,
+        summary: str,
+        compacted_message_count: int,
+    ) -> SessionMemoryRow:
+        await self._ensure_initialized()
+        now = _utc_timestamp()
+        compacted = max(0, int(compacted_message_count))
+        async with open_async(self.db_path) as conn:
+            await conn.execute(
+                """
+                INSERT INTO session_memory (
+                    session_id, summary, compacted_message_count, updated_at
+                )
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(session_id) DO UPDATE SET
+                    summary = excluded.summary,
+                    compacted_message_count = excluded.compacted_message_count,
+                    updated_at = excluded.updated_at
+                """,
+                (session_id, summary, compacted, now),
+            )
+            await conn.commit()
+        return SessionMemoryRow(
+            session_id=session_id,
+            summary=summary,
+            compacted_message_count=compacted,
+            updated_at=now,
+        )
+
+    async def delete_memory(self, session_id: str) -> None:
+        await self._ensure_initialized()
+        async with open_async(self.db_path) as conn:
+            await conn.execute(
+                "DELETE FROM session_memory WHERE session_id = ?",
+                (session_id,),
+            )
+            await conn.commit()
+
+    async def clear_summary(self, session_id: str) -> None:
+        await self.delete_memory(session_id)
+
+    async def list_notes(
+        self,
+        session_id: str,
+        *,
+        include_archived: bool = False,
+    ) -> list[SessionMemoryNoteRow]:
+        await self._ensure_initialized()
+        query = [
+            """
+            SELECT id, session_id, kind, content, created_at, updated_at, archived_at
+            FROM session_memory_notes
+            WHERE session_id = ?
+            """
+        ]
+        params: list[object] = [session_id]
+        if not include_archived:
+            query.append("AND archived_at IS NULL")
+        query.append("ORDER BY updated_at DESC, id DESC")
+        async with open_async(self.db_path) as conn:
+            cursor = await conn.execute("\n".join(query), tuple(params))
+            rows = await cursor.fetchall()
+            await cursor.close()
+        return [self._note_from_row(row) for row in rows]
+
+    async def add_note(
+        self,
+        session_id: str,
+        *,
+        content: str,
+        kind: str = "note",
+    ) -> SessionMemoryNoteRow:
+        await self._ensure_initialized()
+        cleaned = content.strip()
+        if not cleaned:
+            raise ValueError("memory note content must not be empty")
+        normalized_kind = kind.strip() or "note"
+        now = _utc_timestamp()
+        async with open_async(self.db_path) as conn:
+            cursor = await conn.execute(
+                """
+                INSERT INTO session_memory_notes (
+                    session_id, kind, content, created_at, updated_at, archived_at
+                ) VALUES (?, ?, ?, ?, ?, NULL)
+                """,
+                (session_id, normalized_kind, cleaned, now, now),
+            )
+            await conn.commit()
+            note_id = int(cursor.lastrowid)
+            await cursor.close()
+        return SessionMemoryNoteRow(
+            id=note_id,
+            session_id=session_id,
+            kind=normalized_kind,
+            content=cleaned,
+            created_at=now,
+            updated_at=now,
+            archived_at=None,
+        )
+
+    async def archive_note(
+        self,
+        session_id: str,
+        note_id: int,
+    ) -> SessionMemoryNoteRow | None:
+        await self._ensure_initialized()
+        now = _utc_timestamp()
+        async with open_async(self.db_path) as conn:
+            cursor = await conn.execute(
+                """
+                UPDATE session_memory_notes
+                SET archived_at = ?, updated_at = ?
+                WHERE session_id = ? AND id = ? AND archived_at IS NULL
+                """,
+                (now, now, session_id, note_id),
+            )
+            updated = cursor.rowcount
+            await cursor.close()
+            await conn.commit()
+        if not updated:
+            return None
+        return await self.get_note(session_id, note_id, include_archived=True)
+
+    async def get_note(
+        self,
+        session_id: str,
+        note_id: int,
+        *,
+        include_archived: bool = False,
+    ) -> SessionMemoryNoteRow | None:
+        await self._ensure_initialized()
+        query = [
+            """
+            SELECT id, session_id, kind, content, created_at, updated_at, archived_at
+            FROM session_memory_notes
+            WHERE session_id = ? AND id = ?
+            """
+        ]
+        params: list[object] = [session_id, note_id]
+        if not include_archived:
+            query.append("AND archived_at IS NULL")
+        async with open_async(self.db_path) as conn:
+            cursor = await conn.execute("\n".join(query), tuple(params))
+            row = await cursor.fetchone()
+            await cursor.close()
+        return self._note_from_row(row) if row is not None else None
+
+    async def delete_session_data(self, session_id: str) -> None:
+        await self._ensure_initialized()
+        async with open_async(self.db_path) as conn:
+            await conn.execute(
+                "DELETE FROM session_memory WHERE session_id = ?",
+                (session_id,),
+            )
+            await conn.execute(
+                "DELETE FROM session_memory_notes WHERE session_id = ?",
+                (session_id,),
+            )
+            await conn.commit()
+
+    @staticmethod
+    def _note_from_row(row: tuple[object, ...]) -> SessionMemoryNoteRow:
+        return SessionMemoryNoteRow(
+            id=int(row[0]),
+            session_id=str(row[1]),
+            kind=str(row[2] or "note"),
+            content=str(row[3] or ""),
+            created_at=str(row[4] or ""),
+            updated_at=str(row[5] or ""),
+            archived_at=str(row[6]) if isinstance(row[6], str) else None,
+        )
 
 
 class AioSQLiteSubagentStore:

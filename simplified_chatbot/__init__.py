@@ -5,17 +5,20 @@ from simplified_chatbot.chatbot import SimplifiedChatbot
 from simplified_chatbot.config.schema import ChatbotConfig
 from simplified_chatbot.runtime.local_runtime import LocalAgentRuntime
 from simplified_chatbot.runtime.session_store import (
+    AioSQLiteSessionMemoryStore,
     AioSQLiteSessionStore,
     AsyncSessionStore,
     InMemorySessionStore,
     JsonlSessionStore,
     SQLiteSessionStore,
+    SessionMemoryRow,
     SessionStore,
 )
 from simplified_chatbot.runtime.session_workspace import SessionWorkspaceManager
 
 __all__ = [
     "AioSQLiteSessionStore",
+    "AioSQLiteSessionMemoryStore",
     "AsyncSessionStore",
     "ChatbotConfig",
     "InMemorySessionStore",
@@ -24,6 +27,7 @@ __all__ = [
     "Message",
     "RunResult",
     "SessionWorkspaceManager",
+    "SessionMemoryRow",
     "SQLiteSessionStore",
     "SessionStore",
     "SimplifiedChatbot",

@@ -294,6 +294,56 @@ class _ExecWorkspaceProvider:
         raise AssertionError("stream_generate_async should not be called in this test")
 
 
+class _MemoryAwareProvider:
+    def __init__(
+        self,
+        *,
+        summary_content: str = "- User prefers concise updates\n- Project uses SQLite",
+    ) -> None:
+        self.summary_content = summary_content
+        self.summary_calls: list[list[Message]] = []
+        self.chat_calls: list[list[Message]] = []
+        self.stream_calls: list[list[Message]] = []
+
+    async def generate_async(
+        self,
+        messages,
+        *,
+        model: str,
+        max_tokens: int,
+        temperature: float,
+        timeout: float,
+        tools=None,
+    ) -> ProviderResponse:
+        system = str(messages[0].get("content", ""))
+        if "compact rolling session memory" in system:
+            self.summary_calls.append([dict(item) for item in messages])
+            return ProviderResponse(
+                content=self.summary_content,
+                finish_reason="stop",
+                usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+            )
+        self.chat_calls.append([dict(item) for item in messages])
+        return ProviderResponse(content="memory-ok", finish_reason="stop")
+
+    async def stream_generate_async(
+        self,
+        messages,
+        *,
+        model: str,
+        max_tokens: int,
+        temperature: float,
+        timeout: float,
+        on_delta=None,
+        tools=None,
+    ) -> ProviderResponse:
+        self.stream_calls.append([dict(item) for item in messages])
+        if on_delta is not None:
+            on_delta("memory-")
+            on_delta("ok")
+        return ProviderResponse(content="memory-ok", finish_reason="stop")
+
+
 def test_local_runtime_uses_existing_history_and_persists_new_turn():
     bot = _DummyChatbot()
     store = InMemorySessionStore()
@@ -323,6 +373,172 @@ def test_local_runtime_stream_persists_history():
     assert store.load_history("s1")[-1]["content"] == "echo:hello"
     assert store.load_history("s1")[-1]["id"].startswith("msg_")
     assert store.load_history("s1")[-1]["created_at"].endswith("Z")
+
+
+def test_local_runtime_memory_compacts_and_preserves_full_sqlite_history(tmp_path: Path):
+    pytest.importorskip("aiosqlite")
+    provider = _MemoryAwareProvider()
+    config = ChatbotConfig(
+        model="gpt-4.1-mini",
+        max_tokens=20,
+        context_window_tokens=1100,
+        memory_enabled=True,
+        memory_compression_ratio=0.5,
+    )
+    bot = SimplifiedChatbot(
+        config=config,
+        provider=provider,
+        system_prompt="Base system prompt.",
+    )
+    store = AioSQLiteSessionStore(tmp_path / "runtime.db")
+    runtime = LocalAgentRuntime(chatbot=bot, store=store)
+    history: list[Message] = []
+    for index in range(4):
+        history.extend(
+            [
+                {"role": "user", "content": f"old-{index} " + ("x" * 220)},
+                {"role": "assistant", "content": f"reply-{index} " + ("y" * 120)},
+            ],
+        )
+
+    events: list[tuple[str, dict[str, object]]] = []
+    deltas: list[str] = []
+
+    async def _run():
+        await store.save_history("s1", history)
+        result = await runtime.handle_input_stream_async(
+            "s1",
+            "continue",
+            on_delta=deltas.append,
+            on_event=lambda event, data: events.append((event, data)),
+        )
+        loaded = await store.load_history("s1")
+        assert runtime.memory_store is not None
+        memory = await runtime.memory_store.load_memory("s1")
+        return result, loaded, memory
+
+    result, loaded, memory = asyncio.run(_run())
+
+    assert result.content == "memory-ok"
+    assert deltas == ["memory-", "ok"]
+    assert loaded[0]["content"].startswith("old-0")
+    assert loaded[-2]["content"] == "continue"
+    assert loaded[-1]["content"] == "memory-ok"
+    assert len(loaded) == len(history) + 2
+    assert memory is not None
+    assert memory.compacted_message_count > 0
+    assert "SQLite" in memory.summary
+    runtime_notices = loaded[-1].get("metadata", {}).get("runtime_notices")
+    assert isinstance(runtime_notices, list)
+    assert runtime_notices
+    assert runtime_notices[0]["key"] == "memory"
+    assert runtime_notices[0]["kind"] == "success"
+
+    event_names = [event for event, _ in events]
+    assert "memory_compaction_started" in event_names
+    assert "memory_compaction_finished" in event_names
+    assert any(
+        event == "llm_call_finished" and data.get("purpose") == "memory_compaction"
+        for event, data in events
+    )
+    assert provider.summary_calls
+    assert provider.stream_calls
+    streamed_request = provider.stream_calls[-1]
+    assert "Session Memory" in streamed_request[0]["content"]
+    replay_text = "\n".join(str(message.get("content", "")) for message in streamed_request[1:])
+    assert "old-0" not in replay_text
+    assert "continue" in replay_text
+
+
+def test_local_runtime_memory_empty_summary_keeps_history_and_skips_memory(tmp_path: Path):
+    pytest.importorskip("aiosqlite")
+    provider = _MemoryAwareProvider(summary_content="")
+    config = ChatbotConfig(
+        model="gpt-4.1-mini",
+        max_tokens=20,
+        context_window_tokens=1100,
+        memory_enabled=True,
+        memory_compression_ratio=0.5,
+    )
+    bot = SimplifiedChatbot(
+        config=config,
+        provider=provider,
+        system_prompt="Base system prompt.",
+    )
+    store = AioSQLiteSessionStore(tmp_path / "runtime.db")
+    runtime = LocalAgentRuntime(chatbot=bot, store=store)
+    history: list[Message] = [
+        {"role": "user", "content": "old context " + ("x" * 240)},
+        {"role": "assistant", "content": "old answer " + ("y" * 120)},
+        {"role": "user", "content": "newer context " + ("z" * 240)},
+        {"role": "assistant", "content": "newer answer " + ("w" * 120)},
+    ]
+    events: list[tuple[str, dict[str, object]]] = []
+
+    async def _run():
+        await store.save_history("s1", history)
+        result = await runtime.handle_input_async(
+            "s1",
+            "continue",
+            on_event=lambda event, data: events.append((event, data)),
+        )
+        loaded = await store.load_history("s1")
+        assert runtime.memory_store is not None
+        memory = await runtime.memory_store.load_memory("s1")
+        return result, loaded, memory
+
+    result, loaded, memory = asyncio.run(_run())
+
+    assert result.content == "memory-ok"
+    assert loaded[0]["content"].startswith("old context")
+    assert loaded[-2]["content"] == "continue"
+    assert loaded[-1]["content"] == "memory-ok"
+    assert len(loaded) == len(history) + 2
+    assert memory is None
+    runtime_notices = loaded[-1].get("metadata", {}).get("runtime_notices")
+    assert isinstance(runtime_notices, list)
+    assert runtime_notices
+    assert runtime_notices[0]["key"] == "memory"
+    assert runtime_notices[0]["kind"] == "error"
+    event_names = [event for event, _ in events]
+    assert "memory_compaction_started" in event_names
+    assert "memory_compaction_failed" in event_names
+
+
+def test_local_runtime_memory_notes_are_injected_even_without_summary(tmp_path: Path):
+    pytest.importorskip("aiosqlite")
+    provider = _MemoryAwareProvider()
+    config = ChatbotConfig(
+        model="gpt-4.1-mini",
+        max_tokens=20,
+        context_window_tokens=4000,
+        memory_enabled=True,
+        memory_compression_ratio=0.5,
+    )
+    bot = SimplifiedChatbot(
+        config=config,
+        provider=provider,
+        system_prompt="Base system prompt.",
+    )
+    store = AioSQLiteSessionStore(tmp_path / "runtime.db")
+    runtime = LocalAgentRuntime(chatbot=bot, store=store)
+
+    async def _run():
+        await store.create_session("s1", {"title": "Memory notes"})
+        assert runtime.memory_store is not None
+        await runtime.memory_store.add_note(
+            "s1",
+            kind="preference",
+            content="Prefer responses in Traditional Chinese",
+        )
+        await runtime.handle_input_async("s1", "continue")
+
+    asyncio.run(_run())
+
+    assert provider.chat_calls
+    system_prompt = str(provider.chat_calls[-1][0].get("content", ""))
+    assert "User Memory Notes" in system_prompt
+    assert "Traditional Chinese" in system_prompt
 
 
 def test_local_runtime_with_jsonl_store_persists_to_files(tmp_path: Path):

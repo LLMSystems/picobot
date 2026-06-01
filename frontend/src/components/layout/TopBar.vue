@@ -4,11 +4,13 @@ import { useRoute } from 'vue-router'
 import { useSessionsStore } from '@/stores/sessions'
 import { useCapabilitiesStore } from '@/stores/capabilities'
 import { Button } from '@/components/ui/button'
-import { Menu, Pencil, Moon, Sun, PanelRight, Bell, BellOff, Download, Settings } from 'lucide-vue-next'
+import { Menu, Pencil, Moon, Sun, PanelRight, Bell, BellOff, Download, Settings, MemoryStick } from 'lucide-vue-next'
 import ModeSwitcher from '@/components/layout/ModeSwitcher.vue'
 import AlertsBadge from '@/components/layout/AlertsBadge.vue'
 import SettingsDialog from '@/components/settings/SettingsDialog.vue'
+import SessionMemoryPanel from '@/components/chat/SessionMemoryPanel.vue'
 import { useSettingsStore } from '@/stores/settings'
+import { useSessionMemoryStore } from '@/stores/sessionMemory'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -34,11 +36,13 @@ const sessions = useSessionsStore()
 const caps = useCapabilitiesStore()
 const ws = useWorkspaceStore()
 const settings = useSettingsStore()
+const memory = useSessionMemoryStore()
 const { theme, toggle: toggleTheme } = useTheme()
 const notifs = useNotifications()
 
 const exporting = ref(false)
 const settingsOpen = ref(false)
+const memoryOpen = ref(false)
 
 async function exportSession(format: 'markdown' | 'json') {
   const sid = currentId.value
@@ -105,6 +109,7 @@ const inputRef = ref<HTMLInputElement | null>(null)
 
 watch(currentId, () => {
   editing.value = false
+  memoryOpen.value = false
 })
 
 async function startEdit() {
@@ -206,6 +211,22 @@ function cancel() {
         </DropdownMenuContent>
       </DropdownMenu>
       <Button
+        v-if="currentSession"
+        variant="ghost"
+        size="icon"
+        class="relative"
+        aria-label="查看會話記憶"
+        title="會話記憶"
+        @click="memoryOpen = true"
+      >
+        <MemoryStick class="size-4" />
+        <span
+          v-if="memory.hasEntries"
+          class="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-sky-500"
+          aria-hidden="true"
+        />
+      </Button>
+      <Button
         v-if="notifs.supported"
         variant="ghost"
         size="icon"
@@ -259,4 +280,8 @@ function cancel() {
   </header>
 
   <SettingsDialog v-model:open="settingsOpen" />
+  <SessionMemoryPanel
+    v-model:open="memoryOpen"
+    :session-id="currentId"
+  />
 </template>

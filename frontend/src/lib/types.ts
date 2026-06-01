@@ -51,6 +51,33 @@ export interface SessionSummary {
   last_assistant_preview: string
 }
 
+export interface SessionMemoryResponse {
+  session_id: string
+  enabled: boolean
+  has_summary: boolean
+  summary: string
+  compacted_message_count: number
+  updated_at: string | null
+  notes: SessionMemoryNote[]
+}
+
+export type SessionMemoryNoteKind = 'note' | 'preference' | 'correction'
+
+export interface SessionMemoryNote {
+  id: number
+  session_id: string
+  kind: SessionMemoryNoteKind
+  content: string
+  created_at: string
+  updated_at: string
+}
+
+export interface SessionMemoryNoteDeleteResponse {
+  session_id: string
+  note_id: number
+  deleted: boolean
+}
+
 export type MessageRole = 'user' | 'assistant' | 'tool' | 'system'
 
 export interface ToolCallRef {
@@ -97,6 +124,7 @@ export interface SessionMessageMetadata {
   parent_session_id?: string
   ok?: boolean
   stop_reason?: string | null
+  runtime_notices?: DisplayRuntimeNotice[]
   [key: string]: unknown
 }
 
@@ -203,6 +231,12 @@ export interface DisplayMessageImage {
   detail?: ImageDetail
 }
 
+export interface DisplayRuntimeNotice {
+  key: string
+  kind: 'info' | 'success' | 'warning' | 'error'
+  text: string
+}
+
 export interface SubagentResultPayload {
   taskId: string
   label: string
@@ -226,6 +260,7 @@ export interface DisplayMessage {
   images?: DisplayMessageImage[]
   subagent?: SubagentResultPayload
   todoSnapshot?: TodoSnapshot
+  runtimeNotices?: DisplayRuntimeNotice[]
 }
 
 export type SubagentPhase =
@@ -314,6 +349,47 @@ export interface WorkspaceChangedData {
   session_id: string
   paths: string[]
 }
+
+export interface MemoryCompactionStartedData {
+  session_id: string
+  reason: string
+  estimated_tokens: number
+  budget_tokens: number
+  target_tokens: number
+  compacted_message_count_before: number
+}
+
+export interface MemoryCompactionFinishedData {
+  session_id: string
+  compacted_message_count_before: number
+  compacted_message_count_after: number
+  summary_chars: number
+  summary_updated: boolean
+}
+
+export interface MemoryCompactionSkippedData {
+  session_id: string
+  reason: string
+  estimated_tokens?: number
+  budget_tokens?: number
+}
+
+export interface MemoryCompactionFailedData {
+  session_id: string
+  message: string
+  error?: string
+}
+
+export type ChatRuntimeEvent =
+  | { event: 'run_started'; data: RunStartedData }
+  | { event: 'tool_call_started'; data: ToolCallStartedData }
+  | { event: 'tool_call_finished'; data: ToolCallFinishedData }
+  | { event: 'workspace_changed'; data: WorkspaceChangedData }
+  | { event: 'memory_compaction_started'; data: MemoryCompactionStartedData }
+  | { event: 'memory_compaction_finished'; data: MemoryCompactionFinishedData }
+  | { event: 'memory_compaction_skipped'; data: MemoryCompactionSkippedData }
+  | { event: 'memory_compaction_failed'; data: MemoryCompactionFailedData }
+  | { event: string; data: unknown }
 
 export interface WorkspaceUploadedFile {
   path: string

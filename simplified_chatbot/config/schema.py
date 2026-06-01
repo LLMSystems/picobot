@@ -43,6 +43,16 @@ class ChatbotConfig(BaseModel):
         gt=0,
         validation_alias=AliasChoices("context_window_tokens", "contextWindowTokens"),
     )
+    memory_enabled: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("memory_enabled", "memoryEnabled"),
+    )
+    memory_compression_ratio: float = Field(
+        default=0.5,
+        ge=0.1,
+        le=0.95,
+        validation_alias=AliasChoices("memory_compression_ratio", "memoryCompressionRatio"),
+    )
     temperature: float = Field(default=0.7, ge=0.0, le=2.0)
     system_prompt: str | None = Field(
         default=None,

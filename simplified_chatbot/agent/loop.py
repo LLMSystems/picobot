@@ -246,7 +246,11 @@ class AgentLoop:
         effective_model = self._resolve_effective_model(model_override)
         effective_temperature = temperature_override if temperature_override is not None else self._config.temperature
         effective_max_tokens = max_tokens_override if max_tokens_override is not None else self._config.max_tokens
-        effective_max_iterations = max_iterations_override if max_iterations_override is not None else self._config.max_iterations
+        effective_max_iterations = (
+            max_iterations_override
+            if max_iterations_override is not None
+            else self._config.max_iterations
+        )
         effective_system_prompt = system_prompt_override.strip() if system_prompt_override else self._system_prompt
         disabled_set = set(disabled_tools) if disabled_tools else set()
         all_definitions = self._tools.get_definitions() or []
@@ -259,7 +263,10 @@ class AgentLoop:
         usage: dict[str, int] = {}
 
         for _ in range(effective_max_iterations):
-            trimmed_conversation = self._trim_conversation(conversation)
+            trimmed_conversation = self._trim_conversation(
+                conversation,
+                system_prompt=effective_system_prompt,
+            )
             request_messages = [
                 {"role": "system", "content": effective_system_prompt},
                 *trimmed_conversation,
@@ -423,7 +430,12 @@ class AgentLoop:
             return await result
         return result
 
-    def _trim_conversation(self, conversation: list[Message]) -> list[Message]:
+    def _trim_conversation(
+        self,
+        conversation: list[Message],
+        *,
+        system_prompt: str | None = None,
+    ) -> list[Message]:
         """Trim oldest turns when the estimated prompt budget is exceeded."""
         budget = max(
             self._config.context_window_tokens
@@ -431,7 +443,8 @@ class AgentLoop:
             - _TRIM_SAFETY_BUFFER_TOKENS,
             1,
         )
-        estimated = self._estimate_prompt_tokens(self._system_prompt, conversation)
+        prompt = system_prompt if system_prompt is not None else self._system_prompt
+        estimated = self._estimate_prompt_tokens(prompt, conversation)
         if estimated <= budget:
             return list(conversation)
 
@@ -439,7 +452,7 @@ class AgentLoop:
         while len(turns) > 1 and estimated > budget:
             turns.pop(0)
             flattened = self._flatten_turns(turns)
-            estimated = self._estimate_prompt_tokens(self._system_prompt, flattened)
+            estimated = self._estimate_prompt_tokens(prompt, flattened)
 
         return self._flatten_turns(turns)
 

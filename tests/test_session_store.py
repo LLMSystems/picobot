@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from simplified_chatbot.runtime.session_store import (
+    AioSQLiteSessionMemoryStore,
     AioSQLiteSubagentEventStore,
     AioSQLiteSubagentStore,
     AioSQLiteSessionStore,
@@ -188,6 +189,71 @@ def test_aiosqlite_store_create_and_update_metadata(tmp_path: Path):
     assert metadata is not None
     assert metadata["title"] == "Renamed"
     assert sessions == ["chat-1"]
+
+
+def test_aiosqlite_session_memory_store_round_trip(tmp_path: Path):
+    pytest.importorskip("aiosqlite")
+    store = AioSQLiteSessionMemoryStore(tmp_path / "sessions_async.db")
+
+    async def _run():
+        missing = await store.load_memory("chat-1")
+        saved = await store.save_memory(
+            "chat-1",
+            summary="- User prefers concise updates",
+            compacted_message_count=4,
+        )
+        loaded = await store.load_memory("chat-1")
+        updated = await store.save_memory(
+            "chat-1",
+            summary="- User prefers concise updates\n- Project uses SQLite",
+            compacted_message_count=8,
+        )
+        await store.delete_memory("chat-1")
+        deleted = await store.load_memory("chat-1")
+        return missing, saved, loaded, updated, deleted
+
+    missing, saved, loaded, updated, deleted = asyncio.run(_run())
+    assert missing is None
+    assert saved.compacted_message_count == 4
+    assert loaded is not None
+    assert loaded.summary == "- User prefers concise updates"
+    assert updated.compacted_message_count == 8
+    assert "SQLite" in updated.summary
+    assert deleted is None
+
+
+def test_aiosqlite_session_memory_store_notes_round_trip(tmp_path: Path):
+    pytest.importorskip("aiosqlite")
+    store = AioSQLiteSessionMemoryStore(tmp_path / "sessions_async.db")
+
+    async def _run():
+        first = await store.add_note(
+            "chat-1",
+            kind="preference",
+            content="Prefer Traditional Chinese responses",
+        )
+        second = await store.add_note(
+            "chat-1",
+            kind="correction",
+            content="Picobot and Nanobot are separate projects",
+        )
+        listed = await store.list_notes("chat-1")
+        archived = await store.archive_note("chat-1", first.id)
+        active_after_archive = await store.list_notes("chat-1")
+        all_notes = await store.list_notes("chat-1", include_archived=True)
+        await store.delete_session_data("chat-1")
+        after_delete = await store.list_notes("chat-1", include_archived=True)
+        return first, second, listed, archived, active_after_archive, all_notes, after_delete
+
+    first, second, listed, archived, active_after_archive, all_notes, after_delete = asyncio.run(_run())
+    assert first.kind == "preference"
+    assert second.kind == "correction"
+    assert [item.id for item in listed] == [second.id, first.id]
+    assert archived is not None
+    assert archived.archived_at is not None
+    assert [item.id for item in active_after_archive] == [second.id]
+    assert len(all_notes) == 2
+    assert after_delete == []
 
 
 def test_aiosqlite_subagent_store_upsert_and_get_run(tmp_path: Path):

@@ -64,6 +64,15 @@ class _AsyncOnlyChatbot:
         raise AssertionError("sync run_stream() should not be used")
 
 
+class _MemoryConfigChatbot(_AsyncOnlyChatbot):
+    def __init__(self) -> None:
+        self.config = ChatbotConfig(
+            provider="openai_compat",
+            model="gpt-4.1-mini",
+            memory_enabled=True,
+        )
+
+
 class _EventfulToolChatbot:
     async def run_stream_async(
         self,
@@ -758,6 +767,207 @@ def test_get_session_messages_returns_404_for_unknown_session(tmp_path):
             "request_id": response.headers["x-request-id"],
         },
     }
+
+
+def test_get_session_memory_returns_summary(tmp_path):
+    store = AioSQLiteSessionStore(tmp_path / "sessions.db")
+    runtime = LocalAgentRuntime(chatbot=_MemoryConfigChatbot(), store=store)
+    app = create_app(runtime=runtime)
+    client = TestClient(app)
+
+    created = client.post(
+        "/sessions",
+        json={"title": "Memory session", "session_id": "s1"},
+    )
+    assert created.status_code == 200
+    assert runtime.memory_store is not None
+    asyncio.run(
+        runtime.memory_store.save_memory(
+            "s1",
+            summary="- User prefers concise answers\n- Project uses AioSQLite",
+            compacted_message_count=12,
+        ),
+    )
+
+    response = client.get("/sessions/s1/memory")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "session_id": "s1",
+        "enabled": True,
+        "has_summary": True,
+        "summary": "- User prefers concise answers\n- Project uses AioSQLite",
+        "compacted_message_count": 12,
+        "updated_at": response.json()["updated_at"],
+        "notes": [],
+    }
+    assert response.json()["updated_at"].endswith("Z")
+
+
+def test_get_session_memory_includes_user_notes(tmp_path):
+    store = AioSQLiteSessionStore(tmp_path / "sessions.db")
+    runtime = LocalAgentRuntime(chatbot=_MemoryConfigChatbot(), store=store)
+    app = create_app(runtime=runtime)
+    client = TestClient(app)
+
+    created = client.post(
+        "/sessions",
+        json={"title": "Memory session", "session_id": "s1"},
+    )
+    assert created.status_code == 200
+    assert runtime.memory_store is not None
+    asyncio.run(
+        runtime.memory_store.add_note(
+            "s1",
+            kind="preference",
+            content="Prefer Traditional Chinese responses",
+        ),
+    )
+
+    response = client.get("/sessions/s1/memory")
+
+    assert response.status_code == 200
+    assert response.json()["notes"] == [
+        {
+            "id": response.json()["notes"][0]["id"],
+            "session_id": "s1",
+            "kind": "preference",
+            "content": "Prefer Traditional Chinese responses",
+            "created_at": response.json()["notes"][0]["created_at"],
+            "updated_at": response.json()["notes"][0]["updated_at"],
+        },
+    ]
+
+
+def test_get_session_memory_returns_empty_payload_before_compaction(tmp_path):
+    store = AioSQLiteSessionStore(tmp_path / "sessions.db")
+    runtime = LocalAgentRuntime(chatbot=_MemoryConfigChatbot(), store=store)
+    app = create_app(runtime=runtime)
+    client = TestClient(app)
+
+    created = client.post(
+        "/sessions",
+        json={"title": "Memory session", "session_id": "s1"},
+    )
+    assert created.status_code == 200
+
+    response = client.get("/sessions/s1/memory")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "session_id": "s1",
+        "enabled": True,
+        "has_summary": False,
+        "summary": "",
+        "compacted_message_count": 0,
+        "updated_at": None,
+        "notes": [],
+    }
+
+
+def test_get_session_memory_returns_404_for_unknown_session(tmp_path):
+    client, _store = _build_client(tmp_path)
+
+    response = client.get("/sessions/missing/memory")
+
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "SESSION_NOT_FOUND"
+
+
+def test_create_session_memory_note(tmp_path):
+    store = AioSQLiteSessionStore(tmp_path / "sessions.db")
+    runtime = LocalAgentRuntime(chatbot=_MemoryConfigChatbot(), store=store)
+    app = create_app(runtime=runtime)
+    client = TestClient(app)
+
+    created = client.post(
+        "/sessions",
+        json={"title": "Memory session", "session_id": "s1"},
+    )
+    assert created.status_code == 200
+
+    response = client.post(
+        "/sessions/s1/memory/notes",
+        json={
+            "kind": "correction",
+            "content": "Picobot and Nanobot are separate projects",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["session_id"] == "s1"
+    assert response.json()["kind"] == "correction"
+    assert response.json()["content"] == "Picobot and Nanobot are separate projects"
+
+
+def test_delete_session_memory_note_archives_it(tmp_path):
+    store = AioSQLiteSessionStore(tmp_path / "sessions.db")
+    runtime = LocalAgentRuntime(chatbot=_MemoryConfigChatbot(), store=store)
+    app = create_app(runtime=runtime)
+    client = TestClient(app)
+
+    created = client.post(
+        "/sessions",
+        json={"title": "Memory session", "session_id": "s1"},
+    )
+    assert created.status_code == 200
+    assert runtime.memory_store is not None
+    note = asyncio.run(
+        runtime.memory_store.add_note(
+            "s1",
+            kind="note",
+            content="Remember the deployment checklist",
+        ),
+    )
+
+    response = client.delete(f"/sessions/s1/memory/notes/{note.id}")
+    memory_response = client.get("/sessions/s1/memory")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "session_id": "s1",
+        "note_id": note.id,
+        "deleted": True,
+    }
+    assert memory_response.status_code == 200
+    assert memory_response.json()["notes"] == []
+
+
+def test_clear_session_memory_summary_keeps_notes(tmp_path):
+    store = AioSQLiteSessionStore(tmp_path / "sessions.db")
+    runtime = LocalAgentRuntime(chatbot=_MemoryConfigChatbot(), store=store)
+    app = create_app(runtime=runtime)
+    client = TestClient(app)
+
+    created = client.post(
+        "/sessions",
+        json={"title": "Memory session", "session_id": "s1"},
+    )
+    assert created.status_code == 200
+    assert runtime.memory_store is not None
+    asyncio.run(
+        runtime.memory_store.save_memory(
+            "s1",
+            summary="- User prefers concise answers\n- Project uses AioSQLite",
+            compacted_message_count=12,
+        ),
+    )
+    asyncio.run(
+        runtime.memory_store.add_note(
+            "s1",
+            kind="preference",
+            content="Prefer Traditional Chinese responses",
+        ),
+    )
+
+    response = client.delete("/sessions/s1/memory/summary")
+
+    assert response.status_code == 200
+    assert response.json()["has_summary"] is False
+    assert response.json()["summary"] == ""
+    assert response.json()["compacted_message_count"] == 0
+    assert len(response.json()["notes"]) == 1
+    assert response.json()["notes"][0]["content"] == "Prefer Traditional Chinese responses"
 
 
 def test_get_session_events_stream_returns_404_for_unknown_session(tmp_path):

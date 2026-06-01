@@ -8,8 +8,12 @@ import vueDevTools from 'vite-plugin-vue-devtools'
 const BACKEND = 'http://127.0.0.1:8000'
 
 // https://vite.dev/config/
-export default defineConfig({
-  plugins: [vue(), vueDevTools(), tailwindcss()],
+export default defineConfig(({ command }) => ({
+  plugins: [
+    vue(),
+    command === 'serve' ? vueDevTools() : null,
+    tailwindcss(),
+  ].filter(Boolean),
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
@@ -27,4 +31,4 @@ export default defineConfig({
       '/ws': { target: BACKEND, changeOrigin: true, ws: true },
     },
   },
-})
+}))

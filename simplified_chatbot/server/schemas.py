@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field, model_validator
 
 
@@ -120,6 +122,44 @@ class SessionMessagesResponse(BaseModel):
 
     session_id: str
     messages: list[dict[str, object]] = Field(default_factory=list)
+
+
+class SessionMemoryNote(BaseModel):
+    """One user-managed note attached to a session memory."""
+
+    id: int
+    session_id: str
+    kind: Literal["note", "preference", "correction"] = "note"
+    content: str
+    created_at: str
+    updated_at: str
+
+
+class SessionMemoryNoteCreateRequest(BaseModel):
+    """Request body for creating one user memory note."""
+
+    content: str = Field(min_length=1, max_length=2000)
+    kind: Literal["note", "preference", "correction"] = "note"
+
+
+class SessionMemoryResponse(BaseModel):
+    """Response body for one session's rolling memory summary."""
+
+    session_id: str
+    enabled: bool
+    has_summary: bool = False
+    summary: str = ""
+    compacted_message_count: int = 0
+    updated_at: str | None = None
+    notes: list[SessionMemoryNote] = Field(default_factory=list)
+
+
+class SessionMemoryNoteDeleteResponse(BaseModel):
+    """Response body for archiving one user memory note."""
+
+    session_id: str
+    note_id: int
+    deleted: bool = True
 
 
 class SubagentRun(BaseModel):

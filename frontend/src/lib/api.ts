@@ -3,6 +3,10 @@ import type {
   ChatImageInput,
   ChatOverrides,
   SessionMessage,
+  SessionMemoryResponse,
+  SessionMemoryNote,
+  SessionMemoryNoteDeleteResponse,
+  SessionMemoryNoteKind,
   SessionSummary,
   ApiErrorBody,
   ChatResponse,
@@ -108,6 +112,35 @@ export const api = {
   getMessages: (id: string) =>
     request<{ session_id: string; messages: SessionMessage[] }>(
       `/sessions/${encodeURIComponent(id)}/messages`,
+    ),
+
+  getSessionMemory: (id: string) =>
+    request<SessionMemoryResponse>(
+      `/sessions/${encodeURIComponent(id)}/memory`,
+    ),
+
+  addSessionMemoryNote: (
+    id: string,
+    body: { content: string; kind?: SessionMemoryNoteKind },
+  ) =>
+    request<SessionMemoryNote>(
+      `/sessions/${encodeURIComponent(id)}/memory/notes`,
+      {
+        method: 'POST',
+        body: JSON.stringify(body),
+      },
+    ),
+
+  deleteSessionMemoryNote: (id: string, noteId: number) =>
+    request<SessionMemoryNoteDeleteResponse>(
+      `/sessions/${encodeURIComponent(id)}/memory/notes/${noteId}`,
+      { method: 'DELETE' },
+    ),
+
+  clearSessionMemorySummary: (id: string) =>
+    request<SessionMemoryResponse>(
+      `/sessions/${encodeURIComponent(id)}/memory/summary`,
+      { method: 'DELETE' },
     ),
 
   chat: (body: {
