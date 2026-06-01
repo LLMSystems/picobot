@@ -26,6 +26,15 @@ _AGENT_BROWSER_TOKEN_PATTERN = re.compile(
     r"^(?P<exe>agent-browser(?:\.(?:cmd|bat|exe))?)(?=\s|$)",
     re.IGNORECASE,
 )
+_AGENT_BROWSER_EVAL_STDIN_PATTERN = re.compile(
+    r"\bagent-browser\b.*\beval\b.*--stdin(?:\s|$)",
+    re.IGNORECASE,
+)
+_EVAL_STDIN_HAS_INPUT_PATTERN = re.compile(
+    r"(?:echo|cat|printf|<<<)\s.*\|\s*agent-browser\b"
+    r"|<<['\"]?\w",
+    re.IGNORECASE,
+)
 _WORKSPACE_BOUNDARY_NOTE = (
     "\n\nNote: this is a hard policy boundary, not a transient failure. "
     "Do not retry with shell tricks or alternative tools."
@@ -149,6 +158,19 @@ class ExecTool(Tool):
         **kwargs: Any,
     ) -> str:
         
+        if _AGENT_BROWSER_EVAL_STDIN_PATTERN.search(command):
+            if not _EVAL_STDIN_HAS_INPUT_PATTERN.search(command):
+                return (
+                    "Error: `agent-browser eval --stdin` must be used with piped input. "
+                    "It is not interactive and will hang waiting for EOF.\n\n"
+                    "Use one of these forms instead:\n"
+                    '  echo "document.title" | agent-browser eval --stdin\n'
+                    "  cat <<'EOF' | agent-browser eval --stdin\n"
+                    "  document.querySelectorAll('a').length\n"
+                    "  EOF\n"
+                    "  agent-browser eval -b \"$(echo 'document.title' | base64)\""
+                )
+
         try:
             command = self._maybe_inject_cdp_port(command)
         except ValueError as exc:
@@ -366,6 +388,8 @@ def _is_under(path: Path, directory: Path) -> bool:
 def _extract_absolute_paths(command: str) -> list[str]:
     win_paths = re.findall(r"[A-Za-z]:\\[^\s\"'|><;]*", command)
     posix_paths = re.findall(r"(?:^|[\s|>'\"])(/[^\s\"'>;|<]+)", command)
+    # Filter out // (JS/C comments) and bare / or // with no real path component
+    posix_paths = [p for p in posix_paths if re.search(r"/[A-Za-z0-9_.\-]", p)]
     home_paths = re.findall(r"(?:^|[\s>'\"])(~[^\s\"'>;|<]*)", command)
     return win_paths + posix_paths + home_paths
 

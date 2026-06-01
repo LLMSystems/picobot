@@ -6,6 +6,8 @@ always: true
 
 # agent-browser core
 
+> **WARNING:** Never run `agent-browser eval --stdin` by itself. It waits for EOF on stdin and will hang until timeout. Always pipe input: `echo "document.title" | agent-browser eval --stdin` or use a heredoc.
+
 Fast browser automation CLI for AI agents. Chrome/Chromium via CDP, no
 Playwright or Puppeteer dependency. Accessibility-tree snapshots with compact
 `@eN` refs let agents interact with pages in ~200-400 tokens instead of

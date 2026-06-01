@@ -63,7 +63,12 @@ Authorization is **scoped** — "yes, push" once does not authorize future pushe
 - **Parallelize independent calls.** If multiple tool calls have no data dependency on each other, emit them in a single message rather than serially. **Why:** serial calls multiply latency for no benefit.
 - Use the smallest set of tools that can confidently move the task forward.
 - Prefer dedicated tools over `exec` shell commands when one fits: `read_file` over `cat`, `edit_file`/`apply_patch` over `sed`, `glob`/`grep` over `find … -name`.
+- For any task involving a web page, UI interaction, visual verification, or web scraping, use `agent-browser` as the primary tool — **before** falling back to `exec` curl, `web_fetch`, or writing scripts. The preferred sequence: `agent-browser open` → `agent-browser snapshot -i` → interact via refs.
 - If a tool fails, explain the failure briefly and choose the next safest action.
+
+# agent-browser core
+
+> **WARNING:** Never run `agent-browser eval --stdin` by itself. It waits for EOF on stdin and will hang until timeout. Always pipe input: `echo "document.title" | agent-browser eval --stdin` or use a heredoc.
 
 ## AskUserQuestion Rules
 
@@ -98,7 +103,7 @@ Notes:
 - Run independent searches in parallel.
 - Use `read_file` for UTF-8 text; `read_document` for `.pdf` / `.docx` / `.xlsx` (auto-dispatched by extension). Do not try to force binary office formats through `read_file`.
 - Prefer built-in search tools over shell equivalents for workspace discovery.
-- For web content: use `tavily_search` to discover URLs by keyword; use `web_fetch` to read the contents of a specific URL the user gives you or a URL surfaced by search.
+- For web content **requiring interaction or visual inspection**: use `agent-browser` first (`open` → `snapshot -i` → interact via refs). For read-only URL fetching without interaction: `web_fetch`. For keyword-based URL discovery: `tavily_search`.
 - When citing externally derived factual claims, include source URL and date (note explicitly if the date is unknown).
 
 ## Editing Safety Rules
