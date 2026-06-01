@@ -113,9 +113,18 @@ const firstTextSegmentIdx = computed(() => {
   return idx === -1 ? props.message.segments.length : idx
 })
 
+// How many leading segments are "claimed" by the reasoning box. Only divert
+// tools into the box when there is actually a reasoning box to hold them —
+// otherwise a tool-only message (no reasoning, no text) would have its tool
+// gated out of the main body AND have no box to render it in, leaving an empty
+// bubble.
+const reasoningClaimEnd = computed(() =>
+  hasReasoning.value ? firstTextSegmentIdx.value : 0,
+)
+
 // Reasoning-phase segments in original order (reasoning + tool, interleaved)
 const reasoningPhaseSegments = computed(() =>
-  props.message.segments.slice(0, firstTextSegmentIdx.value).filter((s) => {
+  props.message.segments.slice(0, reasoningClaimEnd.value).filter((s) => {
     if (s.type === 'reasoning') return s.content.trim() !== ''
     if (s.type === 'tool') return s.toolCall.name !== 'todo_write'
     return false
@@ -196,7 +205,7 @@ async function copy() {
           <template v-for="(seg, i) in reasoningPhaseSegments" :key="i">
             <MarkdownView
               v-if="seg.type === 'reasoning'"
-              :content="seg.content"
+              :content="seg.content.trim()"
               class="text-sm text-muted-foreground"
             />
             <ToolCallCard
@@ -209,16 +218,16 @@ async function copy() {
 
       <template v-for="(seg, idx) in message.segments" :key="idx">
         <AskUserQuestionCard
-          v-if="seg.type === 'tool' && seg.toolCall.name === 'ask_user_question' && idx >= firstTextSegmentIdx"
+          v-if="seg.type === 'tool' && seg.toolCall.name === 'ask_user_question' && idx >= reasoningClaimEnd"
           :tool-call="seg.toolCall"
           :session-id="sessionId"
         />
         <ToolCallCard
-          v-else-if="seg.type === 'tool' && seg.toolCall.name !== 'todo_write' && idx >= firstTextSegmentIdx"
+          v-else-if="seg.type === 'tool' && seg.toolCall.name !== 'todo_write' && idx >= reasoningClaimEnd"
           :tool-call="seg.toolCall"
         />
-        <div v-else-if="seg.type === 'text' && seg.content" class="relative">
-          <MarkdownView :content="seg.content" />
+        <div v-else-if="seg.type === 'text' && seg.content.trim()" class="relative">
+          <MarkdownView :content="seg.content.trim()" />
           <StreamingCursor
             v-if="isStreaming && idx === lastSegmentIndex"
           />

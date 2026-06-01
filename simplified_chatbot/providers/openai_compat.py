@@ -6,6 +6,7 @@ import base64
 from collections.abc import Callable
 from ipaddress import ip_address
 import json
+import re
 from mimetypes import guess_type
 from pathlib import Path
 from typing import Any
@@ -73,9 +74,15 @@ class OpenAICompatProvider(ChatProvider):
             kwargs["tools"] = tools
 
         response = await self._async_client.chat.completions.create(**kwargs)
+        # Recover any main content the upstream parser misrouted into the
+        # reasoning channel after `</think>`.
+        reasoning_clean, leaked_content = _split_reasoning_channel(
+            _extract_reasoning(response),
+        )
+        content = _extract_content(response)
         return ProviderResponse(
-            content=_extract_content(response),
-            reasoning_content=_extract_reasoning(response),
+            content=leaked_content + content if leaked_content else content,
+            reasoning_content=reasoning_clean,
             tool_calls=_extract_tool_calls(response),
             finish_reason=_extract_finish_reason(response),
             usage=_extract_usage(response),
@@ -126,13 +133,23 @@ class OpenAICompatProvider(ChatProvider):
         chunks: list[Any] = []
         tool_buffers: dict[int, dict[str, str]] = {}
         finish_reason = "stop"
+        # Routes reasoning-channel deltas, redirecting any post-`</think>` text
+        # (misrouted main content) back to the content stream in real time.
+        reasoning_router = _ReasoningContentRouter()
         async for chunk in stream:
             chunks.append(chunk)
-            reasoning_delta = _extract_stream_reasoning_delta(chunk)
-            if reasoning_delta:
-                reasoning_parts.append(reasoning_delta)
+            raw_reasoning = _extract_stream_reasoning_delta(chunk)
+            reasoning_out, content_from_reasoning = reasoning_router.route(
+                raw_reasoning,
+            )
+            if reasoning_out:
+                reasoning_parts.append(reasoning_out)
                 if on_reasoning_delta is not None:
-                    on_reasoning_delta(reasoning_delta)
+                    on_reasoning_delta(reasoning_out)
+            if content_from_reasoning:
+                parts.append(content_from_reasoning)
+                if on_delta is not None:
+                    on_delta(content_from_reasoning)
             delta = _extract_stream_delta(chunk)
             if delta:
                 parts.append(delta)
@@ -434,6 +451,63 @@ def _has_stream_finish(chunk: Any) -> bool:
     if not choices:
         return False
     return getattr(choices[0], "finish_reason", None) is not None
+
+
+# Some thinking models (e.g. Qwen3 served behind certain reasoning parsers)
+# mishandle the `<think>` / `</think>` delimiters on the reasoning channel.
+# Two distinct failures are observed, both on multi-turn / tool-call replies
+# where the model emits an empty thinking block:
+#   1. The literal delimiter tokens leak into `reasoning_content`.
+#   2. The actual answer (main content) is emitted *after* `</think>` on the
+#      reasoning channel instead of on the content channel — i.e. the upstream
+#      parser routes the answer into reasoning_content by mistake.
+# `</think>` is therefore the boundary: text before it is genuine reasoning,
+# text after it is main content that must be handed back to the content stream.
+_THINK_TAG_RE = re.compile(r"</?think\s*>")
+_THINK_CLOSE = "</think>"
+
+
+def _strip_think_tags(text: str) -> str:
+    return _THINK_TAG_RE.sub("", text)
+
+
+def _split_reasoning_channel(reasoning: str) -> tuple[str, str]:
+    """Split raw reasoning-channel text into (reasoning, leaked_content).
+
+    If a `</think>` delimiter is present, everything after it is main content
+    the upstream parser misrouted; otherwise the whole thing is reasoning.
+    Both parts are returned with stray think tags stripped.
+    """
+    if _THINK_CLOSE not in reasoning:
+        return _strip_think_tags(reasoning), ""
+    before, _, after = reasoning.partition(_THINK_CLOSE)
+    return _strip_think_tags(before), _strip_think_tags(after)
+
+
+class _ReasoningContentRouter:
+    """Stateful router for streamed reasoning deltas.
+
+    Tracks whether `</think>` has been seen on the reasoning channel. Once the
+    thinking block is closed, any further reasoning-channel text is really main
+    content and is routed to the content stream instead.
+    """
+
+    __slots__ = ("_closed",)
+
+    def __init__(self) -> None:
+        self._closed = False
+
+    def route(self, reasoning_delta: str) -> tuple[str, str]:
+        """Map a reasoning-channel delta to (reasoning_out, content_out)."""
+        if not reasoning_delta:
+            return "", ""
+        if self._closed:
+            return "", _strip_think_tags(reasoning_delta)
+        if _THINK_CLOSE in reasoning_delta:
+            before, _, after = reasoning_delta.partition(_THINK_CLOSE)
+            self._closed = True
+            return _strip_think_tags(before), _strip_think_tags(after)
+        return _strip_think_tags(reasoning_delta), ""
 
 
 def _extract_reasoning_text(source: Any) -> str:
