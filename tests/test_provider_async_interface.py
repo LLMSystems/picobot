@@ -41,6 +41,7 @@ class AsyncEchoProvider(ChatProvider):
         temperature: float,
         timeout: float,
         on_delta=None,
+        on_reasoning_delta=None,
         tools=None,
     ) -> ProviderResponse:
         self.calls.append(
@@ -54,10 +55,12 @@ class AsyncEchoProvider(ChatProvider):
                 "tools": tools,
             },
         )
+        if on_reasoning_delta is not None:
+            on_reasoning_delta("Thinking")
         if on_delta is not None:
             on_delta("A")
             on_delta("B")
-        return ProviderResponse(content="AB")
+        return ProviderResponse(content="AB", reasoning_content="Thinking")
 
 
 def test_sync_generate_wrapper_calls_async_method():
@@ -76,6 +79,7 @@ def test_sync_generate_wrapper_calls_async_method():
 def test_sync_stream_wrapper_calls_async_method_and_emits_delta():
     provider = AsyncEchoProvider()
     deltas: list[str] = []
+    reasoning: list[str] = []
     result = provider.stream_generate(
         [{"role": "user", "content": "hello"}],
         model="gpt-4.1-mini",
@@ -83,9 +87,12 @@ def test_sync_stream_wrapper_calls_async_method_and_emits_delta():
         temperature=0.2,
         timeout=30.0,
         on_delta=deltas.append,
+        on_reasoning_delta=reasoning.append,
     )
     assert result.content == "AB"
+    assert result.reasoning_content == "Thinking"
     assert deltas == ["A", "B"]
+    assert reasoning == ["Thinking"]
     assert provider.calls[0]["method"] == "stream_generate_async"
 
 

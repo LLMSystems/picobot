@@ -36,6 +36,7 @@ class ProviderResponse:
     """Normalized provider response."""
 
     content: str
+    reasoning_content: str = ""
     tool_calls: list[ToolCallRequest] = field(default_factory=list)
     finish_reason: str = "stop"
     usage: dict[str, int] = field(default_factory=dict)
@@ -88,6 +89,7 @@ class ChatProvider(ABC):
         temperature: float,
         timeout: float,
         on_delta: Callable[[str], None] | None = None,
+        on_reasoning_delta: Callable[[str], None] | None = None,
         tools: list[dict[str, Any]] | None = None,
     ) -> ProviderResponse:
         """Sync wrapper for stream_generate_async()."""
@@ -99,6 +101,7 @@ class ChatProvider(ABC):
                 temperature=temperature,
                 timeout=timeout,
                 on_delta=on_delta,
+                on_reasoning_delta=on_reasoning_delta,
                 tools=tools,
             ),
             method_name="stream_generate",
@@ -128,6 +131,7 @@ class ChatProvider(ABC):
         temperature: float,
         timeout: float,
         on_delta: Callable[[str], None] | None = None,
+        on_reasoning_delta: Callable[[str], None] | None = None,
         tools: list[dict[str, Any]] | None = None,
     ) -> ProviderResponse:
         """Stream one assistant response and return the aggregated result."""

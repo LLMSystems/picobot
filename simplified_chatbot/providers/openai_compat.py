@@ -75,6 +75,7 @@ class OpenAICompatProvider(ChatProvider):
         response = await self._async_client.chat.completions.create(**kwargs)
         return ProviderResponse(
             content=_extract_content(response),
+            reasoning_content=_extract_reasoning(response),
             tool_calls=_extract_tool_calls(response),
             finish_reason=_extract_finish_reason(response),
             usage=_extract_usage(response),
@@ -90,6 +91,7 @@ class OpenAICompatProvider(ChatProvider):
         temperature: float,
         timeout: float,
         on_delta: Callable[[str], None] | None = None,
+        on_reasoning_delta: Callable[[str], None] | None = None,
         tools: list[dict[str, Any]] | None = None,
     ) -> ProviderResponse:
         payload_messages = _serialize_messages(messages)
@@ -119,12 +121,18 @@ class OpenAICompatProvider(ChatProvider):
         stream = await self._async_client.chat.completions.create(**kwargs)
 
         parts: list[str] = []
+        reasoning_parts: list[str] = []
         usage: dict[str, int] = {}
         chunks: list[Any] = []
         tool_buffers: dict[int, dict[str, str]] = {}
         finish_reason = "stop"
         async for chunk in stream:
             chunks.append(chunk)
+            reasoning_delta = _extract_stream_reasoning_delta(chunk)
+            if reasoning_delta:
+                reasoning_parts.append(reasoning_delta)
+                if on_reasoning_delta is not None:
+                    on_reasoning_delta(reasoning_delta)
             delta = _extract_stream_delta(chunk)
             if delta:
                 parts.append(delta)
@@ -141,6 +149,7 @@ class OpenAICompatProvider(ChatProvider):
 
         return ProviderResponse(
             content="".join(parts),
+            reasoning_content="".join(reasoning_parts),
             tool_calls=_finalize_stream_tool_calls(tool_buffers),
             finish_reason=finish_reason,
             usage=usage,
@@ -341,6 +350,28 @@ def _extract_stream_delta(chunk: Any) -> str:
     return str(content)
 
 
+def _extract_reasoning(response: Any) -> str:
+    choices = getattr(response, "choices", None) or []
+    if not choices:
+        return ""
+
+    message = getattr(choices[0], "message", None)
+    if message is None:
+        return ""
+    return _extract_reasoning_text(message)
+
+
+def _extract_stream_reasoning_delta(chunk: Any) -> str:
+    choices = getattr(chunk, "choices", None) or []
+    if not choices:
+        return ""
+
+    delta = getattr(choices[0], "delta", None)
+    if delta is None:
+        return ""
+    return _extract_reasoning_text(delta)
+
+
 def _accumulate_stream_tool_calls(
     chunk: Any,
     tool_buffers: dict[int, dict[str, str]],
@@ -403,6 +434,54 @@ def _has_stream_finish(chunk: Any) -> bool:
     if not choices:
         return False
     return getattr(choices[0], "finish_reason", None) is not None
+
+
+def _extract_reasoning_text(source: Any) -> str:
+    direct = _extract_text_field(_get_attr_or_key(source, "reasoning"))
+    if direct:
+        return direct
+    direct = _extract_text_field(_get_attr_or_key(source, "reasoning_content"))
+    if direct:
+        return direct
+
+    details = _get_attr_or_key(source, "reasoning_details")
+    if not isinstance(details, list):
+        return ""
+    parts: list[str] = []
+    for item in details:
+        text = _extract_reasoning_detail_text(item)
+        if text:
+            parts.append(text)
+    return "".join(parts)
+
+
+def _extract_reasoning_detail_text(detail: Any) -> str:
+    detail_type = _get_attr_or_key(detail, "type")
+    text = _extract_text_field(_get_attr_or_key(detail, "text"))
+    if not text:
+        return ""
+    if detail_type in {None, "", "reasoning.text"}:
+        return text
+    return ""
+
+
+def _extract_text_field(value: Any) -> str:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list):
+        parts: list[str] = []
+        for item in value:
+            text = _extract_text_from_block(item)
+            if text:
+                parts.append(text)
+        return "".join(parts)
+    return ""
+
+
+def _get_attr_or_key(obj: Any, key: str) -> Any:
+    if isinstance(obj, dict):
+        return obj.get(key)
+    return getattr(obj, key, None)
 
 
 def _is_local_endpoint(api_base: str | None) -> bool:

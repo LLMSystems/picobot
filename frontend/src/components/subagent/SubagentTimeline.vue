@@ -106,7 +106,7 @@ const terminalConfig = computed(() => {
       :key="idx"
       class="relative"
     >
-      <template v-if="seg.type === 'text'">
+      <template v-if="seg.type === 'text' || seg.type === 'reasoning'">
         <span
           class="absolute -left-[1.625rem] top-1 inline-flex size-5 items-center justify-center rounded-full bg-background ring-2 ring-sky-500/30"
         >

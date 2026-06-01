@@ -124,6 +124,7 @@ export interface SessionMessageMetadata {
   parent_session_id?: string
   ok?: boolean
   stop_reason?: string | null
+  reasoning_content?: string
   runtime_notices?: DisplayRuntimeNotice[]
   [key: string]: unknown
 }
@@ -182,6 +183,10 @@ export interface ToolCallFinishedData {
   result: unknown
 }
 
+export interface ReasoningDeltaData {
+  delta: string
+}
+
 export interface DoneData {
   session_id: string
   content: string
@@ -222,6 +227,7 @@ export interface TodoSnapshot {
 export type DisplayMessageStatus = 'complete' | 'streaming' | 'aborted' | 'error'
 
 export type DisplayMessageSegment =
+  | { type: 'reasoning'; content: string }
   | { type: 'text'; content: string }
   | { type: 'tool'; toolCall: DisplayToolCall }
 
@@ -382,6 +388,7 @@ export interface MemoryCompactionFailedData {
 
 export type ChatRuntimeEvent =
   | { event: 'run_started'; data: RunStartedData }
+  | { event: 'reasoning_delta'; data: ReasoningDeltaData }
   | { event: 'tool_call_started'; data: ToolCallStartedData }
   | { event: 'tool_call_finished'; data: ToolCallFinishedData }
   | { event: 'workspace_changed'; data: WorkspaceChangedData }

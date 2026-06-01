@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import base64
+from types import SimpleNamespace
 
 from simplified_chatbot.providers.openai_compat import (
+    _extract_reasoning,
+    _extract_stream_reasoning_delta,
     _serialize_message,
     _serialize_messages,
 )
@@ -87,3 +90,44 @@ def test_serialize_message_preserves_tool_fields():
     )
 
     assert payload["tool_calls"][0]["id"] == "call_1"
+
+
+def test_extract_stream_reasoning_delta_reads_qwen_reasoning_field():
+    chunk = SimpleNamespace(
+        choices=[
+            SimpleNamespace(
+                delta=SimpleNamespace(
+                    content="",
+                    reasoning="Okay",
+                    reasoning_details=[
+                        {
+                            "type": "reasoning.text",
+                            "text": "Okay",
+                            "format": "unknown",
+                            "index": 0,
+                        }
+                    ],
+                ),
+            )
+        ],
+    )
+
+    assert _extract_stream_reasoning_delta(chunk) == "Okay"
+
+
+def test_extract_reasoning_falls_back_to_reasoning_details():
+    response = SimpleNamespace(
+        choices=[
+            SimpleNamespace(
+                message=SimpleNamespace(
+                    reasoning=None,
+                    reasoning_details=[
+                        {"type": "reasoning.text", "text": "Need "},
+                        {"type": "reasoning.text", "text": "context"},
+                    ],
+                ),
+            )
+        ],
+    )
+
+    assert _extract_reasoning(response) == "Need context"

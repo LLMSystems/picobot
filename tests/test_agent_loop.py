@@ -74,6 +74,48 @@ class DummyProvider:
         )
 
 
+class ReasoningProvider:
+    def generate(
+        self,
+        messages,
+        *,
+        model: str,
+        max_tokens: int,
+        temperature: float,
+        timeout: float,
+        tools=None,
+    ) -> ProviderResponse:
+        return ProviderResponse(
+            content="Final answer",
+            reasoning_content="先分析問題",
+            usage={"prompt_tokens": 4, "completion_tokens": 2, "total_tokens": 6},
+        )
+
+    def stream_generate(
+        self,
+        messages,
+        *,
+        model: str,
+        max_tokens: int,
+        temperature: float,
+        timeout: float,
+        on_delta=None,
+        on_reasoning_delta=None,
+        tools=None,
+    ) -> ProviderResponse:
+        if on_reasoning_delta is not None:
+            on_reasoning_delta("先")
+            on_reasoning_delta("想")
+        if on_delta is not None:
+            on_delta("答")
+            on_delta("案")
+        return ProviderResponse(
+            content="答案",
+            reasoning_content="先想",
+            usage={"prompt_tokens": 5, "completion_tokens": 2, "total_tokens": 7},
+        )
+
+
 def test_agent_loop_builds_messages_and_updates_history():
     config = ChatbotConfig(model="gpt-4.1-mini")
     provider = DummyProvider(content="Nice to meet you")
@@ -180,6 +222,48 @@ def test_agent_loop_stream_returns_aggregated_result_and_emits_deltas():
     assert deltas == ["Nice ", "to ", "stream"]
     assert result.content == "Nice to stream"
     assert result.messages[-1] == {"role": "assistant", "content": "Nice to stream"}
+
+
+def test_agent_loop_emits_reasoning_events_for_non_stream_responses():
+    config = ChatbotConfig(model="gpt-4.1-mini")
+    loop = AgentLoop(
+        provider=ReasoningProvider(),
+        config=config,
+        system_prompt="System prompt",
+    )
+    events: list[tuple[str, dict[str, object]]] = []
+
+    result = loop.run(
+        "Hello",
+        on_event=lambda event, data: events.append((event, data)),
+    )
+
+    assert result.content == "Final answer"
+    assert result.messages[-1]["metadata"] == {"reasoning_content": "先分析問題"}
+    assert ("reasoning_delta", {"delta": "先分析問題"}) in events
+
+
+def test_agent_loop_stream_preserves_reasoning_metadata_and_events():
+    config = ChatbotConfig(model="gpt-4.1-mini")
+    loop = AgentLoop(
+        provider=ReasoningProvider(),
+        config=config,
+        system_prompt="System prompt",
+    )
+    deltas: list[str] = []
+    events: list[tuple[str, dict[str, object]]] = []
+
+    result = loop.run_stream(
+        "Hello",
+        on_delta=deltas.append,
+        on_event=lambda event, data: events.append((event, data)),
+    )
+
+    assert deltas == ["答", "案"]
+    assert result.content == "答案"
+    assert result.messages[-1]["metadata"] == {"reasoning_content": "先想"}
+    assert ("reasoning_delta", {"delta": "先"}) in events
+    assert ("reasoning_delta", {"delta": "想"}) in events
 
 
 def test_agent_loop_run_async_returns_result():
