@@ -82,6 +82,11 @@ class ChromeProcess:
             "--window-size=960,1080",
             "--no-sandbox",
             "--disable-dev-shm-usage",
+            # 模擬真實瀏覽器
+            "--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36",
+            "--disable-blink-features=AutomationControlled",  # 隱藏自動化特徵
+            "--exclude-switches=enable-automation",
+            "--lang=zh-TW",  # 設定語言
             "https://www.google.com.tw/index.html",
         ]
         logger.info("starting chrome: %s", " ".join(args))
