@@ -31,6 +31,7 @@ import {
   Timer,
   X,
 } from 'lucide-vue-next'
+import PicobotIcon from '@/components/common/PicobotIcon.vue'
 import { useAlertsStore } from '@/stores/alerts'
 import { useNotifications } from '@/composables/useNotifications'
 import { relativeTime } from '@/lib/format'
@@ -172,6 +173,10 @@ function silencedUntilLabel(ruleName: string): string | null {
   return relativeTime(iso) || iso
 }
 
+// 左側守衛動畫的狀態：兩種狀態都會播放動畫。
+// 有進行中告警 → running（額外 pulse 強調）；否則 idle（一般待命，仍播動畫）。
+const guardState = computed(() => (alerts.activeCount > 0 ? 'running' : 'idle'))
+
 const orderedActive = computed(() => {
   const order: AlertSeverity[] = ['critical', 'warning', 'info']
   return [...alerts.active].sort((a, b) => {
@@ -307,6 +312,11 @@ async function sendTestNotification() {
             />
             {{ alerts.liveConnected ? 'Live' : '輪詢中' }}
           </span>
+          <span
+            class="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground"
+          >
+            {{ alerts.activeCount > 0 ? 'Picobot 警戒中' : 'Picobot 巡邏中' }}
+          </span>
         </CardTitle>
         <div class="flex items-center gap-1">
           <Button
@@ -326,7 +336,13 @@ async function sendTestNotification() {
         </div>
       </div>
     </CardHeader>
-    <CardContent class="space-y-3">
+    <CardContent class="flex gap-4">
+      <!-- 左側守衛動畫：告警列很長，左邊留一塊放動畫 -->
+      <div class="hidden shrink-0 items-start pt-1 sm:flex">
+        <PicobotIcon variant="security" :state="guardState" :size="128" glow />
+      </div>
+
+      <div class="min-w-0 flex-1 space-y-3">
       <template v-if="alerts.loading && alerts.active.length === 0">
         <Skeleton class="h-16 w-full" />
         <Skeleton class="h-16 w-full" />
@@ -589,6 +605,7 @@ async function sendTestNotification() {
             <template v-else>沒有符合篩選條件的紀錄</template>
           </li>
         </ul>
+      </div>
       </div>
     </CardContent>
   </Card>

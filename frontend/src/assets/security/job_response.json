@@ -1,0 +1,17 @@
+{
+  "id": "87e85704-794e-4f6f-ae8b-01fc8ee6588a",
+  "api_job_id": "87e85704-794e-4f6f-ae8b-01fc8ee6588a",
+  "status": "success",
+  "error": null,
+  "animation_type": "other",
+  "source_image_url": "https://media.meowa.ai/public/animate/output/2026-06-02/14%3A54%3A39-87e85704-794e-4f6f-ae8b-01fc8ee6588a/source_static.png",
+  "final_prompt": "The white spherical robot performs an active monitoring loop, shifting its head and glowing blue eyes quickly between the surrounding digital panels. The various dashboard windows slide and bob slightly while alert cards blink and warning panels flicker with rapid intensity. Its antenna flashes in sharp bursts and the blue chest shield pulses rhythmically, conveying high-energy security operations.",
+  "output": {
+    "url": "https://media.meowa.ai/public/animate/output/2026-06-02/14%3A55%3A14-87e85704-794e-4f6f-ae8b-01fc8ee6588a/transparent_backup.webp",
+    "transparent_output_urls": {
+      "webp": "https://media.meowa.ai/public/animate/output/2026-06-02/14%3A55%3A14-87e85704-794e-4f6f-ae8b-01fc8ee6588a/transparent_backup.webp",
+      "gif": "https://media.meowa.ai/public/animate/output/2026-06-02/14%3A55%3A14-87e85704-794e-4f6f-ae8b-01fc8ee6588a/transparent_backup.gif",
+      "png": "https://media.meowa.ai/public/animate/output/2026-06-02/14%3A55%3A14-87e85704-794e-4f6f-ae8b-01fc8ee6588a/transparent_backup.png"
+    }
+  }
+}

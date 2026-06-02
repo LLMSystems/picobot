@@ -7,6 +7,8 @@ import idleAnim from '@/assets/idle/transparent_backup.webp'
 import idleStatic from '@/assets/idle/source_static.png'
 import subagentAnim from '@/assets/subagent/transparent_backup.webp'
 import subagentStatic from '@/assets/subagent/source_static.png'
+import securityAnim from '@/assets/security/transparent_backup.webp'
+import securityStatic from '@/assets/security/source_static.png'
 
 type PicobotState =
   | 'idle'
@@ -19,7 +21,7 @@ type PicobotState =
 type PicobotSize = 'xs' | 'sm' | 'md' | 'lg' | 'xl'
 
 // 外觀：決定用哪一組素材。idle = 主 agent / 一般情境，subagent = 子代理情境。
-type PicobotVariant = 'idle' | 'subagent'
+type PicobotVariant = 'idle' | 'subagent' | 'security'
 
 const props = withDefaults(
   defineProps<{
@@ -50,6 +52,7 @@ const SIZE_MAP: Record<PicobotSize, number> = {
 const SOURCES: Record<PicobotVariant, { anim: string; still: string }> = {
   idle: { anim: idleAnim, still: idleStatic },
   subagent: { anim: subagentAnim, still: subagentStatic },
+  security: { anim: securityAnim, still: securityStatic },
 }
 
 // 會播放動畫的狀態；其餘（done / failed / sleeping）顯示靜態幀。
