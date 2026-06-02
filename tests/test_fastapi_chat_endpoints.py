@@ -555,7 +555,10 @@ def test_get_chat_stream_emits_reasoning_events_and_persists_metadata(tmp_path):
     assert "event: reasoning_delta" in body
     assert '"delta": "先想"' in body
     history = asyncio.run(store.load_history("s1"))
-    assert history[-1]["metadata"] == {"reasoning_content": "先想"}
+    metadata = history[-1]["metadata"]
+    assert metadata["reasoning_content"] == "先想"
+    # Each run tags its assistant messages so the UI can regroup them on reload.
+    assert metadata["run_id"].startswith("run_")
 
 
 def test_post_chat_returns_trace_events(tmp_path):

@@ -80,9 +80,10 @@ class OpenAICompatProvider(ChatProvider):
             _extract_reasoning(response),
         )
         content = _extract_content(response)
+        full_content = leaked_content + content if leaked_content else content
         return ProviderResponse(
-            content=leaked_content + content if leaked_content else content,
-            reasoning_content=reasoning_clean,
+            content=_strip_special_tokens(full_content),
+            reasoning_content=_strip_special_tokens(reasoning_clean),
             tool_calls=_extract_tool_calls(response),
             finish_reason=_extract_finish_reason(response),
             usage=_extract_usage(response),
@@ -165,8 +166,8 @@ class OpenAICompatProvider(ChatProvider):
                 finish_reason = finish
 
         return ProviderResponse(
-            content="".join(parts),
-            reasoning_content="".join(reasoning_parts),
+            content=_strip_special_tokens("".join(parts)),
+            reasoning_content=_strip_special_tokens("".join(reasoning_parts)),
             tool_calls=_finalize_stream_tool_calls(tool_buffers),
             finish_reason=finish_reason,
             usage=usage,
@@ -466,9 +467,22 @@ def _has_stream_finish(chunk: Any) -> bool:
 _THINK_TAG_RE = re.compile(r"</?think\s*>")
 _THINK_CLOSE = "</think>"
 
+# Some models (notably the DeepSeek family) delimit special control tokens with
+# the full-width vertical bar U+FF5C, e.g. `<｜tool▁calls▁begin｜>`,
+# `<｜tool▁sep｜>`, `<｜Assistant｜>`. When the upstream inference server fails
+# to parse them into structured tool calls they leak verbatim into the content
+# or reasoning channel — sometimes truncated, e.g. `<｜DSML｜tool_calls`. The
+# full-width bar is effectively never present in real assistant prose, so we can
+# safely drop any run starting with `<｜` up to an optional closing `>`.
+_SPECIAL_TOKEN_RE = re.compile(r"<｜[^<>]*>?")
+
 
 def _strip_think_tags(text: str) -> str:
     return _THINK_TAG_RE.sub("", text)
+
+
+def _strip_special_tokens(text: str) -> str:
+    return _SPECIAL_TOKEN_RE.sub("", text)
 
 
 def _split_reasoning_channel(reasoning: str) -> tuple[str, str]:

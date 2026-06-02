@@ -12,7 +12,7 @@ import {
   Newspaper,
 } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
-import picoagentLogo from '@/assets/picoagent.png'
+import PicobotIcon from '@/components/common/PicobotIcon.vue'
 
 const router = useRouter()
 const sessions = useSessionsStore()
@@ -88,11 +88,11 @@ async function startWith(prompt: string) {
     />
 
     <div class="flex max-w-xl flex-col items-center gap-5">
-      <img
-        :src="picoagentLogo"
-        alt="Picobot"
-        class="size-40 select-none object-contain drop-shadow-sm"
-        draggable="false"
+      <PicobotIcon
+        :size="200"
+        variant="idle"
+        state="idle"
+        class="drop-shadow-sm"
       />
       <div class="space-y-2.5">
         <h1 class="text-3xl font-semibold tracking-tight">

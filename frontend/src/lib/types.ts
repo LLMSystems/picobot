@@ -126,6 +126,7 @@ export interface SessionMessageMetadata {
   stop_reason?: string | null
   reasoning_content?: string
   runtime_notices?: DisplayRuntimeNotice[]
+  run_id?: string
   [key: string]: unknown
 }
 

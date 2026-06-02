@@ -4,14 +4,27 @@ let mermaidReady = false
 </script>
 
 <script setup lang="ts">
+import { api } from '@/lib/api'
 import { useTheme } from '@/composables/useTheme'
 import { renderMarkdown } from '@/lib/markdown'
 import mermaid from 'mermaid'
 import { computed, onMounted, ref, watch } from 'vue'
 
-const props = defineProps<{ content: string }>()
+// When a sessionId is supplied, workspace file paths the model wrote in
+// markdown images are rewritten to the session's raw-file URL so they render.
+const props = defineProps<{ content: string; sessionId?: string }>()
 
-const html = computed(() => renderMarkdown(props.content))
+const html = computed(() =>
+  renderMarkdown(
+    props.content,
+    props.sessionId
+      ? {
+          resolveImageSrc: (src) =>
+            api.workspaceImageUrl(props.sessionId as string, src),
+        }
+      : undefined,
+  ),
+)
 const rootRef = ref<HTMLElement | null>(null)
 const { theme } = useTheme()
 
@@ -97,6 +110,15 @@ watch(theme, () => {
     scheduleProcess()
   }
 })
+
+// Images are capped to a readable inline size; clicking opens the full-size
+// file in a new tab. Delegated so it covers images rendered via v-html.
+function onRootClick(event: MouseEvent) {
+  const target = event.target as HTMLElement | null
+  if (target?.tagName !== 'IMG') return
+  const src = (target as HTMLImageElement).src
+  if (src) window.open(src, '_blank', 'noopener,noreferrer')
+}
 </script>
 
 <template>
@@ -104,6 +126,7 @@ watch(theme, () => {
     ref="rootRef"
     class="markdown-body min-w-0 max-w-full text-sm leading-relaxed"
     v-html="html"
+    @click="onRootClick"
   />
 </template>
 
@@ -201,6 +224,16 @@ watch(theme, () => {
   border: 0;
   border-top: 1px solid var(--border);
   margin: 1em 0;
+}
+.markdown-body img {
+  max-width: 100%;
+  max-height: 22rem;
+  height: auto;
+  width: auto;
+  border-radius: 8px;
+  margin: 0.25em 0;
+  border: 1px solid var(--border);
+  cursor: zoom-in;
 }
 .markdown-body .mermaid-rendered {
   display: flex;

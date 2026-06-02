@@ -190,7 +190,7 @@ const toolsCount = computed(
 <template>
   <div class="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
     <div class="shrink-0 border-b bg-background/80 px-3 py-2 backdrop-blur">
-      <div class="flex items-start gap-2">
+      <div class="flex items-center gap-2">
         <SubagentAvatar
           :task-id="summary.task_id"
           :running="isLive"

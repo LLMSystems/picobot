@@ -4,6 +4,7 @@
   "subagentModel": "deepseek/deepseek-chat-v3.1",
   "maxConcurrentSubagents": 20,
   "availableModels": [
+    "deepseek/deepseek-v4-flash",
     "qwen/qwen3-30b-a3b-thinking-2507",
     "qwen/qwen3-coder-30b-a3b-instruct",
     "deepseek/deepseek-chat-v3.1",

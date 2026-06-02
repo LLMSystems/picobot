@@ -1,0 +1,17 @@
+{
+  "id": "e9f70ca0-2018-45f0-b861-3733ac0e620c",
+  "api_job_id": "e9f70ca0-2018-45f0-b861-3733ac0e620c",
+  "status": "success",
+  "error": null,
+  "animation_type": "other",
+  "source_image_url": "https://media.meowa.ai/public/animate/output/2026-06-02/12%3A44%3A36-e9f70ca0-2018-45f0-b861-3733ac0e620c/source_static.png",
+  "final_prompt": "The small white robot with blue glowing eyes floats gently in place, bobbing slowly up and down in a smooth vertical hover. Its eyes blink rhythmically with a soft blue pulse, while the purple antenna on its head sways slightly to maintain its mid-air balance in a seamless loop.",
+  "output": {
+    "url": "https://media.meowa.ai/public/animate/output/2026-06-02/12%3A46%3A02-e9f70ca0-2018-45f0-b861-3733ac0e620c/transparent_backup.webp",
+    "transparent_output_urls": {
+      "webp": "https://media.meowa.ai/public/animate/output/2026-06-02/12%3A46%3A02-e9f70ca0-2018-45f0-b861-3733ac0e620c/transparent_backup.webp",
+      "gif": "https://media.meowa.ai/public/animate/output/2026-06-02/12%3A46%3A02-e9f70ca0-2018-45f0-b861-3733ac0e620c/transparent_backup.gif",
+      "png": "https://media.meowa.ai/public/animate/output/2026-06-02/12%3A46%3A02-e9f70ca0-2018-45f0-b861-3733ac0e620c/transparent_backup.png"
+    }
+  }
+}

@@ -37,7 +37,7 @@ function openInPanel() {
     ]"
   >
     <div class="flex items-center gap-2 px-4 py-2">
-      <PicobotIcon :size="20" :state="payload.ok ? 'done' : 'failed'" />
+      <PicobotIcon :size="20" :state="payload.ok ? 'done' : 'failed'" variant="subagent" />
       <CircleCheck v-if="payload.ok" class="size-4 text-emerald-500" />
       <X v-else class="size-4 text-red-500" />
       <span class="min-w-0 flex-1 truncate text-sm">

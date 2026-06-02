@@ -1,6 +1,12 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import picobotImg from '@/assets/picoagent_for_subagent.png'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
+
+// 動畫素材：每個 variant 有「動畫 webp」與「靜態幀 png」兩份。
+// 活躍狀態播動畫、靜止狀態（或使用者偏好減少動態）退回靜態幀。
+import idleAnim from '@/assets/idle/transparent_backup.webp'
+import idleStatic from '@/assets/idle/source_static.png'
+import subagentAnim from '@/assets/subagent/transparent_backup.webp'
+import subagentStatic from '@/assets/subagent/source_static.png'
 
 type PicobotState =
   | 'idle'
@@ -12,10 +18,14 @@ type PicobotState =
 
 type PicobotSize = 'xs' | 'sm' | 'md' | 'lg' | 'xl'
 
+// 外觀：決定用哪一組素材。idle = 主 agent / 一般情境，subagent = 子代理情境。
+type PicobotVariant = 'idle' | 'subagent'
+
 const props = withDefaults(
   defineProps<{
     size?: PicobotSize | number
     state?: PicobotState
+    variant?: PicobotVariant
     ring?: boolean
     glow?: boolean
     hue?: number // 0–360, optional hue-rotate filter for per-instance tinting
@@ -23,6 +33,7 @@ const props = withDefaults(
   {
     size: 'md',
     state: 'idle',
+    variant: 'idle',
     ring: false,
     glow: false,
   },
@@ -36,9 +47,43 @@ const SIZE_MAP: Record<PicobotSize, number> = {
   xl: 96,
 }
 
+const SOURCES: Record<PicobotVariant, { anim: string; still: string }> = {
+  idle: { anim: idleAnim, still: idleStatic },
+  subagent: { anim: subagentAnim, still: subagentStatic },
+}
+
+// 會播放動畫的狀態；其餘（done / failed / sleeping）顯示靜態幀。
+const ANIMATED_STATES = new Set<PicobotState>(['idle', 'running', 'thinking'])
+
+// 尊重 prefers-reduced-motion：偏好減少動態時一律靜態。
+const prefersReducedMotion = ref(false)
+let mq: MediaQueryList | null = null
+const syncReducedMotion = () => {
+  prefersReducedMotion.value = mq?.matches ?? false
+}
+onMounted(() => {
+  if (typeof window !== 'undefined' && window.matchMedia) {
+    mq = window.matchMedia('(prefers-reduced-motion: reduce)')
+    syncReducedMotion()
+    mq.addEventListener('change', syncReducedMotion)
+  }
+})
+onUnmounted(() => {
+  mq?.removeEventListener('change', syncReducedMotion)
+})
+
 const px = computed(() =>
   typeof props.size === 'number' ? props.size : SIZE_MAP[props.size],
 )
+
+const shouldAnimate = computed(
+  () => !prefersReducedMotion.value && ANIMATED_STATES.has(props.state),
+)
+
+const imgSrc = computed(() => {
+  const set = SOURCES[props.variant]
+  return shouldAnimate.value ? set.anim : set.still
+})
 
 const ringColor = computed(() => {
   switch (props.state) {
@@ -74,8 +119,11 @@ const wrapperStyle = computed(() => {
 
 const imgClass = computed(() => {
   const out = ['select-none']
-  if (props.state === 'running') out.push('picobot-pulse')
-  else if (props.state === 'thinking') out.push('picobot-wobble')
+  // CSS 動態僅在允許動畫時疊加，避免與 reduced-motion 衝突。
+  if (!prefersReducedMotion.value) {
+    if (props.state === 'running') out.push('picobot-pulse')
+    else if (props.state === 'thinking') out.push('picobot-wobble')
+  }
   return out
 })
 
@@ -95,7 +143,7 @@ const imgStyle = computed(() => {
 <template>
   <span :class="wrapperClass" :style="wrapperStyle">
     <img
-      :src="picobotImg"
+      :src="imgSrc"
       :width="px"
       :height="px"
       :class="imgClass"

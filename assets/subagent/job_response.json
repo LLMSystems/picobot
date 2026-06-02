@@ -1,0 +1,17 @@
+{
+  "id": "69b5c300-b4f1-48cc-8cf5-2887c9eeeca4",
+  "api_job_id": "69b5c300-b4f1-48cc-8cf5-2887c9eeeca4",
+  "status": "success",
+  "error": null,
+  "animation_type": "other",
+  "source_image_url": "https://media.meowa.ai/public/animate/output/2026-06-02/13%3A24%3A49-69b5c300-b4f1-48cc-8cf5-2887c9eeeca4/source_static.png",
+  "final_prompt": "The small white robot hovers steadily as its blue eyes scan rapidly from left to right across floating data panels. The surrounding windows and charts shift subtly in a slow vertical drift while the robot's antenna tip pulses with light. Its chest icon glows rhythmically, completing a seamless loop of active data processing and analysis.",
+  "output": {
+    "url": "https://media.meowa.ai/public/animate/output/2026-06-02/13%3A26%3A02-69b5c300-b4f1-48cc-8cf5-2887c9eeeca4/transparent_backup.webp",
+    "transparent_output_urls": {
+      "webp": "https://media.meowa.ai/public/animate/output/2026-06-02/13%3A26%3A02-69b5c300-b4f1-48cc-8cf5-2887c9eeeca4/transparent_backup.webp",
+      "gif": "https://media.meowa.ai/public/animate/output/2026-06-02/13%3A26%3A02-69b5c300-b4f1-48cc-8cf5-2887c9eeeca4/transparent_backup.gif",
+      "png": "https://media.meowa.ai/public/animate/output/2026-06-02/13%3A26%3A02-69b5c300-b4f1-48cc-8cf5-2887c9eeeca4/transparent_backup.png"
+    }
+  }
+}

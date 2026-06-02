@@ -247,6 +247,7 @@ class LocalAgentRuntime:
                 "Use handle_input_async(...) or handle_message_async(...) instead of "
                 "handle_input(...)/handle_message(...).",
             )
+        run_id = _generate_run_id()
         event_callback = _build_runtime_event_callback(session_id, on_event)
         _emit_runtime_event(
             event_callback,
@@ -265,7 +266,9 @@ class LocalAgentRuntime:
         )
         self.store.save_history(
             session_id,
-            _prepare_history_for_persistence(result.messages),
+            _prepare_history_for_persistence(
+                _stamp_run_id(result.messages, len(history), run_id),
+            ),
         )
         return result
 
@@ -301,6 +304,7 @@ class LocalAgentRuntime:
                 "Use handle_input_stream_async(...) or handle_message_stream_async(...) "
                 "instead of handle_input_stream(...)/handle_message_stream(...).",
             )
+        run_id = _generate_run_id()
         event_callback = _build_runtime_event_callback(session_id, on_event)
         _emit_runtime_event(
             event_callback,
@@ -320,7 +324,9 @@ class LocalAgentRuntime:
         )
         self.store.save_history(
             session_id,
-            _prepare_history_for_persistence(result.messages),
+            _prepare_history_for_persistence(
+                _stamp_run_id(result.messages, len(history), run_id),
+            ),
         )
         return result
 
@@ -354,6 +360,7 @@ class LocalAgentRuntime:
         on_event: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> RunResult:
         async def runner() -> RunResult:
+            run_id = _generate_run_id()
             event_callback = _build_runtime_event_callback(session_id, on_event)
             _emit_runtime_event(
                 event_callback,
@@ -392,7 +399,7 @@ class LocalAgentRuntime:
                 self._restore_pending_internal_messages(session_id, injected)
                 raise
             persisted_messages = self._attach_runtime_notices(
-                result.messages,
+                _stamp_run_id(result.messages, len(prepared.history), run_id),
                 prepared.runtime_notices,
             )
             await self._save_history_async(
@@ -440,6 +447,7 @@ class LocalAgentRuntime:
         on_event: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> RunResult:
         async def runner() -> RunResult:
+            run_id = _generate_run_id()
             event_callback = _build_runtime_event_callback(session_id, on_event)
             _emit_runtime_event(
                 event_callback,
@@ -479,7 +487,7 @@ class LocalAgentRuntime:
                 self._restore_pending_internal_messages(session_id, injected)
                 raise
             persisted_messages = self._attach_runtime_notices(
-                result.messages,
+                _stamp_run_id(result.messages, len(prepared.history), run_id),
                 prepared.runtime_notices,
             )
             await self._save_history_async(
@@ -2056,7 +2064,10 @@ class LocalAgentRuntime:
                     {"message": str(exc)},
                 )
                 raise
-            await self._save_history_async(session_id, result.messages)
+            await self._save_history_async(
+                session_id,
+                _stamp_run_id(result.messages, len(effective_history), run_id),
+            )
             self._publish_auto_resume_event(
                 session_id,
                 run_id,
@@ -2617,6 +2628,42 @@ def _generate_session_id() -> str:
 
 def _generate_message_id() -> str:
     return f"msg_{uuid.uuid4().hex}"
+
+
+def _generate_run_id() -> str:
+    return f"run_{uuid.uuid4().hex[:12]}"
+
+
+def _stamp_run_id(
+    messages: list[Message],
+    start_index: int,
+    run_id: str,
+) -> list[Message]:
+    """Tag the assistant messages produced in the current run with ``run_id``.
+
+    Each agent turn (one LLM round-trip) is persisted as its own assistant
+    message. Tagging every assistant message of a run with a shared id lets the
+    frontend regroup them into a single bubble on reload, mirroring how the
+    streaming UI shows one bubble per run. ``start_index`` is the length of the
+    history that went *into* the run, so everything at or beyond it is new.
+    Messages from earlier runs (and any that already carry a ``run_id``) are
+    left untouched.
+    """
+    if start_index < 0:
+        start_index = 0
+    stamped: list[Message] = list(messages)
+    for index in range(start_index, len(stamped)):
+        message = stamped[index]
+        if message.get("role") != "assistant":
+            continue
+        metadata = dict(message.get("metadata") or {})
+        if metadata.get("run_id"):
+            continue
+        metadata["run_id"] = run_id
+        message = dict(message)
+        message["metadata"] = metadata
+        stamped[index] = message
+    return stamped
 
 
 def _utc_timestamp() -> str:

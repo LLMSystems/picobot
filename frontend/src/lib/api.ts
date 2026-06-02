@@ -197,6 +197,18 @@ export const api = {
   workspaceFileRawUrl: (id: string, path: string): string =>
     `${API_BASE}/sessions/${encodeURIComponent(id)}/workspace/file/raw${qs({ path })}`,
 
+  // Resolve a path the model wrote in markdown (an absolute server path like
+  // `/home/.../workspaces/<session>/example.png`, or a workspace-relative one)
+  // into a URL the browser can actually fetch. Already-fetchable srcs
+  // (http/https/data/blob) are returned untouched.
+  workspaceImageUrl: (id: string, rawPath: string): string => {
+    if (/^(https?:|data:|blob:)/i.test(rawPath)) return rawPath
+    const marker = `/${id}/`
+    const idx = rawPath.indexOf(marker)
+    const relative = idx >= 0 ? rawPath.slice(idx + marker.length) : rawPath
+    return `${API_BASE}/sessions/${encodeURIComponent(id)}/workspace/file/raw${qs({ path: relative })}`
+  },
+
   uploadWorkspaceFiles: (
     id: string,
     params: { path?: string; overwrite?: boolean },

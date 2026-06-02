@@ -42,9 +42,43 @@ md.renderer.rules.link_open = function (tokens, idx, options, env, self) {
   return defaultLinkOpen(tokens, idx, options, env, self)
 }
 
-export function renderMarkdown(source: string): string {
+interface RenderEnv {
+  resolveImageSrc?: (src: string) => string
+}
+
+// Models often reference workspace files with a server-side path the browser
+// can't fetch (e.g. `![shot](/home/.../workspaces/<session>/example.png)`).
+// Let callers rewrite each image `src` into a real URL via env.resolveImageSrc.
+const defaultImageRender =
+  md.renderer.rules.image ??
+  function (tokens, idx, options, _env, self) {
+    return self.renderToken(tokens, idx, options)
+  }
+
+md.renderer.rules.image = function (tokens, idx, options, env, self) {
+  const token = tokens[idx]
+  const resolve = (env as RenderEnv)?.resolveImageSrc
+  if (token && resolve) {
+    const srcIndex = token.attrIndex('src')
+    if (srcIndex >= 0) {
+      const attr = token.attrs![srcIndex]!
+      attr[1] = resolve(attr[1])
+    }
+  }
+  return defaultImageRender(tokens, idx, options, env, self)
+}
+
+export interface RenderMarkdownOptions {
+  resolveImageSrc?: (src: string) => string
+}
+
+export function renderMarkdown(
+  source: string,
+  options?: RenderMarkdownOptions,
+): string {
   if (!source) return ''
-  const html = md.render(source)
+  const env: RenderEnv = { resolveImageSrc: options?.resolveImageSrc }
+  const html = md.render(source, env)
   return DOMPurify.sanitize(html, {
     ADD_ATTR: ['target', 'rel'],
   })

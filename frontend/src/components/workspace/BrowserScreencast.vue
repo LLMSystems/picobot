@@ -744,8 +744,8 @@ defineExpose({ disconnect })
                  rounded-full bg-indigo-600/90 py-1 pl-1 pr-2.5 text-[11px] font-medium
                  text-white shadow-lg backdrop-blur"
         >
-          <PicobotIcon :size="18" state="running" glow />
-          <span>AI 操控中{{ aiBrowserAction ? ` · ${aiBrowserAction}` : '' }}</span>
+          <PicobotIcon :size="18" state="running" glow class="relative -top-[2px]" />
+          <span class="leading-none">AI 操控中{{ aiBrowserAction ? ` · ${aiBrowserAction}` : '' }}</span>
         </div>
       </template>
     </div>

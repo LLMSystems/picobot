@@ -81,7 +81,7 @@ const { text: elapsedText } = useElapsed(
 <template>
   <button
     type="button"
-    class="group relative flex w-full items-start gap-2.5 overflow-hidden rounded-lg border bg-card p-2.5 text-left text-sm transition-all"
+    class="group relative flex w-full items-center gap-2.5 overflow-hidden rounded-lg border bg-card p-2.5 text-left text-sm transition-all"
     :class="
       selected
         ? 'border-brand/50 bg-brand/5 shadow-sm'

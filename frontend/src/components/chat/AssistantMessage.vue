@@ -227,7 +227,7 @@ async function copy() {
           :tool-call="seg.toolCall"
         />
         <div v-else-if="seg.type === 'text' && seg.content.trim()" class="relative">
-          <MarkdownView :content="seg.content.trim()" />
+          <MarkdownView :content="seg.content.trim()" :session-id="sessionId" />
           <StreamingCursor
             v-if="isStreaming && idx === lastSegmentIndex"
           />

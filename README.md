@@ -2,7 +2,7 @@
 
 
 <p align="center">
-  <img src="assets/image0.png" width="500px" style="vertical-align:middle;">
+  <img src="assets/subagent/transparent_backup.gif" width="500px" style="vertical-align:middle;">
 </p>
 
 

@@ -1,0 +1,8 @@
+{
+  "api_job_id": "e9f70ca0-2018-45f0-b861-3733ac0e620c",
+  "status": "queued",
+  "error": null,
+  "final_prompt": "The small white robot with blue glowing eyes floats gently in place, bobbing slowly up and down in a smooth vertical hover. Its eyes blink rhythmically with a soft blue pulse, while the purple antenna on its head sways slightly to maintain its mid-air balance in a seamless loop.",
+  "negative_prompt": "blurry, distorted",
+  "animation_type": "other"
+}
