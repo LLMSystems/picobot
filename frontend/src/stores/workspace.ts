@@ -161,6 +161,40 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   const editContent = ref('')
   const editSaving = ref(false)
 
+  // ---- AI browser control indicator -------------------------------------
+  // Once the agent issues its first agent-browser command in a turn we latch
+  // the "AI 操控中" effect ON and keep it on for the whole answer — even across
+  // gaps between tool calls — so it doesn't flicker. It's only cleared when the
+  // turn ends (done / error / abort / session switch). `aiBrowserActions` still
+  // tracks in-flight commands so the badge can show the current action label.
+  const aiBrowserControlling = ref(false)
+  const aiBrowserActions = ref<Map<string, string>>(new Map())
+  const aiBrowserAction = ref<string | null>(null)
+
+  function beginAiBrowserControl(id: string, action: string) {
+    aiBrowserControlling.value = true
+    aiBrowserActions.value.set(id, action)
+    aiBrowserAction.value = action
+    focusBrowser()
+  }
+
+  function endAiBrowserControl(id: string) {
+    if (!aiBrowserActions.value.delete(id)) return
+    // Keep the latch on. Browser commands finish in a flash while the gap
+    // between them (the agent thinking) is comparatively long, so DON'T blank
+    // the label when a command ends — keep showing the last action until the
+    // next command replaces it, so the badge stays readable. If another command
+    // is still running, surface that one instead.
+    const remaining = [...aiBrowserActions.value.values()]
+    if (remaining.length > 0) aiBrowserAction.value = remaining.at(-1) ?? aiBrowserAction.value
+  }
+
+  function clearAiBrowserControl() {
+    aiBrowserControlling.value = false
+    if (aiBrowserActions.value.size > 0) aiBrowserActions.value.clear()
+    aiBrowserAction.value = null
+  }
+
   function openMkdir(parent?: string) {
     mkdirRequest.value = { parent: parent ?? targetUploadDir() }
   }
@@ -913,6 +947,11 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     setActiveTab,
     focusBrowser,
     focusAgents,
+    aiBrowserControlling,
+    aiBrowserAction,
+    beginAiBrowserControl,
+    endAiBrowserControl,
+    clearAiBrowserControl,
     childrenOf,
     getDir,
     uploadFiles,

@@ -32,6 +32,12 @@ import {
 } from '@/composables/useBrowserScreencast'
 import { useBrowserTabs } from '@/composables/useBrowserTabs'
 import { virtualKeyCodeFor, textForKey } from '@/lib/browserKeymap'
+import { useWorkspaceStore } from '@/stores/workspace'
+import { storeToRefs } from 'pinia'
+import PicobotIcon from '@/components/common/PicobotIcon.vue'
+
+const workspace = useWorkspaceStore()
+const { aiBrowserControlling, aiBrowserAction } = storeToRefs(workspace)
 
 const {
   tabs: browserTabs,
@@ -71,6 +77,13 @@ const {
 
 const fullscreenOpen = ref(false)
 const interactive = ref(true)
+
+// While the agent is driving the page we lock out manual input so the user
+// and the AI don't fight over the same cursor/keyboard.
+const aiControlling = aiBrowserControlling
+const effectiveInteractive = computed(
+  () => interactive.value && !aiControlling.value,
+)
 const imgRef = ref<HTMLImageElement | null>(null)
 const overlayRef = ref<HTMLTextAreaElement | null>(null)
 const isComposing = ref(false)
@@ -88,7 +101,9 @@ const statusLabel = computed(() => {
     case 'connecting':
       return '連線中…'
     case 'live':
-      return switching.value ? '切換分頁中…' : `LIVE · ${fps.value} fps`
+      if (switching.value) return '切換分頁中…'
+      if (aiControlling.value) return 'AI 操控中…'
+      return `LIVE · ${fps.value} fps`
     case 'chrome_offline':
       return 'Chrome 未啟動'
     case 'error':
@@ -100,7 +115,10 @@ const statusLabel = computed(() => {
 const statusDotClass = computed(() => {
   switch (status.value) {
     case 'live':
-      return switching.value ? 'bg-amber-500' : 'bg-emerald-500 animate-pulse'
+      if (switching.value) return 'bg-amber-500'
+      return aiControlling.value
+        ? 'bg-indigo-500 animate-pulse'
+        : 'bg-emerald-500 animate-pulse'
     case 'connecting':
     case 'checking':
       return 'bg-amber-500'
@@ -155,7 +173,7 @@ function modifiersOf(e: MouseEvent | KeyboardEvent | WheelEvent): number {
 }
 
 function onMouseDown(e: MouseEvent) {
-  if (!interactive.value || status.value !== 'live') return
+  if (!effectiveInteractive.value || status.value !== 'live') return
   e.preventDefault()
   overlayRef.value?.focus()
   const pt = toChrome(e)
@@ -171,7 +189,7 @@ function onMouseDown(e: MouseEvent) {
 }
 
 function onMouseUp(e: MouseEvent) {
-  if (!interactive.value || status.value !== 'live') return
+  if (!effectiveInteractive.value || status.value !== 'live') return
   e.preventDefault()
   const pt = toChrome(e)
   if (!pt) return
@@ -186,7 +204,7 @@ function onMouseUp(e: MouseEvent) {
 }
 
 function onMouseMove(e: MouseEvent) {
-  if (!interactive.value || status.value !== 'live') return
+  if (!effectiveInteractive.value || status.value !== 'live') return
   const pt = toChrome(e)
   if (!pt) return
   pendingMoveX = pt.x
@@ -199,7 +217,7 @@ function onMouseMove(e: MouseEvent) {
 }
 
 function onWheel(e: WheelEvent) {
-  if (!interactive.value || status.value !== 'live') return
+  if (!effectiveInteractive.value || status.value !== 'live') return
   e.preventDefault()
   const pt = toChrome(e)
   if (!pt) return
@@ -214,11 +232,11 @@ function onWheel(e: WheelEvent) {
 }
 
 function onContextMenu(e: MouseEvent) {
-  if (interactive.value) e.preventDefault()
+  if (effectiveInteractive.value) e.preventDefault()
 }
 
 function onKeydown(e: KeyboardEvent) {
-  if (!interactive.value || status.value !== 'live') return
+  if (!effectiveInteractive.value || status.value !== 'live') return
   // While IME is composing, let the textarea + browser handle the keystrokes;
   // we'll forward the final result via compositionend.
   if (e.isComposing || isComposing.value || e.key === 'Process') return
@@ -241,7 +259,7 @@ function onKeydown(e: KeyboardEvent) {
 }
 
 function onKeyup(e: KeyboardEvent) {
-  if (!interactive.value || status.value !== 'live') return
+  if (!effectiveInteractive.value || status.value !== 'live') return
   if (e.isComposing || isComposing.value || e.key === 'Process') return
   if (e.key === 'F5' || (e.key === 'r' && (e.ctrlKey || e.metaKey))) return
   e.preventDefault()
@@ -516,12 +534,19 @@ defineExpose({ disconnect })
           size="sm"
           variant="ghost"
           class="h-6 px-2 text-xs"
-          :title="interactive ? '互動模式：開（點擊切換為僅檢視）' : '僅檢視（點擊切換為互動模式）'"
+          :disabled="aiControlling"
+          :title="
+            aiControlling
+              ? 'AI 操控中，已暫時鎖定手動輸入'
+              : interactive
+                ? '互動模式：開（點擊切換為僅檢視）'
+                : '僅檢視（點擊切換為互動模式）'
+          "
           @click="toggleInteractive"
         >
           <MousePointerClick v-if="interactive" class="mr-1 size-3 text-emerald-500" />
           <MousePointer v-else class="mr-1 size-3" />
-          {{ interactive ? '互動中' : '僅檢視' }}
+          {{ aiControlling ? '已鎖定' : interactive ? '互動中' : '僅檢視' }}
         </Button>
         <Button
           v-if="status === 'live'"
@@ -643,7 +668,13 @@ defineExpose({ disconnect })
           autocorrect="off"
           autocapitalize="off"
           class="absolute inset-0 m-0 resize-none overflow-hidden border-0 p-0 outline-none"
-          :class="interactive ? 'cursor-crosshair' : 'cursor-default'"
+          :class="
+            aiControlling
+              ? 'cursor-not-allowed'
+              : interactive
+                ? 'cursor-crosshair'
+                : 'cursor-default'
+          "
           style="background: transparent; color: transparent; caret-color: transparent;"
           @mousedown="onMouseDown"
           @mouseup="onMouseUp"
@@ -704,6 +735,19 @@ defineExpose({ disconnect })
       <template v-else>
         <div class="text-xs text-muted-foreground">尚未連線</div>
       </template>
+
+      <!-- AI control effect: pulsing glow border + scan line + status badge -->
+      <template v-if="aiControlling && status === 'live'">
+        <div class="ai-glow pointer-events-none absolute inset-0 z-20" aria-hidden="true" />
+        <div
+          class="pointer-events-none absolute left-3 top-3 z-30 flex items-center gap-1.5
+                 rounded-full bg-indigo-600/90 py-1 pl-1 pr-2.5 text-[11px] font-medium
+                 text-white shadow-lg backdrop-blur"
+        >
+          <PicobotIcon :size="18" state="running" glow />
+          <span>AI 操控中{{ aiBrowserAction ? ` · ${aiBrowserAction}` : '' }}</span>
+        </div>
+      </template>
     </div>
 
     <div
@@ -720,3 +764,58 @@ defineExpose({ disconnect })
     </div>
   </div>
 </template>
+
+<style scoped>
+/* Pulsing inset glow — inset keeps it inside the overflow-hidden viewport so
+   the border isn't clipped. The ::after layer sweeps a faint scan line. */
+.ai-glow {
+  box-shadow:
+    inset 0 0 0 2px rgb(99 102 241 / 0.9),
+    inset 0 0 26px rgb(99 102 241 / 0.45);
+  animation: ai-glow-pulse 1.6s ease-in-out infinite;
+}
+
+.ai-glow::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    transparent,
+    rgb(99 102 241 / 0.14),
+    transparent
+  );
+  background-size: 100% 38%;
+  background-repeat: no-repeat;
+  animation: ai-scan 2.4s linear infinite;
+}
+
+@keyframes ai-glow-pulse {
+  0%,
+  100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes ai-scan {
+  from {
+    background-position: 0 -40%;
+  }
+  to {
+    background-position: 0 140%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-glow,
+  .ai-glow::after {
+    animation: none;
+  }
+  .ai-glow {
+    opacity: 0.9;
+  }
+}
+</style>
