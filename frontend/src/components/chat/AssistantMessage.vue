@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import MarkdownView from '@/components/common/MarkdownView.vue'
+import PicobotIcon from '@/components/common/PicobotIcon.vue'
 import { Button } from '@/components/ui/button'
 import type { DisplayMessage, DisplayMessageSegment } from '@/lib/types'
 import { useChatStore } from '@/stores/chat'
@@ -9,7 +10,6 @@ import {
   ChevronDown,
   CircleStop,
   Copy,
-  LoaderCircle,
   RefreshCw,
 } from 'lucide-vue-next'
 import { computed, ref, watch } from 'vue'
@@ -172,12 +172,13 @@ async function copy() {
           :aria-expanded="reasoningExpanded"
           @click="toggleReasoning"
         >
-          <div class="flex size-7 shrink-0 items-center justify-center rounded-full bg-indigo-100/80 dark:bg-indigo-500/15">
-            <LoaderCircle
+          <div class="flex size-7 shrink-0 items-center justify-center rounded-full bg-brand/10 dark:bg-brand/15">
+            <PicobotIcon
               v-if="isReasoningLive"
-              class="size-4 animate-spin text-indigo-600 dark:text-indigo-400"
+              :size="20"
+              state="running"
             />
-            <Brain v-else class="size-4 text-indigo-600 dark:text-indigo-400" />
+            <Brain v-else class="size-4 text-brand" />
           </div>
           <span class="text-sm font-semibold text-foreground">思考過程</span>
           <span
@@ -246,11 +247,7 @@ async function copy() {
         v-if="showReplyPlaceholder"
         class="flex items-center gap-2 text-sm text-muted-foreground"
       >
-        <span class="flex gap-1">
-          <span class="size-1.5 animate-pulse rounded-full bg-current [animation-delay:-0.3s]" />
-          <span class="size-1.5 animate-pulse rounded-full bg-current [animation-delay:-0.15s]" />
-          <span class="size-1.5 animate-pulse rounded-full bg-current" />
-        </span>
+        <PicobotIcon :size="24" state="running" />
         <span>正在回覆</span>
       </div>
 

@@ -127,7 +127,7 @@ const terminalConfig = computed(() => {
               ? 'ring-2 ring-red-500/30'
               : seg.toolCall.status === 'running'
                 ? 'ring-2 ring-amber-500/30'
-                : 'ring-2 ring-violet-500/30'
+                : 'ring-2 ring-brand/30'
           "
         >
           <Wrench
@@ -137,7 +137,7 @@ const terminalConfig = computed(() => {
                 ? 'text-red-500'
                 : seg.toolCall.status === 'running'
                   ? 'animate-pulse text-amber-500'
-                  : 'text-violet-500'
+                  : 'text-brand'
             "
           />
         </span>

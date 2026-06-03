@@ -7,7 +7,7 @@ import DashboardAnchorRail from '@/components/dashboard/DashboardAnchorRail.vue'
 import { Button } from '@/components/ui/button'
 import { Moon, Sun } from 'lucide-vue-next'
 import { useTheme } from '@/composables/useTheme'
-import picoagentLogo from '@/assets/picoagent_icon.png'
+import picoagentLogo from '@/assets/picobot_head.png'
 
 const { theme, toggle: toggleTheme } = useTheme()
 

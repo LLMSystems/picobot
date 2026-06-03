@@ -80,7 +80,7 @@ async function startWith(prompt: string) {
 
 <template>
   <div
-    class="relative flex h-full w-full flex-col items-center px-6 pb-20 pt-[7vh] text-center sm:pt-[9vh]"
+    class="relative flex h-full w-full flex-col items-center overflow-y-auto px-6 pb-20 pt-[7vh] text-center sm:pt-[9vh]"
   >
     <div
       aria-hidden="true"
@@ -89,7 +89,7 @@ async function startWith(prompt: string) {
 
     <div class="flex max-w-xl flex-col items-center gap-5">
       <PicobotIcon
-        :size="200"
+        :size="320"
         variant="idle"
         state="idle"
         class="drop-shadow-sm"
@@ -106,7 +106,7 @@ async function startWith(prompt: string) {
         </p>
       </div>
       <Button
-        class="h-10 gap-1.5 rounded-xl bg-brand px-5 text-sm font-medium text-brand-foreground shadow-none transition-shadow hover:bg-brand/90 hover:shadow-md"
+        class="h-10 gap-1.5 rounded-xl bg-primary px-5 text-sm font-medium text-primary-foreground shadow-none transition-shadow hover:bg-primary/90 hover:shadow-md"
         @click="createAndGo"
       >
         <Plus class="size-4" />
@@ -114,15 +114,15 @@ async function startWith(prompt: string) {
       </Button>
     </div>
 
-    <div class="mt-16 grid w-full max-w-2xl grid-cols-1 gap-3 sm:mt-20 sm:grid-cols-2">
+    <div class="mt-8 grid w-full max-w-2xl grid-cols-1 gap-3 sm:mt-10 sm:grid-cols-2">
       <button
         v-for="c in commands"
         :key="c.title"
-        class="group flex items-start gap-3 rounded-xl border bg-card p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-brand/40 hover:bg-brand/5 hover:shadow-md"
+        class="group flex items-start gap-3 rounded-xl border bg-card p-4 text-left shadow-card transition-all duration-200 hover:-translate-y-px hover:border-brand hover:shadow-card-hover"
         @click="startWith(c.prompt)"
       >
         <span
-          class="flex size-10 shrink-0 items-center justify-center rounded-xl bg-indigo-50 text-indigo-500 transition-colors group-hover:bg-indigo-100 dark:bg-brand/15 dark:text-brand dark:group-hover:bg-brand/25"
+          class="flex size-10 shrink-0 items-center justify-center rounded-xl bg-brand-soft text-brand-strong"
         >
           <component :is="c.icon" class="size-5" />
         </span>

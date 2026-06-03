@@ -45,15 +45,19 @@
   --radius-xl: calc(var(--radius) + 4px);
   --color-brand: var(--brand);
   --color-brand-foreground: var(--brand-foreground);
+  --color-brand-soft: var(--brand-soft);
+  --color-brand-strong: var(--brand-strong);
+  --shadow-card: 0 2px 8px rgb(16 24 32 / 0.04);
+  --shadow-card-hover: 0 8px 24px rgb(16 24 32 / 0.08);
 }
 
 :root {
   --radius: 0.625rem;
-  --background: oklch(1 0 0);
+  --background: oklch(0.979 0.01 86); /* ≈ #FBF8F1 暖色奶油白 */
   --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
+  --card: oklch(0.994 0.007 89); /* ≈ #FFFDF8 暖白卡片 */
   --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
+  --popover: oklch(0.994 0.007 89); /* ≈ #FFFDF8 */
   --popover-foreground: oklch(0.145 0 0);
   --primary: oklch(0.205 0 0);
   --primary-foreground: oklch(0.985 0 0);
@@ -64,24 +68,26 @@
   --accent: oklch(0.97 0 0);
   --accent-foreground: oklch(0.205 0 0);
   --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
+  --border: oklch(0.912 0.017 79); /* ≈ #E8E1D6 暖灰邊框（全站卡片/分隔線）*/
+  --input: oklch(0.912 0.017 79);
   --ring: oklch(0.708 0 0);
   --chart-1: oklch(0.646 0.222 41.116);
   --chart-2: oklch(0.6 0.118 184.704);
   --chart-3: oklch(0.398 0.07 227.392);
   --chart-4: oklch(0.828 0.189 84.429);
   --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: oklch(0.985 0 0);
+  --sidebar: oklch(0.98 0.009 78); /* ≈ #FCF8F2 暖色奶油白 */
   --sidebar-foreground: oklch(0.145 0 0);
   --sidebar-primary: oklch(0.205 0 0);
   --sidebar-primary-foreground: oklch(0.985 0 0);
   --sidebar-accent: oklch(0.97 0 0);
   --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-border: oklch(0.912 0.017 79);
   --sidebar-ring: oklch(0.708 0 0);
-  --brand: oklch(0.58 0.187 277);
-  --brand-foreground: oklch(0.985 0 0);
+  --brand: oklch(0.7 0.18 162); /* 終端機綠（深一階） */
+  --brand-foreground: oklch(0.205 0 0); /* L0.7 亮綠上深字較清楚 */
+  --brand-soft: oklch(0.948 0.034 158); /* ≈ #DCF5E5 軟綠表面（icon 底/pill）*/
+  --brand-strong: oklch(0.641 0.145 158); /* ≈ #12A66A 深綠（軟綠上的 icon/強調字）*/
 }
 
 .dark {
@@ -116,8 +122,10 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
-  --brand: oklch(0.7 0.17 277);
+  --brand: oklch(0.7 0.18 162); /* 終端機綠（與 light 同階，按鈕才夠亮）*/
   --brand-foreground: oklch(0.205 0 0);
+  --brand-soft: oklch(0.29 0.045 160); /* 深色：軟綠表面 */
+  --brand-strong: oklch(0.8 0.16 162); /* 深色：軟綠上的亮綠 icon/字 */
 }
 
 @layer base {

@@ -173,9 +173,22 @@ function silencedUntilLabel(ruleName: string): string | null {
   return relativeTime(iso) || iso
 }
 
-// 左側守衛動畫的狀態：兩種狀態都會播放動畫。
-// 有進行中告警 → running（額外 pulse 強調）；否則 idle（一般待命，仍播動畫）。
+// 左側守衛動畫：始終維持動畫（有告警時 running 額外 pulse 強調，否則 idle）。
+// 顏色與動畫解耦，避免用到非動畫狀態（如 failed）導致動畫停住。
 const guardState = computed(() => (alerts.activeCount > 0 ? 'running' : 'idle'))
+
+// 光暈顏色依最高嚴重度：critical → 紅、warning/info → 黃、無告警 → 無色。
+const guardTone = computed<'amber' | 'red' | undefined>(() => {
+  switch (alerts.highestSeverity) {
+    case 'critical':
+      return 'red'
+    case 'warning':
+    case 'info':
+      return 'amber'
+    default:
+      return undefined
+  }
+})
 
 const orderedActive = computed(() => {
   const order: AlertSeverity[] = ['critical', 'warning', 'info']
@@ -339,7 +352,7 @@ async function sendTestNotification() {
     <CardContent class="flex gap-4">
       <!-- 左側守衛動畫：告警列很長，左邊留一塊放動畫 -->
       <div class="hidden shrink-0 items-start pt-1 sm:flex">
-        <PicobotIcon variant="security" :state="guardState" :size="128" glow />
+        <PicobotIcon variant="security" :state="guardState" :tone="guardTone" :size="128" glow />
       </div>
 
       <div class="min-w-0 flex-1 space-y-3">

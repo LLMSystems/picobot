@@ -16,7 +16,7 @@ import { useChatStore } from '@/stores/chat'
 import { toast } from 'vue-sonner'
 import SessionItem from '@/components/sessions/SessionItem.vue'
 import { Skeleton } from '@/components/ui/skeleton'
-import picoagentLogo from '@/assets/picoagent_icon.png'
+import picoagentLogo from '@/assets/picobot_head.png'
 
 const emit = defineEmits<{ (e: 'select'): void }>()
 
@@ -110,7 +110,7 @@ async function confirmDelete() {
         :src="picoagentLogo"
         alt=""
         aria-hidden="true"
-        class="size-12 select-none object-contain"
+        class="size-16 select-none object-contain"
         draggable="false"
       />
       <span class="text-lg font-semibold tracking-tight">Picobot</span>
@@ -118,7 +118,7 @@ async function confirmDelete() {
     <div class="space-y-2 px-3 pb-3">
       <Button
         size="sm"
-        class="h-8 w-full gap-1.5 rounded-[8px] bg-brand text-sm font-medium text-brand-foreground shadow-none transition-shadow hover:bg-brand/90 hover:shadow-md"
+        class="h-8 w-full gap-1.5 rounded-[8px] bg-primary text-sm font-medium text-primary-foreground shadow-none transition-shadow hover:bg-primary/90 hover:shadow-md"
         @click="newChat"
       >
         <Plus class="size-3.5" />

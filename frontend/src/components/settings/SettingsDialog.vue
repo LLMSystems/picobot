@@ -498,7 +498,7 @@ function toolDescLabel(tool: { name: string; description?: string }): string {
         </Button>
         <Button
           size="sm"
-          class="bg-brand text-brand-foreground hover:bg-brand/90"
+          class="bg-primary text-primary-foreground hover:bg-primary/90"
           @click="open = false"
         >
           完成

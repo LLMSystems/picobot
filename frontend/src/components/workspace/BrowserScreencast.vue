@@ -117,7 +117,7 @@ const statusDotClass = computed(() => {
     case 'live':
       if (switching.value) return 'bg-amber-500'
       return aiControlling.value
-        ? 'bg-indigo-500 animate-pulse'
+        ? 'bg-brand animate-pulse'
         : 'bg-emerald-500 animate-pulse'
     case 'connecting':
     case 'checking':
@@ -741,7 +741,7 @@ defineExpose({ disconnect })
         <div class="ai-glow pointer-events-none absolute inset-0 z-20" aria-hidden="true" />
         <div
           class="pointer-events-none absolute left-3 top-3 z-30 flex items-center gap-1.5
-                 rounded-full bg-indigo-600/90 py-1 pl-1 pr-2.5 text-[11px] font-medium
+                 rounded-full bg-brand/90 py-1 pl-1 pr-2.5 text-[11px] font-medium
                  text-white shadow-lg backdrop-blur"
         >
           <PicobotIcon :size="18" state="running" glow class="relative -top-[2px]" />
@@ -770,8 +770,8 @@ defineExpose({ disconnect })
    the border isn't clipped. The ::after layer sweeps a faint scan line. */
 .ai-glow {
   box-shadow:
-    inset 0 0 0 2px rgb(99 102 241 / 0.9),
-    inset 0 0 26px rgb(99 102 241 / 0.45);
+    inset 0 0 0 2px rgb(32 217 148 / 0.9),
+    inset 0 0 26px rgb(32 217 148 / 0.45);
   animation: ai-glow-pulse 1.6s ease-in-out infinite;
 }
 
@@ -782,7 +782,7 @@ defineExpose({ disconnect })
   background: linear-gradient(
     180deg,
     transparent,
-    rgb(99 102 241 / 0.14),
+    rgb(32 217 148 / 0.14),
     transparent
   );
   background-size: 100% 38%;

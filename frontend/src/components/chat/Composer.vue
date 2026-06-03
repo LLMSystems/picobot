@@ -428,7 +428,7 @@ function formatFileSize(bytes: number): string {
         <TodoChip />
       </div>
       <div
-        class="relative rounded-2xl border bg-background px-4 py-3 shadow-md transition-shadow focus-within:border-brand/40 focus-within:shadow-lg focus-within:ring-2 focus-within:ring-brand/20"
+        class="dark relative rounded-2xl border bg-card text-foreground px-4 py-3 shadow-md transition-shadow focus-within:border-brand/40 focus-within:shadow-lg focus-within:ring-2 focus-within:ring-brand/20"
         :class="
           isDragOver
             ? 'border-brand/60 ring-2 ring-brand/30'
@@ -537,21 +537,28 @@ function formatFileSize(bytes: number): string {
           </div>
         </div>
 
-        <textarea
-          ref="textareaRef"
-          v-model="text"
-          rows="1"
-          :placeholder="placeholder"
-          :disabled="chat.currentSessionId === null"
-          class="block max-h-60 min-h-[1.75rem] w-full resize-none bg-transparent text-sm leading-7 outline-none placeholder:text-muted-foreground"
-          @keydown="onKeydown"
-          @paste="onPaste"
-          @compositionstart="isComposing = true"
-          @compositionend="isComposing = false"
-          @input="onInput"
-          @click="checkMention"
-          @keyup="checkMention"
-        />
+        <!-- 終端機風格輸入區：綠色 > 提示符 + 等寬字 + 綠色游標，呼應 icon 螢幕 -->
+        <div class="flex items-start gap-1.5">
+          <span
+            class="shrink-0 select-none font-mono text-sm font-semibold leading-7 text-brand"
+            aria-hidden="true"
+          >&gt;</span>
+          <textarea
+            ref="textareaRef"
+            v-model="text"
+            rows="1"
+            :placeholder="placeholder"
+            :disabled="chat.currentSessionId === null"
+            class="block max-h-60 min-h-[1.75rem] w-full resize-none bg-transparent font-mono text-sm leading-7 text-foreground caret-brand outline-none placeholder:text-muted-foreground"
+            @keydown="onKeydown"
+            @paste="onPaste"
+            @compositionstart="isComposing = true"
+            @compositionend="isComposing = false"
+            @input="onInput"
+            @click="checkMention"
+            @keyup="checkMention"
+          />
+        </div>
 
         <div class="mt-1 flex items-center gap-1">
           <TooltipProvider v-if="imagesEnabled || fileUploadEnabled" :delay-duration="200">

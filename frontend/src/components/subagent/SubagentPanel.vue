@@ -306,7 +306,7 @@ function chipClass(f: Filter): string {
         v-else-if="subagents.sortedSummaries.length === 0"
         class="flex h-full flex-col items-center justify-center gap-3 px-6 text-center"
       >
-        <PicobotIcon size="xl" variant="subagent" />
+        <PicobotIcon :size="140" variant="subagent" />
         <div class="space-y-1">
           <div class="text-sm font-medium">尚未產生子任務</div>
           <div class="text-[11px] text-muted-foreground">

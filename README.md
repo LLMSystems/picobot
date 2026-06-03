@@ -2,14 +2,17 @@
 
 
 <p align="center">
-  <img src="assets/image0.png" width="300px" style="vertical-align:middle;">
+  <img src="assets/picobot_icon/picobot.png" width="300px" style="vertical-align:middle;">
 </p>
 
 
 
 `picobot` 是一個輕量 agent 專案，目標是用清楚、可擴展的方式，實作一個可聊天、可調工具、可操作 workspace、操作網頁、搜尋資料的 Web agent。
 
-https://github.com/user-attachments/assets/dd1ac622-cefa-41c4-8298-c3e258ca687d
+![web0](assets/image0.png)
+![web1](assets/image4.png)
+![web2](assets/image5.png)
+![web2](assets/image6.png)
 
 </div>
 
