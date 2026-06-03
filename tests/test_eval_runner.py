@@ -90,14 +90,12 @@ def test_run_case_prepares_workspace_and_collects_outputs(tmp_path: Path):
     assert (workspace / "README.md").read_text(encoding="utf-8") == "# Source\n"
     assert result["status"] == "completed"
     assert result["content"] == "handled:write summary"
-    assert result["workspace_outputs"] == [
-        {
-            "path": "doc/summary.md",
-            "exists": True,
-            "is_file": True,
-            "content": "# Summary\nGenerated\n",
-        },
-    ]
+    assert result["workspace_outputs"][0]["path"] == "doc/summary.md"
+    assert result["workspace_outputs"][0]["exists"] is True
+    assert result["workspace_outputs"][0]["is_file"] is True
+    assert result["workspace_outputs"][0]["size"] > 0
+    assert len(result["workspace_outputs"][0]["sha256"]) == 64
+    assert result["workspace_outputs"][0]["content"] == "# Summary\r\nGenerated\r\n"
     assert result["score"]["pass"] is True
     assert result["score"]["failed_checks"] == 0
 
@@ -155,12 +153,28 @@ def test_build_run_summary_includes_scoring_and_categories(tmp_path: Path):
         results=results,
     )
 
-    assert summary["scored_pass"] == 1
-    assert summary["scored_fail"] == 1
-    assert summary["pass_rate"] == 0.5
-    assert summary["categories"]["chat"]["passed"] == 1
+    assert summary["rule_pass"] == 1
+    assert summary["rule_fail"] == 1
+    assert summary["rule_pass_rate"] == 0.5
+    assert summary["final_pass"] == 0
+    assert summary["final_fail"] == 2
+    assert summary["categories"]["chat"]["rule_pass"] == 1
     assert summary["categories"]["workspace"]["failed"] == 1
     assert summary["cases"] == [
-        {"id": "case_pass", "status": "completed", "category": "chat", "pass": True},
-        {"id": "case_fail", "status": "failed", "category": "workspace", "pass": False},
+        {
+            "id": "case_pass",
+            "status": "completed",
+            "category": "chat",
+            "rule_pass": True,
+            "llm_judge_pass": None,
+            "final_pass": False,
+        },
+        {
+            "id": "case_fail",
+            "status": "failed",
+            "category": "workspace",
+            "rule_pass": False,
+            "llm_judge_pass": None,
+            "final_pass": False,
+        },
     ]

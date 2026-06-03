@@ -38,17 +38,15 @@ def test_system_prompt_file_is_resolved_relative_to_config(tmp_path):
 def test_system_prompt_includes_active_skill_and_available_summary():
     config = ChatbotConfig(
         model="gpt-4.1-mini",
-        enabled_skills=["math-tutor"],
+        enabled_skills=["agent-browser"],
     )
 
     prompt = load_system_prompt(config)
 
     assert "# Active Skills" in prompt
-    assert "### Skill: concise-writer" in prompt
-    assert "### Skill: math-tutor" in prompt
-    assert "# Available Skills" in prompt
-    assert "**tool-use-reminder**" in prompt
-    assert "tool-use-reminder/SKILL.md" not in prompt
+    assert "### Skill: agent-browser" in prompt
+    assert "# agent-browser core" in prompt
+    assert "# Available Skills" not in prompt
 
 
 def test_system_prompt_includes_runtime_context_and_platform_policy(tmp_path):
@@ -84,25 +82,18 @@ def test_system_prompt_mentions_read_skill_tool_rules():
 
     prompt = load_system_prompt(config)
 
-    assert "`read_skill(name)`" in prompt
-    assert "`exec(command, working_dir, timeout, yield_time_ms, max_output_chars)`" in prompt
-    assert "`write_stdin(session_id, chars, close_stdin, terminate, yield_time_ms, max_output_chars)`" in prompt
-    assert "`list_exec_sessions()`" in prompt
-    assert "`read_document(path, pages, sheet, range)`" in prompt
-    assert "`apply_patch(edits, dry_run)`" in prompt
-    assert "`tavily_search(query, topic, search_depth, max_results" in prompt
-    assert "`glob(pattern, path, query, type, entry_type, sort, head_limit, offset)`" in prompt
-    assert "`spawn(task, label, temperature, model)`" in prompt
-    assert "`list_subagents(phase, limit, include_completed)`" in prompt
-    assert "`subagent_wait(task_id, timeout_seconds, include_result, tail_tool_events)`" in prompt
-    assert "`cancel_subagent(task_id)`" in prompt
-    assert "background subagent" in prompt
+    assert "read `.skills/<name>/SKILL.md` first with `read_file`" in prompt
+    assert "Use `exec` mainly for verification, testing, linting, or builds." in prompt
+    assert "If `exec` returns a `session_id`, continue with `write_stdin`" in prompt
+    assert "`read_file`" in prompt
+    assert "`apply_patch`" in prompt
+    assert "`spawn`" in prompt
+    assert "`subagent_wait(task_id)`" in prompt
+    assert "`cancel_subagent`" in prompt
     assert "`.subagents/<task_id>/`" in prompt
-    assert "Use `exec(...)` without `yield_time_ms` for ordinary one-shot commands." in prompt
-    assert "Use `write_stdin(...)` to continue, poll, close stdin, or terminate an existing exec session." in prompt
-    assert "Prefer `apply_patch` for multi-file changes" in prompt
-    assert "Do not try to force binary office/document formats through `read_file`." in prompt
-    assert "Do not use `read_file` to access `SKILL.md` files" in prompt
+    assert "Use `yield_time_ms` only when you intentionally want session mode" in prompt
+    assert "`write_stdin(chars=\"\")` to poll new output" in prompt
+    assert "Do not try to force binary office formats through `read_file`." in prompt
 
 
 def test_system_prompt_includes_subagent_delegation_policy():
@@ -111,10 +102,10 @@ def test_system_prompt_includes_subagent_delegation_policy():
     prompt = load_system_prompt(config)
 
     assert "## Subagent Delegation Policy" in prompt
-    assert "remember the returned `task_id`" in prompt
-    assert "Use `cancel_subagent(task_id)` when a background task is no longer useful" in prompt
-    assert "Do not tell the user that a subagent completed the task unless you have actually checked its result." in prompt
-    assert "If `subagent_wait(...)` returns `completed=false`, treat that as still in progress rather than failure." in prompt
+    assert "Track the returned `task_id`." in prompt
+    assert "Use `cancel_subagent` when the work is no longer useful." in prompt
+    assert "Do not claim a subagent finished the task unless you actually read its result." in prompt
+    assert "If `subagent_wait` returns `completed=false`, treat it as in progress, not failure." in prompt
 
 
 def test_system_prompt_includes_exec_session_guidance():
@@ -122,10 +113,10 @@ def test_system_prompt_includes_exec_session_guidance():
 
     prompt = load_system_prompt(config)
 
-    assert "Use `yield_time_ms` only when you intentionally want session-mode behavior" in prompt
-    assert "If `exec(..., yield_time_ms=...)` returns a running `session_id`, continue with `write_stdin(...)`" in prompt
-    assert "Use `chars=\"\"` with `write_stdin(...)` when you only need to poll new output" in prompt
-    assert "Use `list_exec_sessions()` when you need to recover a session id" in prompt
+    assert "Use `yield_time_ms` only when you intentionally want session mode" in prompt
+    assert "If `exec` returns a `session_id`, continue with `write_stdin`" in prompt
+    assert "`write_stdin(chars=\"\")` to poll new output" in prompt
+    assert "Use `list_exec_sessions` to recover or inspect active session ids." in prompt
 
 
 def test_subagent_system_prompt_includes_runtime_context_and_policy(tmp_path):
@@ -155,4 +146,4 @@ def test_subagent_system_prompt_includes_available_skills():
 
     assert "# Available Skills" in prompt
     assert "`read_skill(name)`" in prompt
-    assert "**tool-use-reminder**" in prompt
+    assert "**agent-browser**" in prompt

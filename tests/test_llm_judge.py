@@ -54,7 +54,8 @@ def test_build_judge_evidence_selects_text_and_image_artifacts(tmp_path: Path):
 
     assert evidence.case_id == "browser_v1_001"
     assert evidence.skill_context is not None
-    assert "Always pass `--headed false`" in evidence.skill_context
+    assert "# agent-browser core" in evidence.skill_context
+    assert "Never run `agent-browser eval --stdin` by itself" in evidence.skill_context
     assert evidence.text_artifacts == [
         {
             "path": "artifacts/final_notes.txt",
