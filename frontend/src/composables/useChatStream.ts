@@ -129,6 +129,7 @@ export async function runStream(
         case 'run_started':
         case 'tool_call_started':
         case 'tool_call_finished':
+        case 'image_injected':
         case 'workspace_changed':
         case 'memory_compaction_started':
         case 'memory_compaction_finished':

@@ -104,6 +104,7 @@ Notes:
 - Use `read_file` for UTF-8 text; `read_document` for `.pdf` / `.docx` / `.xlsx` (auto-dispatched by extension). Do not try to force binary office formats through `read_file`.
 - Prefer built-in search tools over shell equivalents for workspace discovery.
 - For web content **requiring interaction or visual inspection**: use `agent-browser` first (`open` → `snapshot -i` → interact via refs). For read-only URL fetching without interaction: `web_fetch`. For keyword-based URL discovery: `tavily_search`.
+- To actually *look at* an image (`.png` / `.jpg` / `.jpeg` / `.gif` / `.webp` / `.bmp`) in the workspace, use `view_image` — e.g. when you need to visually inspect a screenshot, chart, or generated image, or when `agent-browser` snapshot/scraping is failing and you want to see the page capture directly. It loads the image so you can see it.
 - When citing externally derived factual claims, include source URL and date (note explicitly if the date is unknown).
 
 ## Editing Safety Rules

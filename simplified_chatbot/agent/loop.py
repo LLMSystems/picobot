@@ -9,13 +9,23 @@ import json
 import time
 from typing import Any
 
-from simplified_chatbot.agent.types import ContentBlock, Message, MessageContent, RunResult
+from simplified_chatbot.agent.types import ContentBlock, Message, MessageContent, RunResult, ToolResult
 from simplified_chatbot.config.schema import ChatbotConfig
 from simplified_chatbot.providers.base import ChatProvider, ToolCallRequest
 from simplified_chatbot.tools.registry import ToolRegistry
 
 _TRIM_SAFETY_BUFFER_TOKENS = 1024
 EventCallback = Callable[[str, dict[str, Any]], None]
+
+# Strong, unambiguous framing for images a tool fed back via ToolResult. The
+# block is appended as a ``user`` message (the only OpenAI-compatible role that
+# may carry images) but it is NOT from the human — the wording makes that clear
+# so the model treats it as tool output rather than a new user request.
+_IMAGE_INJECTION_NOTE = (
+    "[SYSTEM-INJECTED TOOL OUTPUT — NOT A MESSAGE FROM THE USER] "
+    "The following image(s) are the output of the view_image tool you just "
+    "called. Examine them to continue your task."
+)
 
 
 def _classify_provider_error(exc: BaseException) -> str:
@@ -365,6 +375,10 @@ class AgentLoop:
                 conversation.append(
                     assistant_message,
                 )
+                # Images a tool returned (via ToolResult) cannot live in a
+                # ``tool`` message, so collect them across all batches of this
+                # turn and inject them as one follow-up user message afterwards.
+                pending_image_blocks: list[ContentBlock] = []
                 for batch in self._partition_tool_batches(response.tool_calls):
                     for tool_call in batch:
                         tools_used.append(tool_call.name)
@@ -412,8 +426,26 @@ class AgentLoop:
                                 "content": self._normalize_tool_result(result),
                             },
                         )
+                        if isinstance(result, ToolResult) and result.images:
+                            pending_image_blocks.extend(result.images)
                     if first_error is not None:
                         raise first_error
+                if pending_image_blocks:
+                    conversation.append(self._build_image_injection(pending_image_blocks))
+                    self._emit_event(
+                        on_event,
+                        "image_injected",
+                        {
+                            "images": [
+                                {
+                                    "path": block.get("path"),
+                                    "url": block.get("url"),
+                                    "detail": block.get("detail"),
+                                }
+                                for block in pending_image_blocks
+                            ],
+                        },
+                    )
                 continue
 
             assistant_message = {
@@ -636,7 +668,28 @@ class AgentLoop:
         )
 
     @staticmethod
+    def _build_image_injection(blocks: list[ContentBlock]) -> Message:
+        """Wrap tool-loaded images as a synthetic user message.
+
+        Role is ``user`` because that is the only OpenAI-compatible role that may
+        carry image content; ``metadata.synthetic_image_injection`` flags it so
+        the frontend can render it on the assistant side rather than as a real
+        user turn.
+        """
+        content: list[ContentBlock] = [
+            {"type": "text", "text": _IMAGE_INJECTION_NOTE},
+            *blocks,
+        ]
+        return {
+            "role": "user",
+            "content": content,
+            "metadata": {"synthetic_image_injection": True},
+        }
+
+    @staticmethod
     def _normalize_tool_result(result: object) -> str:
+        if isinstance(result, ToolResult):
+            return result.text
         if isinstance(result, str):
             return result
         try:
@@ -646,6 +699,8 @@ class AgentLoop:
 
     @staticmethod
     def _serialize_event_result(result: object) -> Any:
+        if isinstance(result, ToolResult):
+            return result.text
         try:
             json.dumps(result, ensure_ascii=False)
         except TypeError:
