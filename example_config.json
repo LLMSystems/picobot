@@ -22,10 +22,10 @@
       "headers": {
         "Authorization": "Bearer ${GITHUB_PAT}"
       },
+      "toolTimeout": 20,
       "enabledTools": [
-        "mcp_github_search_repositories"
-      ],
-      "toolTimeout": 20
+        "search_repositories"
+      ]
     }
   },
   "maxTokens": 8192,

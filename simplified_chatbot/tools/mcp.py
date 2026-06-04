@@ -377,6 +377,10 @@ class MCPConnectionManager:
         self._sync_stacks: dict[str, AsyncExitStack] = {}
         self._server_wrappers: dict[str, list[Tool]] = {}
         self._tool_wrappers: dict[str, Tool] = {}
+        # Every tool a connected server advertises (raw names), regardless of the
+        # enabledTools filter, so the UI can offer per-tool toggles. Only known
+        # while the server is connected; cleared when it disconnects.
+        self._server_catalogs: dict[str, list[str]] = {}
         self._last_errors: dict[str, str] = {}
         self._pending_servers: set[str] = set()
         self._control_lock = asyncio.Lock()
@@ -407,15 +411,18 @@ class MCPConnectionManager:
         server_name: str,
         session: Any,
         wrappers: list[Tool],
+        catalog: list[str],
     ) -> None:
         self._remove_server_state(server_name)
         self._server_sessions[server_name] = session
+        self._server_catalogs[server_name] = list(catalog)
         self._server_wrappers[server_name] = list(wrappers)
         for wrapper in wrappers:
             self._tool_wrappers[wrapper.name] = wrapper
 
     def _remove_server_state(self, server_name: str) -> None:
         self._server_sessions.pop(server_name, None)
+        self._server_catalogs.pop(server_name, None)
         self._pending_servers.discard(server_name)
         wrappers = self._server_wrappers.pop(server_name, [])
         for wrapper in wrappers:
@@ -472,8 +479,10 @@ class MCPConnectionManager:
             if result is None:
                 self._last_errors[server_name] = "Connection failed"
                 return
-            stack, session, wrappers = result
-            self._set_server_session_and_wrappers(server_name, session, wrappers)
+            stack, session, wrappers, catalog = result
+            self._set_server_session_and_wrappers(
+                server_name, session, wrappers, catalog
+            )
             self._last_errors.pop(server_name, None)
             if not ready.done():
                 ready.set_result(True)
@@ -542,9 +551,11 @@ class MCPConnectionManager:
         if result is None:
             self._last_errors[server_name] = "Connection failed"
             return
-        stack, session, wrappers = result
+        stack, session, wrappers, catalog = result
         self._sync_stacks[server_name] = stack
-        self._set_server_session_and_wrappers(server_name, session, wrappers)
+        self._set_server_session_and_wrappers(
+            server_name, session, wrappers, catalog
+        )
         self._last_errors.pop(server_name, None)
 
     async def _close_server(self, server_name: str) -> None:
@@ -880,6 +891,7 @@ class MCPConnectionManager:
                     "connecting": connecting,
                     "tool_count": len(wrappers),
                     "tool_names": sorted(wrapper.name for wrapper in wrappers),
+                    "available_tools": sorted(self._server_catalogs.get(name, [])),
                     "enabled_tools": list(config.enabled_tools),
                     "include_resources": config.include_resources,
                     "include_prompts": config.include_prompts,
@@ -915,7 +927,7 @@ async def _connect_single_server(
     manager: MCPConnectionManager,
     server_name: str,
     cfg: MCPServerConfig,
-) -> tuple[AsyncExitStack, Any, list[Tool]] | None:
+) -> tuple[AsyncExitStack, Any, list[Tool], list[str]] | None:
     from mcp import ClientSession, StdioServerParameters
     from mcp.client.sse import sse_client
     from mcp.client.stdio import stdio_client
@@ -998,6 +1010,11 @@ async def _connect_single_server(
         session = await stack.enter_async_context(ClientSession(read, write))
         await session.initialize()
         tools = await session.list_tools()
+        # The full catalog (all advertised tools) before the enabledTools filter,
+        # so the UI can show every tool with a per-tool enable toggle. Returned
+        # to the caller and stored alongside the session, since the manager state
+        # is reset when the new session is registered.
+        catalog = [t.name for t in tools.tools]
         enabled_tools = set(cfg.enabled_tools)
         allow_all = "*" in enabled_tools
         wrappers: list[Tool] = []
@@ -1046,7 +1063,7 @@ async def _connect_single_server(
                     )
             except Exception:
                 pass
-        return stack, session, wrappers
+        return stack, session, wrappers, catalog
     except Exception:
         with suppress(Exception):
             await stack.aclose()

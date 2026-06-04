@@ -26,19 +26,37 @@ class MCPServerConfig(BaseModel):
         default=30,
         gt=0,
         validation_alias=AliasChoices("tool_timeout", "toolTimeout"),
+        serialization_alias="toolTimeout",
     )
     enabled_tools: list[str] = Field(
         default_factory=lambda: ["*"],
         validation_alias=AliasChoices("enabled_tools", "enabledTools"),
+        serialization_alias="enabledTools",
     )
     include_resources: bool = Field(
         default=False,
         validation_alias=AliasChoices("include_resources", "includeResources"),
+        serialization_alias="includeResources",
     )
     include_prompts: bool = Field(
         default=False,
         validation_alias=AliasChoices("include_prompts", "includePrompts"),
+        serialization_alias="includePrompts",
     )
+
+
+def validate_mcp_server_config(name: str, server: "MCPServerConfig") -> None:
+    """Apply the cross-field transport rules for a single MCP server.
+
+    Single source of truth shared by ``ChatbotConfig`` validation and the
+    runtime's hot-edit endpoints, so both reject the same invalid shapes.
+    """
+    if server.command and server.url:
+        raise ValueError(f"mcpServers.{name} must not set both command and url")
+    if server.type == "stdio" and not server.command.strip():
+        raise ValueError(f"mcpServers.{name}.command is required for stdio transport")
+    if server.type in {"sse", "streamableHttp"} and not server.url.strip():
+        raise ValueError(f"mcpServers.{name}.url is required for HTTP transport")
 
 
 class ChatbotConfig(BaseModel):
@@ -233,22 +251,5 @@ class ChatbotConfig(BaseModel):
                 "subagent_model must be included in available_models when provided",
             )
         for name, server in self.mcp_servers.items():
-            if server.command and server.url:
-                raise ValueError(
-                    f"mcpServers.{name} must not set both command and url",
-                )
-            if (
-                server.type == "stdio"
-                and not server.command.strip()
-            ):
-                raise ValueError(
-                    f"mcpServers.{name}.command is required for stdio transport",
-                )
-            if (
-                server.type in {"sse", "streamableHttp"}
-                and not server.url.strip()
-            ):
-                raise ValueError(
-                    f"mcpServers.{name}.url is required for HTTP transport",
-                )
+            validate_mcp_server_config(name, server)
         return self

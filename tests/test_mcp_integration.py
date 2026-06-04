@@ -269,6 +269,9 @@ def test_mcp_status_endpoint_reports_connected_server_details(monkeypatch, tmp_p
     assert payload["servers"][0]["connected"] is True
     assert payload["servers"][0]["connecting"] is False
     assert payload["servers"][0]["tool_names"] == ["mcp_demo_greet"]
+    # The catalog lists every advertised tool, even the ones the enabledTools
+    # filter dropped, so the UI can offer per-tool toggles.
+    assert payload["servers"][0]["available_tools"] == ["greet", "ping"]
 
 
 def test_mcp_status_endpoint_reports_connection_failures(monkeypatch, tmp_path: Path):
@@ -541,3 +544,52 @@ def test_mcp_status_reports_connecting_server_while_background_connect_is_pendin
     assert payload["servers"][0]["connected"] is False
     assert payload["servers"][0]["connecting"] is True
     assert payload["servers"][0]["error"] is None
+
+
+def test_mcp_upsert_and_delete_server_endpoints(monkeypatch, tmp_path: Path):
+    monkeypatch.setattr("simplified_chatbot.chatbot.build_provider", lambda _config: object())
+    monkeypatch.setattr(app_module, "ChromeProcess", _FakeChrome)
+    server_script = _write_stdio_server(tmp_path)
+    config_path = _write_config(tmp_path, {"apiKey": "${MY_KEY}"})
+    monkeypatch.setenv("MY_KEY", "dummy")
+
+    runtime = LocalAgentRuntime.from_config(config_path)
+    app = create_app(runtime=runtime)
+
+    with TestClient(app) as client:
+        created = client.put(
+            "/mcp/servers/demo",
+            json={
+                "type": "stdio",
+                "command": sys.executable,
+                "args": [str(server_script)],
+                "enabledTools": ["greet"],
+            },
+        )
+        assert created.status_code == 200, created.json()
+        payload = _poll_mcp_status(client, lambda p: p["connected_server_count"] == 1)
+        assert payload["servers"][0]["tool_names"] == ["mcp_demo_greet"]
+
+        # Raw GET round-trips camelCase keys (matches the on-disk convention).
+        raw = client.get("/mcp/servers").json()
+        assert raw["servers"]["demo"]["enabledTools"] == ["greet"]
+
+        # The unrelated ${MY_KEY} placeholder is never resolved on write.
+        on_disk = json.loads(config_path.read_text(encoding="utf-8"))
+        assert on_disk["apiKey"] == "${MY_KEY}"
+        assert on_disk["mcpServers"]["demo"]["command"] == sys.executable
+
+        # stdio without a command is rejected with a 400, not persisted.
+        invalid = client.put("/mcp/servers/bad", json={"type": "stdio"})
+        assert invalid.status_code == 400
+        assert invalid.json()["error"]["code"] == "MCP_SERVER_INVALID"
+
+        deleted = client.delete("/mcp/servers/demo")
+        assert deleted.status_code == 200
+        assert deleted.json()["configured_server_count"] == 0
+        assert "demo" not in json.loads(config_path.read_text(encoding="utf-8")).get(
+            "mcpServers", {}
+        )
+
+        missing = client.delete("/mcp/servers/demo")
+        assert missing.status_code == 404

@@ -25,6 +25,8 @@ import type {
   SkillMutationResponse,
   McpStatusResponse,
   McpReloadResponse,
+  McpServerConfig,
+  McpServersConfigResponse,
   MetricsCurrentSnapshot,
   MetricsHistoryResponse,
   MetricsSessionSnapshot,
@@ -329,6 +331,19 @@ export const api = {
 
   reloadMcp: () =>
     request<McpReloadResponse>('/mcp/reload', { method: 'POST' }),
+
+  getMcpServers: () => request<McpServersConfigResponse>('/mcp/servers'),
+
+  upsertMcpServer: (name: string, config: McpServerConfig) =>
+    request<McpReloadResponse>(`/mcp/servers/${encodeURIComponent(name)}`, {
+      method: 'PUT',
+      body: JSON.stringify(config),
+    }),
+
+  deleteMcpServer: (name: string) =>
+    request<McpReloadResponse>(`/mcp/servers/${encodeURIComponent(name)}`, {
+      method: 'DELETE',
+    }),
 
   answerAskUserQuestion: (
     sessionId: string,

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -455,6 +455,7 @@ class McpServerStatus(BaseModel):
     connecting: bool = False
     tool_count: int = 0
     tool_names: list[str] = Field(default_factory=list)
+    available_tools: list[str] = Field(default_factory=list)
     enabled_tools: list[str] = Field(default_factory=list)
     include_resources: bool = False
     include_prompts: bool = False
@@ -484,6 +485,12 @@ class McpReloadResponse(McpStatusResponse):
     removed: list[str] = Field(default_factory=list)
     connected: list[str] = Field(default_factory=list)
     failed: list[str] = Field(default_factory=list)
+
+
+class McpServersConfigResponse(BaseModel):
+    """On-disk MCP server configs, with ${ENV} placeholders left unresolved."""
+
+    servers: dict[str, Any] = Field(default_factory=dict)
 
 
 class AskUserQuestionAnswerRequest(BaseModel):

@@ -8,6 +8,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import inspect
+import json
 import os
 from pathlib import Path
 import shutil
@@ -18,7 +19,11 @@ import uuid
 from simplified_chatbot.agent.loop import AgentLoop
 from simplified_chatbot.agent.types import Message, MessageContent, RunResult
 from simplified_chatbot.chatbot import SimplifiedChatbot
-from simplified_chatbot.config.loader import load_config
+from simplified_chatbot.config.loader import load_config, resolve_config_path
+from simplified_chatbot.config.schema import (
+    MCPServerConfig,
+    validate_mcp_server_config,
+)
 from simplified_chatbot.skills.loader import SkillsLoader
 from simplified_chatbot.runtime.session_store import (
     AioSQLiteSessionMemoryStore,
@@ -346,6 +351,79 @@ class LocalAgentRuntime:
             **summary,
             **self.get_mcp_status(),
         }
+
+    def _read_raw_mcp_config(self) -> tuple[Path, dict[str, Any], str]:
+        """Read config.json as raw JSON, without resolving ${ENV} placeholders.
+
+        Editing MCP servers must round-trip the raw document so we never write
+        resolved secrets (e.g. an expanded ``${GITHUB_PAT}``) back to disk.
+        Returns the path, the parsed document, and the key under which servers
+        live (``mcpServers`` or ``mcp_servers``).
+        """
+        if self.config_path is None:
+            raise RuntimeError("MCP editing is unavailable without a config file path")
+        path = resolve_config_path(self.config_path)
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            raise RuntimeError("Config file root must be a JSON object")
+        key = "mcp_servers" if "mcp_servers" in data else "mcpServers"
+        return path, data, key
+
+    def get_mcp_raw_servers(self) -> dict[str, Any]:
+        """Return on-disk MCP server configs with ${ENV} placeholders intact."""
+        _path, data, key = self._read_raw_mcp_config()
+        servers = data.get(key) or {}
+        if not isinstance(servers, dict):
+            raise RuntimeError(f"Config '{key}' must be a JSON object")
+        return servers
+
+    async def upsert_mcp_server_async(
+        self,
+        name: str,
+        raw_server: dict[str, Any],
+    ) -> dict[str, object]:
+        """Validate and persist one MCP server to config.json, then reconcile."""
+        if self.mcp_manager is None:
+            raise RuntimeError("MCP runtime is not initialized")
+        clean_name = name.strip()
+        if not clean_name:
+            raise ValueError("Server name must not be empty")
+        # Validate field shape + transport rules on the raw input, so we never
+        # trigger ${ENV} resolution while checking a config that is being edited.
+        server = MCPServerConfig.model_validate(raw_server)
+        validate_mcp_server_config(clean_name, server)
+        path, data, key = self._read_raw_mcp_config()
+        servers = data.get(key)
+        if not isinstance(servers, dict):
+            servers = {}
+        servers[clean_name] = server.model_dump(
+            mode="json",
+            by_alias=True,
+            exclude_defaults=True,
+        )
+        data[key] = servers
+        self._write_raw_mcp_config(path, data)
+        return await self.reload_mcp_async()
+
+    async def remove_mcp_server_async(self, name: str) -> dict[str, object]:
+        """Remove one MCP server from config.json, then reconcile connections."""
+        if self.mcp_manager is None:
+            raise RuntimeError("MCP runtime is not initialized")
+        path, data, key = self._read_raw_mcp_config()
+        servers = data.get(key)
+        if not isinstance(servers, dict) or name not in servers:
+            raise KeyError(name)
+        del servers[name]
+        data[key] = servers
+        self._write_raw_mcp_config(path, data)
+        return await self.reload_mcp_async()
+
+    @staticmethod
+    def _write_raw_mcp_config(path: Path, data: dict[str, Any]) -> None:
+        path.write_text(
+            json.dumps(data, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
 
     def _require_skills_loader(self) -> SkillsLoader:
         if self.skills_loader is None:

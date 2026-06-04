@@ -702,6 +702,7 @@ export interface McpServerStatus {
   connecting: boolean
   tool_count: number
   tool_names: string[]
+  available_tools: string[]
   enabled_tools: string[]
   include_resources: boolean
   include_prompts: boolean
@@ -727,4 +728,24 @@ export interface McpReloadResponse extends McpStatusResponse {
   removed: string[]
   connected: string[]
   failed: string[]
+}
+
+export type McpTransport = 'stdio' | 'sse' | 'streamableHttp'
+
+export interface McpServerConfig {
+  type?: McpTransport | null
+  command?: string
+  args?: string[]
+  env?: Record<string, string>
+  cwd?: string
+  url?: string
+  headers?: Record<string, string>
+  toolTimeout?: number
+  enabledTools?: string[]
+  includeResources?: boolean
+  includePrompts?: boolean
+}
+
+export interface McpServersConfigResponse {
+  servers: Record<string, McpServerConfig>
 }
