@@ -80,6 +80,24 @@ def _write_config(tmp_path: Path, extra: dict[str, object] | None = None) -> Pat
     return config_path
 
 
+def _poll_mcp_status(client, predicate, *, timeout: float = 10.0, interval: float = 0.05) -> dict:
+    """Poll ``/mcp/status`` until ``predicate(payload)`` holds or ``timeout`` elapses.
+
+    MCP servers connect in a background task during app startup, so on slower
+    machines the connect (subprocess spawn + handshake) is not finished by the
+    time the first request lands. Tests must wait for the server to settle
+    instead of reading status immediately, otherwise they race the connect.
+    """
+    deadline = time.perf_counter() + timeout
+    payload = client.get("/mcp/status").json()
+    while not predicate(payload):
+        if time.perf_counter() > deadline:
+            break
+        time.sleep(interval)
+        payload = client.get("/mcp/status").json()
+    return payload
+
+
 def _write_stdio_server(tmp_path: Path) -> Path:
     script = tmp_path / "mcp_stdio_server.py"
     script.write_text(
@@ -237,9 +255,9 @@ def test_mcp_status_endpoint_reports_connected_server_details(monkeypatch, tmp_p
 
     with TestClient(app) as client:
         response = client.get("/mcp/status")
+        assert response.status_code == 200
+        payload = _poll_mcp_status(client, lambda p: p["connected_server_count"] == 1)
 
-    assert response.status_code == 200
-    payload = response.json()
     assert payload["supported"] is True
     assert payload["reload_supported"] is True
     assert payload["enabled"] is True
@@ -273,9 +291,13 @@ def test_mcp_status_endpoint_reports_connection_failures(monkeypatch, tmp_path: 
 
     with TestClient(app) as client:
         response = client.get("/mcp/status")
+        assert response.status_code == 200
+        payload = _poll_mcp_status(
+            client,
+            lambda p: p["servers"][0]["connecting"] is False
+            and bool(p["servers"][0]["error"]),
+        )
 
-    assert response.status_code == 200
-    payload = response.json()
     assert payload["supported"] is True
     assert payload["enabled"] is True
     assert payload["configured_server_count"] == 1
@@ -308,7 +330,10 @@ def test_mcp_reload_endpoint_reconciles_changed_server_tools(monkeypatch, tmp_pa
     app = create_app(runtime=runtime)
 
     with TestClient(app) as client:
-        before = client.get("/mcp/status").json()
+        before = _poll_mcp_status(
+            client,
+            lambda p: p["servers"][0]["tool_names"] == ["mcp_demo_greet"],
+        )
         assert before["servers"][0]["tool_names"] == ["mcp_demo_greet"]
 
         config_path.write_text(

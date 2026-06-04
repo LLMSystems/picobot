@@ -20,6 +20,11 @@ from simplified_chatbot.tools.registry import ToolRegistry
 _SANITIZE_RE = re.compile(r"_+")
 _WINDOWS_SHELL_LAUNCHERS = frozenset(("npx", "npm", "pnpm", "yarn", "bunx"))
 
+# How long to wait for a per-server lifecycle task to tear its transport down
+# before we cancel and abandon it. A cleanly connected server closes well within
+# this budget; the cap stops one stuck server from blocking shutdown/reload.
+_SERVER_CLOSE_TIMEOUT = 10.0
+
 
 def _sanitize_name(name: str) -> str:
     return _SANITIZE_RE.sub("_", re.sub(r"[^a-zA-Z0-9_-]", "_", name))
@@ -363,7 +368,13 @@ class MCPConnectionManager:
     ) -> None:
         self._servers = dict(servers or {})
         self._server_sessions: dict[str, Any] = {}
-        self._server_stacks: dict[str, AsyncExitStack] = {}
+        # In async_actor mode each connected server is owned by a long-lived
+        # lifecycle task that both opens and later closes its AsyncExitStack, so
+        # that anyio cancel scopes are always exited in the task that entered
+        # them. sync_direct mode connects inline and tracks stacks separately.
+        self._server_tasks: dict[str, asyncio.Task[None]] = {}
+        self._server_close_events: dict[str, asyncio.Event] = {}
+        self._sync_stacks: dict[str, AsyncExitStack] = {}
         self._server_wrappers: dict[str, list[Tool]] = {}
         self._tool_wrappers: dict[str, Tool] = {}
         self._last_errors: dict[str, str] = {}
@@ -375,7 +386,7 @@ class MCPConnectionManager:
 
     @property
     def connected_server_names(self) -> set[str]:
-        return set(self._server_stacks)
+        return set(self._server_sessions)
 
     @property
     def tool_names(self) -> list[str]:
@@ -385,7 +396,11 @@ class MCPConnectionManager:
     def is_connected(self) -> bool:
         if not self._servers:
             return True
-        return set(self._servers) <= set(self._server_stacks)
+        return set(self._servers) <= set(self._server_sessions)
+
+    def _has_live_task(self, server_name: str) -> bool:
+        task = self._server_tasks.get(server_name)
+        return task is not None and not task.done()
 
     def _set_server_session_and_wrappers(
         self,
@@ -406,15 +421,158 @@ class MCPConnectionManager:
         for wrapper in wrappers:
             self._tool_wrappers.pop(wrapper.name, None)
 
-    async def _close_server(self, server_name: str) -> None:
-        stack = self._server_stacks.pop(server_name, None)
-        self._remove_server_state(server_name)
-        if stack is None:
+    def _on_server_task_done(
+        self,
+        server_name: str,
+        task: asyncio.Task[None],
+    ) -> None:
+        if self._server_tasks.get(server_name) is task:
+            self._server_tasks.pop(server_name, None)
+            self._server_close_events.pop(server_name, None)
+        _consume_background_task_result(task)
+
+    def _abandon_server_task(self, server_name: str) -> None:
+        """Stop tracking a server's lifecycle task without awaiting it.
+
+        Used when a connection times out or fails: we signal/cancel the task so
+        it tears itself down in its own task, but never block on a server that
+        may be ignoring cancellation.
+        """
+        close_event = self._server_close_events.pop(server_name, None)
+        if close_event is not None:
+            close_event.set()
+        task = self._server_tasks.pop(server_name, None)
+        if task is not None and not task.done():
+            task.cancel()
+
+    async def _serve_single_server(
+        self,
+        server_name: str,
+        cfg: MCPServerConfig,
+        ready: asyncio.Future[bool],
+        close_event: asyncio.Event,
+    ) -> None:
+        """Own one server's connection for its whole lifetime in a single task.
+
+        The transport/session is opened here and, crucially, closed here too
+        (on close_event or cancellation), so anyio cancel scopes are always
+        exited in the same task that entered them.
+        """
+        stack: AsyncExitStack | None = None
+        try:
+            try:
+                result = await _connect_single_server(self, server_name, cfg)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                self._last_errors[server_name] = (
+                    f"{type(exc).__name__}: {exc}" if str(exc) else type(exc).__name__
+                )
+                return
+            if result is None:
+                self._last_errors[server_name] = "Connection failed"
+                return
+            stack, session, wrappers = result
+            self._set_server_session_and_wrappers(server_name, session, wrappers)
+            self._last_errors.pop(server_name, None)
+            if not ready.done():
+                ready.set_result(True)
+            await close_event.wait()
+        finally:
+            if not ready.done():
+                ready.set_result(False)
+            self._remove_server_state(server_name)
+            if stack is not None:
+                with suppress(Exception):
+                    await stack.aclose()
+
+    async def _connect_one_async(
+        self,
+        server_name: str,
+        cfg: MCPServerConfig,
+    ) -> None:
+        loop = asyncio.get_running_loop()
+        ready: asyncio.Future[bool] = loop.create_future()
+        close_event = asyncio.Event()
+        task = asyncio.create_task(
+            self._serve_single_server(server_name, cfg, ready, close_event),
+        )
+        task.add_done_callback(
+            lambda finished, name=server_name: self._on_server_task_done(name, finished),
+        )
+        self._server_tasks[server_name] = task
+        self._server_close_events[server_name] = close_event
+        try:
+            done, _ = await asyncio.wait({ready}, timeout=cfg.tool_timeout)
+        except asyncio.CancelledError:
+            self._abandon_server_task(server_name)
+            raise
+        finally:
+            self._pending_servers.discard(server_name)
+        if not done:
+            self._last_errors[server_name] = (
+                f"Connection timed out after {cfg.tool_timeout}s"
+            )
+            self._abandon_server_task(server_name)
+
+    async def _connect_one_sync(
+        self,
+        server_name: str,
+        cfg: MCPServerConfig,
+    ) -> None:
+        try:
+            result = await asyncio.wait_for(
+                _connect_single_server(self, server_name, cfg),
+                timeout=cfg.tool_timeout,
+            )
+        except asyncio.TimeoutError:
+            self._last_errors[server_name] = (
+                f"Connection timed out after {cfg.tool_timeout}s"
+            )
             return
-        await stack.aclose()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            self._last_errors[server_name] = (
+                f"{type(exc).__name__}: {exc}" if str(exc) else type(exc).__name__
+            )
+            return
+        finally:
+            self._pending_servers.discard(server_name)
+        if result is None:
+            self._last_errors[server_name] = "Connection failed"
+            return
+        stack, session, wrappers = result
+        self._sync_stacks[server_name] = stack
+        self._set_server_session_and_wrappers(server_name, session, wrappers)
+        self._last_errors.pop(server_name, None)
+
+    async def _close_server(self, server_name: str) -> None:
+        self._remove_server_state(server_name)
+        sync_stack = self._sync_stacks.pop(server_name, None)
+        if sync_stack is not None:
+            with suppress(Exception):
+                await sync_stack.aclose()
+        close_event = self._server_close_events.pop(server_name, None)
+        task = self._server_tasks.pop(server_name, None)
+        if close_event is not None:
+            close_event.set()
+        if task is None or task.done():
+            return
+        try:
+            done, _ = await asyncio.wait({task}, timeout=_SERVER_CLOSE_TIMEOUT)
+        except asyncio.CancelledError:
+            task.cancel()
+            raise
+        if not done:
+            task.cancel()
 
     async def _close_all_servers(self) -> None:
-        server_names = list(self._server_stacks)
+        server_names = (
+            set(self._server_tasks)
+            | set(self._server_sessions)
+            | set(self._sync_stacks)
+        )
         for server_name in server_names:
             with suppress(Exception):
                 await self._close_server(server_name)
@@ -423,52 +581,14 @@ class MCPConnectionManager:
         missing = {
             name: cfg
             for name, cfg in self._servers.items()
-            if name not in self._server_stacks
+            if name not in self._server_sessions and not self._has_live_task(name)
         }
         self._pending_servers.update(missing)
         for server_name, server_cfg in missing.items():
-            connect_task = asyncio.create_task(
-                _connect_single_server(self, server_name, server_cfg),
-            )
-            try:
-                done, _ = await asyncio.wait(
-                    {connect_task},
-                    timeout=server_cfg.tool_timeout,
-                )
-                if not done:
-                    connect_task.cancel()
-                    connect_task.add_done_callback(_consume_background_task_result)
-                    self._last_errors[server_name] = (
-                        f"Connection timed out after {server_cfg.tool_timeout}s"
-                    )
-                    self._pending_servers.discard(server_name)
-                    continue
-                result = connect_task.result()
-            except asyncio.CancelledError:
-                connect_task.cancel()
-                raise
-            except asyncio.TimeoutError:
-                self._last_errors[server_name] = (
-                    f"Connection timed out after {server_cfg.tool_timeout}s"
-                )
-                self._pending_servers.discard(server_name)
-                continue
-            except Exception as exc:
-                connect_task.add_done_callback(_consume_background_task_result)
-                self._last_errors[server_name] = (
-                    f"{type(exc).__name__}: {exc}" if str(exc) else type(exc).__name__
-                )
-                self._pending_servers.discard(server_name)
-                continue
-            if result is None:
-                self._last_errors[server_name] = "Connection failed"
-                self._pending_servers.discard(server_name)
-                continue
-            stack, session, wrappers = result
-            self._server_stacks[server_name] = stack
-            self._set_server_session_and_wrappers(server_name, session, wrappers)
-            self._last_errors.pop(server_name, None)
-            self._pending_servers.discard(server_name)
+            if self._mode == "sync_direct":
+                await self._connect_one_sync(server_name, server_cfg)
+            else:
+                await self._connect_one_async(server_name, server_cfg)
 
     async def _connect_all_impl(self) -> None:
         await self._connect_missing_servers()
@@ -497,7 +617,7 @@ class MCPConnectionManager:
         self._servers = next_servers
         await self._connect_missing_servers()
 
-        failed = sorted(name for name in next_names if name not in self._server_stacks)
+        failed = sorted(name for name in next_names if name not in self._server_sessions)
         unchanged = not removed and not added and not changed
         ok = not failed
         if failed:
@@ -512,7 +632,7 @@ class MCPConnectionManager:
             "added": added,
             "changed": changed,
             "removed": removed,
-            "connected": sorted(self._server_stacks),
+            "connected": sorted(self._server_sessions),
             "failed": failed,
             "tool_count": len(self._tool_wrappers),
         }
@@ -632,14 +752,21 @@ class MCPConnectionManager:
                     )
                 elif command.op == "aclose_and_stop":
                     await self._close_all_servers()
-                    command.future.set_result(None)
+                    if not command.future.cancelled():
+                        command.future.set_result(None)
                     break
                 else:
                     raise RuntimeError(f"Unknown MCP worker op: {command.op}")
             except Exception as exc:
-                command.future.set_exception(exc)
+                # The requester may have been cancelled (e.g. startup aborted),
+                # which cancels its future. Setting a result/exception on an
+                # already-cancelled future raises and would kill the worker,
+                # stranding every later command (including aclose) forever.
+                if not command.future.cancelled():
+                    command.future.set_exception(exc)
             else:
-                command.future.set_result(result)
+                if not command.future.cancelled():
+                    command.future.set_result(result)
 
     async def _ensure_worker(self) -> None:
         if self._mode == "sync_direct":
@@ -744,12 +871,12 @@ class MCPConnectionManager:
         for name in sorted(self._servers):
             config = self._servers[name]
             wrappers = self._server_wrappers.get(name, [])
-            connecting = name in self._pending_servers and name not in self._server_stacks
+            connecting = name in self._pending_servers and name not in self._server_sessions
             servers.append(
                 {
                     "name": name,
                     "transport": _infer_transport(config),
-                    "connected": name in self._server_stacks,
+                    "connected": name in self._server_sessions,
                     "connecting": connecting,
                     "tool_count": len(wrappers),
                     "tool_names": sorted(wrapper.name for wrapper in wrappers),
@@ -762,9 +889,9 @@ class MCPConnectionManager:
         return {
             "enabled": bool(self._servers),
             "configured_server_count": len(self._servers),
-            "connected_server_count": len(self._server_stacks),
+            "connected_server_count": len(self._server_sessions),
             "connecting_server_count": sum(
-                1 for name in self._servers if name in self._pending_servers and name not in self._server_stacks
+                1 for name in self._servers if name in self._pending_servers and name not in self._server_sessions
             ),
             "tool_count": len(self._tool_wrappers),
             "servers": servers,
