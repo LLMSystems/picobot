@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import deque
+import logging
 from typing import Any
 
 from fastapi import APIRouter, Query, Request
@@ -25,6 +26,8 @@ from simplified_chatbot.server.schemas import (
 from simplified_chatbot.server.sse import encode_sse
 
 router = APIRouter()
+
+logger = logging.getLogger(__name__)
 
 _CHAT_STREAM_QUEUE_MAX_SIZE = 64
 _CHAT_STREAM_DELTA_FLUSH_INTERVAL_SECONDS = 0.03
@@ -661,6 +664,12 @@ def _build_chat_stream_response(
                 },
             }
         except Exception as exc:
+            logger.exception(
+                "chat stream failed (session=%s request=%s): %s",
+                session_id,
+                request_id,
+                exc,
+            )
             terminal = {
                 "event": "error",
                 "data": {

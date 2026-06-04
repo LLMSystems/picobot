@@ -127,6 +127,7 @@ export interface SessionMessageMetadata {
   reasoning_content?: string
   runtime_notices?: DisplayRuntimeNotice[]
   run_id?: string
+  synthetic_image_injection?: boolean
   [key: string]: unknown
 }
 
@@ -231,6 +232,7 @@ export type DisplayMessageSegment =
   | { type: 'reasoning'; content: string }
   | { type: 'text'; content: string }
   | { type: 'tool'; toolCall: DisplayToolCall }
+  | { type: 'image'; images: DisplayMessageImage[] }
 
 export interface DisplayMessageImage {
   path?: string | null
@@ -387,8 +389,13 @@ export interface MemoryCompactionFailedData {
   error?: string
 }
 
+export interface ImageInjectedData {
+  images: { path?: string | null; url?: string | null; detail?: ImageDetail }[]
+}
+
 export type ChatRuntimeEvent =
   | { event: 'run_started'; data: RunStartedData }
+  | { event: 'image_injected'; data: ImageInjectedData }
   | { event: 'reasoning_delta'; data: ReasoningDeltaData }
   | { event: 'tool_call_started'; data: ToolCallStartedData }
   | { event: 'tool_call_finished'; data: ToolCallFinishedData }

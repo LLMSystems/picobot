@@ -119,7 +119,7 @@ const terminalConfig = computed(() => {
           <RevealMarkdownView :content="seg.content" :streaming="live" />
         </div>
       </template>
-      <template v-else>
+      <template v-else-if="seg.type === 'tool'">
         <span
           class="absolute -left-[1.625rem] top-1 inline-flex size-5 items-center justify-center rounded-full bg-background"
           :class="

@@ -51,6 +51,7 @@ _TOOL_ZH: dict[str, tuple[str, str]] = {
     # skills / docs
     "read_skill": ("讀取 skill", "讀取技能定義"),
     "read_document": ("讀取文件", "解析 PDF、Word、Excel 等 office 文件內容（依副檔名自動判斷）"),
+    "view_image": ("檢視圖片", "讓多模態模型直接看工作區內的圖片（png/jpg/gif/webp/bmp）"),
     # demo / fake
     "echo": ("回音", "回傳輸入內容（測試用）"),
     "get_weather": ("查詢天氣", "查詢城市天氣（範例工具）"),

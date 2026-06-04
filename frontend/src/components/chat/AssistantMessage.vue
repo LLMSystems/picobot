@@ -14,6 +14,7 @@ import {
 import { computed, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import AskUserQuestionCard from './AskUserQuestionCard.vue'
+import InjectedImageSegment from './InjectedImageSegment.vue'
 import RevealMarkdownView from './RevealMarkdownView.vue'
 import StreamingCursor from './StreamingCursor.vue'
 import ToolCallCard from './ToolCallCard.vue'
@@ -238,6 +239,11 @@ async function copy() {
             v-if="isStreaming && idx === lastSegmentIndex"
           />
         </div>
+        <InjectedImageSegment
+          v-else-if="seg.type === 'image'"
+          :images="seg.images"
+          :session-id="sessionId"
+        />
       </template>
 
       <div

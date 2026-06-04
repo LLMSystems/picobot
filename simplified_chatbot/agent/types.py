@@ -59,6 +59,23 @@ class Message(TypedDict):
 
 
 @dataclass(slots=True)
+class ToolResult:
+    """Envelope a tool returns when it needs to feed images back to the model.
+
+    OpenAI-compatible ``tool`` role messages only accept text, so a tool cannot
+    return an image directly. Instead it returns this envelope: ``text`` becomes
+    the textual tool result, and ``images`` are injected by the agent loop as a
+    follow-up ``user`` message (the only role allowed to carry image blocks).
+    """
+
+    text: str
+    images: list[ContentBlock] = field(default_factory=list)
+
+    def __str__(self) -> str:
+        return self.text
+
+
+@dataclass(slots=True)
 class RunResult:
     """Normalized outcome returned by the agent loop."""
 
