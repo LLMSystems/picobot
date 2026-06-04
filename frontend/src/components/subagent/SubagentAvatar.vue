@@ -4,12 +4,14 @@ import PicobotIcon from '@/components/common/PicobotIcon.vue'
 
 const props = defineProps<{
   taskId: string
-  size?: 'sm' | 'md'
+  size?: 'xs' | 'sm' | 'md'
   running?: boolean
 }>()
 
 // 不再用容器框，icon 直接放大佔滿空間。
-const iconPx = computed(() => (props.size === 'md' ? 90 : 78))
+const iconPx = computed(() =>
+  props.size === 'md' ? 90 : props.size === 'xs' ? 44 : 78,
+)
 
 const state = computed<'running' | 'idle'>(() =>
   props.running ? 'running' : 'idle',
