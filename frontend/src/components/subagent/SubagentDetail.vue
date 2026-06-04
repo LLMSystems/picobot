@@ -189,8 +189,8 @@ const toolsCount = computed(
 
 <template>
   <div class="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
-    <div class="shrink-0 border-b bg-background/80 px-3 py-2 backdrop-blur">
-      <div class="flex items-center gap-2">
+    <div class="relative shrink-0 border-b bg-background/80 px-3 py-2 backdrop-blur">
+      <div class="flex items-center gap-2 pr-9">
         <SubagentAvatar
           :task-id="summary.task_id"
           :running="isLive"
@@ -225,17 +225,17 @@ const toolsCount = computed(
             </span>
           </div>
         </div>
-        <Button
-          v-if="closable"
-          variant="ghost"
-          size="icon"
-          class="size-7 shrink-0"
-          aria-label="關閉此任務"
-          @click="$emit('close')"
-        >
-          <X class="size-4" />
-        </Button>
       </div>
+      <Button
+        v-if="closable"
+        variant="ghost"
+        size="icon"
+        class="absolute right-2 top-2 size-7"
+        aria-label="關閉此任務"
+        @click="$emit('close')"
+      >
+        <X class="size-4" />
+      </Button>
 
       <!-- Stats strip -->
       <div

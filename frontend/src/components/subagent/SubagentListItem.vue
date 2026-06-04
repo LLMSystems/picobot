@@ -3,7 +3,17 @@ import { computed } from 'vue'
 import { Check, X, CircleSlash, Cpu, Clock } from 'lucide-vue-next'
 import { useElapsed } from '@/composables/useElapsed'
 import type { SubagentSummary } from '@/lib/types'
-import picobotImg from '@/assets/picobot.png'
+
+// All picobot images in the folder, eagerly resolved to their final URLs.
+const picobotImages = Object.values(
+  import.meta.glob<string>('@/assets/picobots/*.png', {
+    eager: true,
+    import: 'default',
+  }),
+)
+
+// Pick a random picobot once per card instance so it stays stable across renders.
+const picobotImg = picobotImages[Math.floor(Math.random() * picobotImages.length)]
 
 const props = defineProps<{
   summary: SubagentSummary

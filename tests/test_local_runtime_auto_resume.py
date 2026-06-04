@@ -172,9 +172,10 @@ async def test_subagent_completion_auto_resumes_same_session():
     assert len(bot.continue_calls) == 1
     history = bot.continue_calls[0]
     assert history[0]["content"] == "working"
-    assert history[1]["role"] == "system"
+    assert history[1]["role"] == "user"
     assert history[1]["metadata"]["internal"] is True
     assert history[1]["metadata"]["source"] == "subagent"
+    assert history[1]["metadata"]["kind"] == "subagent_result"
     assert history[1]["metadata"]["task_id"] == task_id
     assert "collect references" in history[1]["content"]
     assert "collected refs" in history[1]["content"]

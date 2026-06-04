@@ -2412,8 +2412,14 @@ class LocalAgentRuntime:
                 "Use this result as internal work output for the same session. Summarize or continue the task as appropriate.",
             ]
         )
+        # Injected as a synthetic `user` turn (not `system`): the auto-resume
+        # appends this to the end of the conversation, and OpenAI-compatible
+        # models return empty content when the final message is a system turn
+        # (there is no user/tool turn to answer). The `metadata.internal` /
+        # `kind: subagent_result` markers let the frontend render it as a card
+        # rather than a user bubble.
         return {
-            "role": "system",
+            "role": "user",
             "content": content,
             "metadata": {
                 "internal": True,
