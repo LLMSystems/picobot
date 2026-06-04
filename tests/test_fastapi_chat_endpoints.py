@@ -14,6 +14,7 @@ from simplified_chatbot.config.schema import ChatbotConfig
 from simplified_chatbot.runtime.local_runtime import LocalAgentRuntime
 from simplified_chatbot.runtime.session_store import AioSQLiteSessionStore
 from simplified_chatbot.server.app import create_app
+from simplified_chatbot.server.endpoints_chat import _StreamEventQueue
 from simplified_chatbot.tools.filesystem import build_default_tool_registry
 
 
@@ -211,6 +212,33 @@ class _ReasoningChatbot:
 
     def run_stream(self, *args, **kwargs):
         raise AssertionError("sync run_stream() should not be used")
+
+
+class _MultiReasoningChatbot(_ReasoningChatbot):
+    async def run_stream_async(
+        self,
+        message: str,
+        history: list[Message] | None = None,
+        *,
+        on_delta=None,
+        on_event=None,
+    ) -> _DummyResult:
+        if on_event is not None:
+            on_event("reasoning_delta", {"delta": "think "})
+            on_event("reasoning_delta", {"delta": "more"})
+        if on_delta is not None:
+            on_delta("answer")
+        history = history or []
+        messages: list[Message] = [
+            *history,
+            {"role": "user", "content": message},
+            {
+                "role": "assistant",
+                "content": "answer",
+                "metadata": {"reasoning_content": "think more"},
+            },
+        ]
+        return _DummyResult(messages=messages, content="answer")
 
 
 class _CapabilityChatbot(_AsyncOnlyChatbot):
@@ -448,9 +476,9 @@ def test_get_chat_stream_returns_sse_events_and_persists_history(tmp_path):
     assert response.status_code == 200
     assert "event: run_started" in body
     assert "event: delta" in body
-    assert "data: echo:" in body
-    assert "data: hello" in body
+    assert _extract_delta_text(body) == "echo:hello"
     assert "event: done" in body
+    assert response.headers["x-accel-buffering"] == "no"
 
     done_payload = _extract_done_payload(body)
     assert done_payload == {
@@ -484,6 +512,7 @@ def test_post_chat_stream_returns_sse_events_and_persists_history(tmp_path):
     assert response.status_code == 200
     assert "event: run_started" in body
     assert "event: delta" in body
+    assert _extract_delta_text(body) == "echo:hello"
     assert "event: done" in body
 
     done_payload = _extract_done_payload(body)
@@ -494,6 +523,20 @@ def test_post_chat_stream_returns_sse_events_and_persists_history(tmp_path):
         "tools_used": [],
         "stop_reason": "stop",
     }
+
+
+def test_stream_event_queue_merges_deltas_when_full():
+    queue = _StreamEventQueue(max_size=2)
+
+    queue.put({"event": "run_started", "data": {}}, trace=True)
+    queue.put({"event": "delta", "data": "a"})
+    queue.put({"event": "delta", "data": "b"})
+
+    first = asyncio.run(queue.get())
+    second = asyncio.run(queue.get())
+
+    assert first == {"event": "run_started", "data": {}}
+    assert second == {"event": "delta", "data": "ab"}
 
 
 def test_post_chat_stream_accepts_model_override(tmp_path):
@@ -538,6 +581,27 @@ def test_get_chat_stream_emits_tool_events(tmp_path):
     assert "event: done" in body
 
 
+def test_post_chat_stream_can_suppress_trace_events(tmp_path):
+    store = AioSQLiteSessionStore(tmp_path / "sessions.db")
+    runtime = LocalAgentRuntime(chatbot=_EventfulToolChatbot(), store=store)
+    app = create_app(runtime=runtime)
+    client = TestClient(app)
+
+    with client.stream(
+        "POST",
+        "/chat/stream",
+        json={"session_id": "s1", "message": "hello", "include_trace": False},
+    ) as response:
+        body = "".join(response.iter_text())
+
+    assert response.status_code == 200
+    assert "event: started" in body
+    assert "event: tool_call_started" not in body
+    assert "event: tool_call_finished" not in body
+    assert _extract_delta_text(body) == "done:hello"
+    assert _extract_done_payload(body)["tools_used"] == ["read_file"]
+
+
 def test_get_chat_stream_emits_reasoning_events_and_persists_metadata(tmp_path):
     store = AioSQLiteSessionStore(tmp_path / "sessions.db")
     runtime = LocalAgentRuntime(chatbot=_ReasoningChatbot(), store=store)
@@ -559,6 +623,26 @@ def test_get_chat_stream_emits_reasoning_events_and_persists_metadata(tmp_path):
     assert metadata["reasoning_content"] == "先想"
     # Each run tags its assistant messages so the UI can regroup them on reload.
     assert metadata["run_id"].startswith("run_")
+
+
+def test_chat_stream_batches_reasoning_deltas_before_text_delta(tmp_path):
+    store = AioSQLiteSessionStore(tmp_path / "sessions.db")
+    runtime = LocalAgentRuntime(chatbot=_MultiReasoningChatbot(), store=store)
+    app = create_app(runtime=runtime)
+    client = TestClient(app)
+
+    with client.stream(
+        "GET",
+        "/chat/stream",
+        params={"session_id": "s1", "message": "hello"},
+    ) as response:
+        body = "".join(response.iter_text())
+
+    assert response.status_code == 200
+    assert body.count("event: reasoning_delta") == 1
+    assert '"delta": "think more"' in body
+    assert body.index("event: reasoning_delta") < body.index("event: delta")
+    assert _extract_delta_text(body) == "answer"
 
 
 def test_post_chat_returns_trace_events(tmp_path):
@@ -1391,3 +1475,14 @@ def _extract_done_payload(body: str) -> dict[str, object]:
         data_lines = [line[6:] for line in chunk.splitlines() if line.startswith("data: ")]
         return json.loads("\n".join(data_lines))
     raise AssertionError("Missing SSE done event")
+
+
+def _extract_delta_text(body: str) -> str:
+    chunks = [chunk.strip() for chunk in body.split("\n\n") if chunk.strip()]
+    parts: list[str] = []
+    for chunk in chunks:
+        if not chunk.startswith("event: delta"):
+            continue
+        data_lines = [line[6:] for line in chunk.splitlines() if line.startswith("data: ")]
+        parts.append("\n".join(data_lines))
+    return "".join(parts)

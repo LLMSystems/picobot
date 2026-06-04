@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections import deque
 from typing import Any
 
 from fastapi import APIRouter, Query, Request
@@ -24,6 +25,281 @@ from simplified_chatbot.server.schemas import (
 from simplified_chatbot.server.sse import encode_sse
 
 router = APIRouter()
+
+_CHAT_STREAM_QUEUE_MAX_SIZE = 64
+_CHAT_STREAM_DELTA_FLUSH_INTERVAL_SECONDS = 0.03
+_CHAT_STREAM_DELTA_FLUSH_BYTES = 512
+_CHAT_STREAM_KEEPALIVE_SECONDS = 15.0
+_TRACE_EVENTS = {
+    "llm_call_finished",
+    "memory_compaction_failed",
+    "memory_compaction_finished",
+    "memory_compaction_skipped",
+    "memory_compaction_started",
+    "reasoning_delta",
+    "run_started",
+    "tool_call_finished",
+    "tool_call_started",
+    "workspace_changed",
+}
+
+
+class _StreamEventQueue:
+    """Bounded async queue that merges delta events under pressure."""
+
+    def __init__(self, *, max_size: int) -> None:
+        self._items: deque[dict[str, Any]] = deque()
+        self._has_items = asyncio.Event()
+        self._max_size = max(1, max_size)
+        self.dropped_trace_events = 0
+
+    def put(
+        self,
+        item: dict[str, Any],
+        *,
+        critical: bool = False,
+        trace: bool = False,
+    ) -> None:
+        if item.get("event") == "delta":
+            self._put_delta(str(item.get("data") or ""))
+            return
+
+        if len(self._items) >= self._max_size:
+            if trace and not critical:
+                self.dropped_trace_events += 1
+                return
+            self._make_room_for_critical()
+
+        if len(self._items) >= self._max_size and not critical:
+            self.dropped_trace_events += 1
+            return
+
+        self._items.append(dict(item))
+        self._has_items.set()
+
+    async def get(self) -> dict[str, Any]:
+        while not self._items:
+            self._has_items.clear()
+            await self._has_items.wait()
+        item = self._items.popleft()
+        if not self._items:
+            self._has_items.clear()
+        return item
+
+    def _put_delta(self, delta: str) -> None:
+        if not delta:
+            return
+
+        if self._merge_into_last_delta(delta):
+            self._has_items.set()
+            return
+
+        if len(self._items) >= self._max_size and self._merge_into_any_delta(delta):
+            self._has_items.set()
+            return
+
+        if len(self._items) >= self._max_size:
+            self._drop_one_trace_event()
+
+        if len(self._items) >= self._max_size:
+            self._merge_into_last_event_or_append(delta)
+            self._has_items.set()
+            return
+
+        self._items.append({"event": "delta", "data": delta})
+        self._has_items.set()
+
+    def _merge_into_last_delta(self, delta: str) -> bool:
+        if not self._items or self._items[-1].get("event") != "delta":
+            return False
+        self._items[-1]["data"] = str(self._items[-1].get("data") or "") + delta
+        return True
+
+    def _merge_into_any_delta(self, delta: str) -> bool:
+        for item in reversed(self._items):
+            if item.get("event") == "delta":
+                item["data"] = str(item.get("data") or "") + delta
+                return True
+        return False
+
+    def _merge_into_last_event_or_append(self, delta: str) -> None:
+        if self._items:
+            last = self._items[-1]
+            if last.get("event") == "delta":
+                last["data"] = str(last.get("data") or "") + delta
+                return
+        self._items.append({"event": "delta", "data": delta})
+
+    def _drop_one_trace_event(self) -> bool:
+        for index, item in enumerate(self._items):
+            if item.get("event") in _TRACE_EVENTS:
+                del self._items[index]
+                self.dropped_trace_events += 1
+                return True
+        return False
+
+    def _make_room_for_critical(self) -> None:
+        while len(self._items) >= self._max_size:
+            if self._drop_one_trace_event():
+                continue
+            if self._merge_adjacent_deltas():
+                continue
+            # Preserve terminal delivery even if that means dropping old metadata.
+            self._items.popleft()
+            break
+
+    def _merge_adjacent_deltas(self) -> bool:
+        previous: dict[str, Any] | None = None
+        for item in list(self._items):
+            if (
+                previous is not None
+                and previous.get("event") == "delta"
+                and item.get("event") == "delta"
+            ):
+                previous["data"] = (
+                    str(previous.get("data") or "")
+                    + str(item.get("data") or "")
+                )
+                self._items.remove(item)
+                return True
+            previous = item
+        return False
+
+
+class _ChatStreamBuffer:
+    """Coalesce small deltas before they reach the SSE event queue."""
+
+    def __init__(
+        self,
+        queue: _StreamEventQueue,
+        *,
+        loop: asyncio.AbstractEventLoop,
+        flush_interval_seconds: float,
+        flush_bytes: int,
+    ) -> None:
+        self._queue = queue
+        self._loop = loop
+        self._flush_interval_seconds = max(0.0, flush_interval_seconds)
+        self._flush_bytes = max(1, flush_bytes)
+        self._delta_parts: list[str] = []
+        self._delta_bytes = 0
+        self._flush_handle: asyncio.TimerHandle | None = None
+        self._payload_delta_buffers: dict[str, dict[str, Any]] = {}
+
+    def put_delta(self, delta: str) -> None:
+        if not delta:
+            return
+        self.flush_payload_delta_events()
+        self._delta_parts.append(delta)
+        self._delta_bytes += len(delta.encode("utf-8"))
+        if self._delta_bytes >= self._flush_bytes:
+            self.flush_delta()
+            return
+        if self._flush_handle is None and self._flush_interval_seconds > 0:
+            self._flush_handle = self._loop.call_later(
+                self._flush_interval_seconds,
+                self.flush_delta,
+            )
+
+    def put_event(
+        self,
+        event: str,
+        data: Any,
+        *,
+        critical: bool = False,
+        trace: bool = False,
+    ) -> None:
+        if event != "delta":
+            self.flush_all()
+        self._queue.put(
+            {"event": event, "data": data},
+            critical=critical,
+            trace=trace,
+        )
+
+    def put_payload_delta_event(
+        self,
+        event: str,
+        data: dict[str, Any],
+        *,
+        critical: bool = False,
+        trace: bool = False,
+    ) -> None:
+        delta = data.get("delta")
+        if not isinstance(delta, str) or not delta:
+            self.put_event(event, data, critical=critical, trace=trace)
+            return
+        self.flush_delta()
+        buffer = self._payload_delta_buffers.get(event)
+        if buffer is None:
+            buffer = {
+                "parts": [],
+                "bytes": 0,
+                "template": dict(data),
+                "handle": None,
+                "critical": critical,
+                "trace": trace,
+            }
+            self._payload_delta_buffers[event] = buffer
+        buffer["parts"].append(delta)
+        buffer["bytes"] += len(delta.encode("utf-8"))
+        buffer["template"] = {**dict(data), "delta": ""}
+        buffer["critical"] = bool(buffer["critical"] or critical)
+        buffer["trace"] = bool(buffer["trace"] or trace)
+        if int(buffer["bytes"]) >= self._flush_bytes:
+            self.flush_payload_delta_event(event)
+            return
+        if buffer["handle"] is None and self._flush_interval_seconds > 0:
+            buffer["handle"] = self._loop.call_later(
+                self._flush_interval_seconds,
+                self.flush_payload_delta_event,
+                event,
+            )
+
+    def flush_delta(self) -> None:
+        self._cancel_flush_timer()
+        if not self._delta_parts:
+            return
+        payload = "".join(self._delta_parts)
+        self._delta_parts = []
+        self._delta_bytes = 0
+        self._queue.put({"event": "delta", "data": payload})
+
+    def close(self) -> None:
+        self.flush_all()
+        self._cancel_flush_timer()
+
+    def flush_all(self) -> None:
+        self.flush_delta()
+        self.flush_payload_delta_events()
+
+    def flush_payload_delta_events(self) -> None:
+        for event in list(self._payload_delta_buffers):
+            self.flush_payload_delta_event(event)
+
+    def flush_payload_delta_event(self, event: str) -> None:
+        buffer = self._payload_delta_buffers.pop(event, None)
+        if buffer is None:
+            return
+        handle = buffer.get("handle")
+        if handle is not None and not handle.cancelled():
+            handle.cancel()
+        parts = buffer.get("parts") or []
+        if not parts:
+            return
+        payload = dict(buffer.get("template") or {})
+        payload["delta"] = "".join(str(part) for part in parts)
+        self._queue.put(
+            {"event": event, "data": payload},
+            critical=bool(buffer.get("critical")),
+            trace=bool(buffer.get("trace")),
+        )
+
+    def _cancel_flush_timer(self) -> None:
+        handle = self._flush_handle
+        self._flush_handle = None
+        if handle is not None and not handle.cancelled():
+            handle.cancel()
 
 
 async def _record_chat_usage(
@@ -210,12 +486,14 @@ async def chat_stream(
     request: Request,
     session_id: str = Query(min_length=1),
     message: str = Query(min_length=1),
+    include_trace: bool = Query(default=True),
 ) -> StreamingResponse:
     """Stream one assistant response using SSE."""
     return _build_chat_stream_response(
         request,
         session_id=session_id,
         message=message,
+        include_trace=include_trace,
     )
 
 
@@ -265,6 +543,7 @@ async def chat_stream_post(
         request,
         session_id=payload.session_id,
         message=content,
+        include_trace=payload.include_trace,
         model_override=payload.model,
         subagent_model_override=payload.subagent_model,
         temperature_override=payload.temperature,
@@ -287,20 +566,39 @@ def _build_chat_stream_response(
     max_iterations_override: int | None = None,
     system_prompt_override: str | None = None,
     disabled_tools: list[str] | None = None,
+    include_trace: bool = True,
 ) -> StreamingResponse:
     """Build the shared SSE response for GET/POST stream endpoints."""
     runtime = get_runtime(request)
     request_id = get_request_id(request)
-    queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+    queue = _StreamEventQueue(max_size=_CHAT_STREAM_QUEUE_MAX_SIZE)
+    stream_buffer = _ChatStreamBuffer(
+        queue,
+        loop=asyncio.get_running_loop(),
+        flush_interval_seconds=_CHAT_STREAM_DELTA_FLUSH_INTERVAL_SECONDS,
+        flush_bytes=_CHAT_STREAM_DELTA_FLUSH_BYTES,
+    )
     llm_events: list[dict[str, Any]] = []
 
     def on_delta(delta: str) -> None:
-        queue.put_nowait({"event": "delta", "data": delta})
+        stream_buffer.put_delta(delta)
 
     def on_event(event: str, data: dict[str, Any]) -> None:
-        queue.put_nowait({"event": event, "data": data})
         if event == "llm_call_finished":
             llm_events.append(data)
+        if include_trace:
+            if event == "reasoning_delta":
+                stream_buffer.put_payload_delta_event(
+                    event,
+                    data,
+                    trace=True,
+                )
+                return
+            stream_buffer.put_event(
+                event,
+                data,
+                trace=event in _TRACE_EVENTS,
+            )
 
     async def produce() -> None:
         # Defer the terminal queue.put until AFTER the LLM-event flush:
@@ -309,6 +607,12 @@ def _build_chat_stream_response(
         # mid-flight (CancelledError bypasses our broad except blocks).
         terminal: dict[str, Any] | None = None
         try:
+            if not include_trace:
+                stream_buffer.put_event(
+                    "started",
+                    {"session_id": session_id, "request_id": request_id},
+                    critical=True,
+                )
             result = await runtime.handle_input_stream_async(
                 session_id,
                 message,
@@ -373,7 +677,12 @@ def _build_chat_stream_response(
             items=llm_events,
         )
         if terminal is not None:
-            await queue.put(terminal)
+            stream_buffer.put_event(
+                str(terminal["event"]),
+                terminal["data"],
+                critical=True,
+            )
+        stream_buffer.close()
 
     metrics = getattr(request.app.state, "metrics", None)
     sse_counter = getattr(metrics, "sse_connections", None) if metrics else None
@@ -384,11 +693,19 @@ def _build_chat_stream_response(
             sse_counter.enter("chat")
         try:
             while True:
-                item = await queue.get()
+                try:
+                    item = await asyncio.wait_for(
+                        queue.get(),
+                        timeout=_CHAT_STREAM_KEEPALIVE_SECONDS,
+                    )
+                except asyncio.TimeoutError:
+                    yield b": keepalive\n\n"
+                    continue
                 yield encode_sse(event=str(item["event"]), data=item["data"])
                 if item["event"] in {"done", "error"}:
                     break
         finally:
+            stream_buffer.close()
             if not task.done():
                 task.cancel()
             try:
@@ -402,8 +719,9 @@ def _build_chat_stream_response(
         stream(),
         media_type="text/event-stream",
         headers={
-            "Cache-Control": "no-cache",
+            "Cache-Control": "no-cache, no-transform",
             "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
         },
     )
 
