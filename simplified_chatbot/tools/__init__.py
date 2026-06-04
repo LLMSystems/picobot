@@ -22,6 +22,7 @@ from simplified_chatbot.tools.exec_session import (
     ListExecSessionsTool,
     WriteStdinTool,
 )
+from simplified_chatbot.tools.mcp import MCPConnectionManager, MCPToolWrapper
 from simplified_chatbot.tools.search import FindFilesTool, GlobTool, GrepTool
 from simplified_chatbot.tools.registry import ToolRegistry
 from simplified_chatbot.tools.shell import ExecTool
@@ -50,6 +51,8 @@ __all__ = [
     "ListDirTool",
     "ListExecSessionsTool",
     "ListSubagentsTool",
+    "MCPConnectionManager",
+    "MCPToolWrapper",
     "CancelSubagentTool",
     "ReadDocumentTool",
     "ReadDocxTool",

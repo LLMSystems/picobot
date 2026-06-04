@@ -86,6 +86,41 @@ def test_load_config_supports_memory_aliases(tmp_path):
     assert config.memory_compression_ratio == 0.65
 
 
+def test_load_config_supports_mcp_server_aliases_and_env_vars(tmp_path, monkeypatch):
+    monkeypatch.setenv("MCP_TOKEN", "secret-token")
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "provider": "openai_compat",
+                "model": "gpt-4.1-mini",
+                "mcpServers": {
+                    "demo": {
+                        "command": "python",
+                        "args": ["demo.py"],
+                        "toolTimeout": 45,
+                        "enabledTools": ["greet"],
+                        "headers": {
+                            "Authorization": "Bearer ${MCP_TOKEN}",
+                        },
+                    }
+                },
+            },
+        ),
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+
+    assert "demo" in config.mcp_servers
+    server = config.mcp_servers["demo"]
+    assert server.command == "python"
+    assert server.args == ["demo.py"]
+    assert server.tool_timeout == 45
+    assert server.enabled_tools == ["greet"]
+    assert server.headers == {"Authorization": "Bearer secret-token"}
+
+
 def test_load_config_requires_default_model_to_exist_in_available_models():
     from pydantic import ValidationError
 

@@ -2,7 +2,7 @@
 
 from simplified_chatbot.agent.types import Message, RunResult
 from simplified_chatbot.chatbot import SimplifiedChatbot
-from simplified_chatbot.config.schema import ChatbotConfig
+from simplified_chatbot.config.schema import ChatbotConfig, MCPServerConfig
 from simplified_chatbot.runtime.local_runtime import LocalAgentRuntime
 from simplified_chatbot.runtime.session_store import (
     AioSQLiteSessionMemoryStore,
@@ -25,6 +25,7 @@ __all__ = [
     "JsonlSessionStore",
     "LocalAgentRuntime",
     "Message",
+    "MCPServerConfig",
     "RunResult",
     "SessionWorkspaceManager",
     "SessionMemoryRow",

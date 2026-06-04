@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
+import logging
 import os
 from pathlib import Path
 import uuid
@@ -26,6 +29,7 @@ from simplified_chatbot.server.endpoints_skills import router as skills_router
 from simplified_chatbot.server.endpoints_workspace import router as workspace_router
 from simplified_chatbot.server.endpoints_metrics import router as metrics_router
 from simplified_chatbot.server.endpoints_alerts import router as alerts_router
+from simplified_chatbot.server.endpoints_mcp import router as mcp_router
 from simplified_chatbot.server.browser.chrome_process import ChromeProcess
 from simplified_chatbot.metrics.service import MetricsService
 from simplified_chatbot.metrics.middleware import ApiStatsMiddleware
@@ -41,6 +45,9 @@ try:
     from simplified_chatbot.server.endpoints_screencast import router as screencast_router
 except Exception:  # pragma: no cover - optional dependency path
     screencast_router = None
+
+
+logger = logging.getLogger("picobot.server.app")
 
 
 def create_app(
@@ -61,7 +68,22 @@ def create_app(
     
     @asynccontextmanager
     async def lifespan(app_: FastAPI):
-        await chrome.start()
+        mcp_connect_task: asyncio.Task[None] | None = None
+        if chrome is not None:
+            await chrome.start()
+        runtime_ = getattr(app_.state, "runtime", None)
+        ensure_mcp_connected = getattr(runtime_, "ensure_mcp_connected_async", None)
+        if callable(ensure_mcp_connected):
+            async def _connect_mcp_in_background() -> None:
+                try:
+                    await ensure_mcp_connected()
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    logger.exception("background MCP startup failed")
+
+            mcp_connect_task = asyncio.create_task(_connect_mcp_in_background())
+            app_.state.mcp_connect_task = mcp_connect_task
         # Re-hydrate alert firing state from DB before the snapshot task starts
         # evaluating; otherwise a fresh server would re-fire all active alerts.
         alerts = getattr(app_.state, "alerts", None)
@@ -78,7 +100,15 @@ def create_app(
         finally:
             if snapshot_task is not None:
                 await snapshot_task.stop()
-            chrome.stop()
+            if mcp_connect_task is not None and not mcp_connect_task.done():
+                mcp_connect_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await mcp_connect_task
+            close_mcp = getattr(runtime_, "close_mcp_async", None)
+            if callable(close_mcp):
+                await close_mcp()
+            if chrome is not None:
+                chrome.stop()
     
     app = FastAPI(title="picobot", version="0.1.0", lifespan=lifespan)
     resolved_cors_origins = _resolve_cors_allowed_origins(
@@ -199,6 +229,7 @@ def create_app(
     app.include_router(health_router)
     app.include_router(metrics_router)
     app.include_router(alerts_router)
+    app.include_router(mcp_router)
     if screencast_router is not None:
         app.include_router(screencast_router)
     return app

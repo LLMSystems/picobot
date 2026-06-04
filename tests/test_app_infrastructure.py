@@ -1,5 +1,6 @@
 import asyncio
 from pathlib import Path
+import time
 
 import pytest
 
@@ -75,6 +76,46 @@ def test_create_app_lifespan_starts_and_stops_infrastructure(tmp_path, monkeypat
         "snapshot.stop",
         "chrome.stop",
     ]
+
+
+def test_create_app_lifespan_does_not_block_on_mcp_startup(monkeypatch):
+    events: list[str] = []
+
+    class FakeChrome:
+        def __init__(self, port=None, host=None):
+            self.port = port
+            self.host = host
+            self.proc = None
+
+        async def start(self):
+            events.append("chrome.start")
+
+        def stop(self):
+            events.append("chrome.stop")
+
+    class FakeRuntime:
+        workspace_manager = None
+        store = None
+
+        async def ensure_mcp_connected_async(self):
+            events.append("mcp.start")
+            await asyncio.sleep(5)
+
+        async def close_mcp_async(self):
+            events.append("mcp.close")
+
+    monkeypatch.setattr(app_module, "ChromeProcess", FakeChrome)
+
+    app = create_app(runtime=FakeRuntime())
+    started = time.perf_counter()
+    with TestClient(app) as client:
+        response = client.get("/health")
+        assert response.status_code == 200
+    elapsed = time.perf_counter() - started
+
+    assert elapsed < 2.0
+    assert "mcp.start" in events
+    assert "mcp.close" in events
 
 
 def test_build_alert_service_returns_none_without_db():

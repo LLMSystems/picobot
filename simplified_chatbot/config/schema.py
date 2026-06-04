@@ -7,6 +7,40 @@ from typing import Literal
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
+class MCPServerConfig(BaseModel):
+    """One MCP server connection definition."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+
+    type: Literal["stdio", "sse", "streamableHttp"] | None = None
+    command: str = Field(default="", min_length=0)
+    args: list[str] = Field(default_factory=list)
+    env: dict[str, str] = Field(default_factory=dict)
+    cwd: str = ""
+    url: str = ""
+    headers: dict[str, str] = Field(default_factory=dict)
+    tool_timeout: int = Field(
+        default=30,
+        gt=0,
+        validation_alias=AliasChoices("tool_timeout", "toolTimeout"),
+    )
+    enabled_tools: list[str] = Field(
+        default_factory=lambda: ["*"],
+        validation_alias=AliasChoices("enabled_tools", "enabledTools"),
+    )
+    include_resources: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("include_resources", "includeResources"),
+    )
+    include_prompts: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("include_prompts", "includePrompts"),
+    )
+
+
 class ChatbotConfig(BaseModel):
     """Minimal configuration needed by the first chatbot version."""
 
@@ -132,8 +166,10 @@ class ChatbotConfig(BaseModel):
         default=None,
         validation_alias=AliasChoices("browser"),
     )
-    
-    
+    mcp_servers: dict[str, MCPServerConfig] = Field(
+        default_factory=dict,
+        validation_alias=AliasChoices("mcp_servers", "mcpServers"),
+    )
 
     @field_validator("model")
     @classmethod
@@ -170,6 +206,20 @@ class ChatbotConfig(BaseModel):
             normalized.append(stripped)
         return normalized
 
+    @field_validator("mcp_servers")
+    @classmethod
+    def _normalize_mcp_servers(
+        cls,
+        value: dict[str, MCPServerConfig],
+    ) -> dict[str, MCPServerConfig]:
+        normalized: dict[str, MCPServerConfig] = {}
+        for raw_name, config in value.items():
+            name = raw_name.strip()
+            if not name:
+                raise ValueError("mcp_servers keys must not be empty")
+            normalized[name] = config
+        return normalized
+
     @model_validator(mode="after")
     def _validate_model_membership(self) -> "ChatbotConfig":
         if self.available_models and self.model not in self.available_models:
@@ -182,4 +232,23 @@ class ChatbotConfig(BaseModel):
             raise ValueError(
                 "subagent_model must be included in available_models when provided",
             )
+        for name, server in self.mcp_servers.items():
+            if server.command and server.url:
+                raise ValueError(
+                    f"mcpServers.{name} must not set both command and url",
+                )
+            if (
+                server.type == "stdio"
+                and not server.command.strip()
+            ):
+                raise ValueError(
+                    f"mcpServers.{name}.command is required for stdio transport",
+                )
+            if (
+                server.type in {"sse", "streamableHttp"}
+                and not server.url.strip()
+            ):
+                raise ValueError(
+                    f"mcpServers.{name}.url is required for HTTP transport",
+                )
         return self

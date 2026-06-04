@@ -33,6 +33,7 @@ from simplified_chatbot.runtime.session_store import (
     SessionStore,
 )
 from simplified_chatbot.runtime.session_workspace import SessionWorkspaceManager
+from simplified_chatbot.tools.mcp import MCPConnectionManager
 from simplified_chatbot.tools.shell import ExecTool
 
 
@@ -177,6 +178,8 @@ class LocalAgentRuntime:
         max_upload_files_per_request: int = _DEFAULT_MAX_UPLOAD_FILES_PER_REQUEST,
         chrome_debugging_port: int | None = None,
         skills_loader: SkillsLoader | None = None,
+        mcp_manager: MCPConnectionManager | None = None,
+        config_path: str | Path | None = None,
     ) -> None:
         self.chatbot = chatbot
         self.store = store or InMemorySessionStore()
@@ -203,11 +206,18 @@ class LocalAgentRuntime:
         self._recent_subagent_events: dict[str, list[dict[str, object]]] = {}
         self._resume_requested: set[str] = set()
         self._background_tasks: dict[str, asyncio.Task[None]] = {}
+        self.config_path = (
+            Path(config_path).expanduser().resolve()
+            if config_path is not None
+            else None
+        )
+        self.mcp_manager = mcp_manager
         self.max_upload_file_bytes = max_upload_file_bytes
         self.max_upload_files_per_request = max_upload_files_per_request
         self.chrome_debugging_port = chrome_debugging_port
         self._bind_subagent_manager_callback()
         self._bind_subagent_tools(self.chatbot)
+        self._refresh_mcp_tool_registries()
     @classmethod
     def from_config(
         cls,
@@ -219,7 +229,10 @@ class LocalAgentRuntime:
     ) -> "LocalAgentRuntime":
         config_file = Path(config_path).expanduser().resolve() if config_path is not None else None
         loaded_config = load_config(config_file) if config_file is not None else None
-        bot = SimplifiedChatbot.from_config(config_file)
+        mcp_manager: MCPConnectionManager | None = None
+        if loaded_config is not None:
+            mcp_manager = MCPConnectionManager(loaded_config.mcp_servers)
+        bot = SimplifiedChatbot.from_config(config_file, mcp_manager=mcp_manager)
         if store is None:
             base_dir = (
                 Path(store_dir).expanduser().resolve()
@@ -269,9 +282,70 @@ class LocalAgentRuntime:
             ),
             chrome_debugging_port=chrome_port,
             skills_loader=skills_loader,
+            mcp_manager=mcp_manager,
+            config_path=config_file,
         )
 
     # ----- skill library management ----------------------------------------
+
+    async def ensure_mcp_connected_async(self) -> None:
+        """Connect configured MCP servers and refresh active tool registries."""
+        if self.mcp_manager is None:
+            return
+        await self.mcp_manager.connect_all()
+        self._refresh_mcp_tool_registries()
+
+    def ensure_mcp_connected(self) -> None:
+        """Sync wrapper for connecting configured MCP servers."""
+        if self.mcp_manager is None:
+            return
+        self.mcp_manager.connect_all_sync()
+        self._refresh_mcp_tool_registries()
+
+    async def close_mcp_async(self) -> None:
+        """Close live MCP connections."""
+        if self.mcp_manager is None:
+            return
+        await self.mcp_manager.aclose()
+        self._refresh_mcp_tool_registries()
+
+    def get_mcp_status(self) -> dict[str, object]:
+        """Return MCP connection diagnostics for API consumers."""
+        manager = self.mcp_manager
+        if manager is None:
+            return {
+                "supported": False,
+                "reload_supported": False,
+                "enabled": False,
+                "configured_server_count": 0,
+                "connected_server_count": 0,
+                "connecting_server_count": 0,
+                "tool_count": 0,
+                "servers": [],
+            }
+        return {
+            "supported": True,
+            "reload_supported": self.config_path is not None,
+            **manager.diagnostics(),
+        }
+
+    async def reload_mcp_async(self) -> dict[str, object]:
+        """Reload MCP config from disk and reconcile live connections."""
+        if self.config_path is None:
+            raise RuntimeError("MCP reload is unavailable without a config file path")
+        if self.mcp_manager is None:
+            raise RuntimeError("MCP runtime is not initialized")
+
+        loaded_config = load_config(self.config_path)
+        summary = await self.mcp_manager.reload_servers(loaded_config.mcp_servers)
+        self._refresh_mcp_tool_registries()
+        chatbot_config = getattr(self.chatbot, "config", None)
+        if chatbot_config is not None and hasattr(chatbot_config, "mcp_servers"):
+            chatbot_config.mcp_servers = loaded_config.mcp_servers
+        return {
+            **summary,
+            **self.get_mcp_status(),
+        }
 
     def _require_skills_loader(self) -> SkillsLoader:
         if self.skills_loader is None:
@@ -356,6 +430,7 @@ class LocalAgentRuntime:
                 "Use handle_input_async(...) or handle_message_async(...) instead of "
                 "handle_input(...)/handle_message(...).",
             )
+        self.ensure_mcp_connected()
         run_id = _generate_run_id()
         event_callback = _build_runtime_event_callback(session_id, on_event)
         _emit_runtime_event(
@@ -413,6 +488,7 @@ class LocalAgentRuntime:
                 "Use handle_input_stream_async(...) or handle_message_stream_async(...) "
                 "instead of handle_input_stream(...)/handle_message_stream(...).",
             )
+        self.ensure_mcp_connected()
         run_id = _generate_run_id()
         event_callback = _build_runtime_event_callback(session_id, on_event)
         _emit_runtime_event(
@@ -469,6 +545,7 @@ class LocalAgentRuntime:
         on_event: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> RunResult:
         async def runner() -> RunResult:
+            await self.ensure_mcp_connected_async()
             run_id = _generate_run_id()
             event_callback = _build_runtime_event_callback(session_id, on_event)
             _emit_runtime_event(
@@ -556,6 +633,7 @@ class LocalAgentRuntime:
         on_event: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> RunResult:
         async def runner() -> RunResult:
+            await self.ensure_mcp_connected_async()
             run_id = _generate_run_id()
             event_callback = _build_runtime_event_callback(session_id, on_event)
             _emit_runtime_event(
@@ -1887,6 +1965,26 @@ class LocalAgentRuntime:
             bind_store = getattr(tool, "bind_store", None)
             if callable(bind_store):
                 bind_store(self.subagent_store)
+
+    def _refresh_mcp_tool_registries(self) -> None:
+        manager = self.mcp_manager
+        if manager is None:
+            return
+        chatbots = [self.chatbot, *self._session_chatbots.values()]
+        seen: set[int] = set()
+        for chatbot in chatbots:
+            if chatbot is None:
+                continue
+            tools = getattr(chatbot, "tools", None)
+            if tools is None:
+                continue
+            marker = id(tools)
+            if marker in seen:
+                continue
+            seen.add(marker)
+            register = getattr(manager, "register_tools_into", None)
+            if callable(register):
+                register(tools, profile=None)
 
     def _iter_exec_session_managers(
         self,

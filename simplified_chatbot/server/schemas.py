@@ -446,6 +446,46 @@ class HealthResponse(BaseModel):
     status: str
 
 
+class McpServerStatus(BaseModel):
+    """Diagnostics for one configured MCP server."""
+
+    name: str
+    transport: str
+    connected: bool = False
+    connecting: bool = False
+    tool_count: int = 0
+    tool_names: list[str] = Field(default_factory=list)
+    enabled_tools: list[str] = Field(default_factory=list)
+    include_resources: bool = False
+    include_prompts: bool = False
+    error: str | None = None
+
+
+class McpStatusResponse(BaseModel):
+    """Runtime MCP status and diagnostics."""
+
+    supported: bool = False
+    reload_supported: bool = False
+    enabled: bool = False
+    configured_server_count: int = 0
+    connected_server_count: int = 0
+    connecting_server_count: int = 0
+    tool_count: int = 0
+    servers: list[McpServerStatus] = Field(default_factory=list)
+
+
+class McpReloadResponse(McpStatusResponse):
+    """Response body for MCP hot reload."""
+
+    ok: bool = True
+    message: str = ""
+    added: list[str] = Field(default_factory=list)
+    changed: list[str] = Field(default_factory=list)
+    removed: list[str] = Field(default_factory=list)
+    connected: list[str] = Field(default_factory=list)
+    failed: list[str] = Field(default_factory=list)
+
+
 class AskUserQuestionAnswerRequest(BaseModel):
     """Request body for submitting user answers to a pending ask_user_question call."""
 
