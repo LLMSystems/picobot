@@ -762,6 +762,7 @@ def build_default_tool_registry(
     subagent_manager: Any | None = None,
     subagent_store: Any | None = None,
     session_id: str | None = None,
+    mcp_manager: Any | None = None,
 ) -> ToolRegistry:
     """Create a default tool registry for the requested execution profile."""
     from simplified_chatbot.tools.apply_patch import ApplyPatchTool
@@ -861,5 +862,9 @@ def build_default_tool_registry(
             )
     elif profile == "subagent":
         register_shared_tools()
+
+    register_mcp_tools = getattr(mcp_manager, "register_tools_into", None)
+    if callable(register_mcp_tools):
+        register_mcp_tools(registry, profile=profile)
 
     return registry

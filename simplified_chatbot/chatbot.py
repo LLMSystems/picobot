@@ -19,6 +19,7 @@ from simplified_chatbot.prompts.loader import (
 from simplified_chatbot.providers.base import ChatProvider
 from simplified_chatbot.providers.factory import build_provider
 from simplified_chatbot.tools.filesystem import build_default_tool_registry
+from simplified_chatbot.tools.mcp import MCPConnectionManager
 from simplified_chatbot.tools.registry import ToolRegistry
 
 
@@ -37,6 +38,7 @@ class SimplifiedChatbot:
         system_prompt_factory: Callable[[Path | None], str] | None = None,
         subagent_manager: SubagentManager | None = None,
         default_session_id: str | None = None,
+        mcp_manager: MCPConnectionManager | None = None,
     ) -> None:
         self.config = config
         self.provider = provider
@@ -44,6 +46,7 @@ class SimplifiedChatbot:
         self._tool_factory = tool_factory
         self._system_prompt_factory = system_prompt_factory
         self.subagent_manager = subagent_manager
+        self.mcp_manager = mcp_manager
         self._default_session_id = default_session_id
         self._default_workspace = (
             default_workspace.expanduser().resolve()
@@ -54,6 +57,7 @@ class SimplifiedChatbot:
             workspace=self._default_workspace,
             subagent_manager=subagent_manager,
             session_id=default_session_id,
+            mcp_manager=mcp_manager,
         )
         self._loop = AgentLoop(
             provider=provider,
@@ -68,6 +72,7 @@ class SimplifiedChatbot:
         config_path: str | Path | None = None,
         *,
         tools: ToolRegistry | None = None,
+        mcp_manager: MCPConnectionManager | None = None,
     ) -> "SimplifiedChatbot":
         """Build a chatbot instance from a config file."""
         resolved_path = resolve_config_path(config_path)
@@ -113,15 +118,18 @@ class SimplifiedChatbot:
                         workspace=resolved_workspace,
                         skills_dir=resolved_skills_dir,
                         profile="subagent",
+                        mcp_manager=mcp_manager,
                     ),
                     tool_factory=lambda next_workspace, _session_id=None: build_default_tool_registry(
                         workspace=next_workspace,
                         skills_dir=resolved_skills_dir,
                         profile="subagent",
+                        mcp_manager=mcp_manager,
                     ),
                     default_workspace=resolved_workspace,
                     system_prompt_factory=subagent_system_prompt_factory,
                     subagent_manager=None,
+                    mcp_manager=mcp_manager,
                 )
 
             def resolve_subagent_model(spec) -> str | None:
@@ -137,6 +145,7 @@ class SimplifiedChatbot:
                 skills_dir=resolved_skills_dir,
                 profile="main",
                 subagent_manager=subagent_manager,
+                mcp_manager=mcp_manager,
             )
             tool_factory = lambda workspace, session_id=None: build_default_tool_registry(
                 workspace=workspace,
@@ -144,6 +153,7 @@ class SimplifiedChatbot:
                 profile="main",
                 subagent_manager=subagent_manager,
                 session_id=session_id,
+                mcp_manager=mcp_manager,
             )
         else:
             resolved_tools = tools
@@ -156,6 +166,7 @@ class SimplifiedChatbot:
             default_workspace=default_workspace,
             system_prompt_factory=system_prompt_factory,
             subagent_manager=subagent_manager,
+            mcp_manager=mcp_manager,
         )
 
     @property
@@ -192,6 +203,7 @@ class SimplifiedChatbot:
             system_prompt_factory=self._system_prompt_factory,
             subagent_manager=self.subagent_manager,
             default_session_id=session_id,
+            mcp_manager=self.mcp_manager,
         )
 
     def build_messages(

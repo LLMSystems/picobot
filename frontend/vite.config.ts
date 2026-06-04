@@ -25,6 +25,7 @@ export default defineConfig(({ command }) => ({
       '/sessions': { target: BACKEND, changeOrigin: true },
       '/capabilities': { target: BACKEND, changeOrigin: true },
       '/skills': { target: BACKEND, changeOrigin: true },
+      '/mcp': { target: BACKEND, changeOrigin: true },
       '/health': { target: BACKEND, changeOrigin: true },
       '/metrics': { target: BACKEND, changeOrigin: true },
       '/alerts': { target: BACKEND, changeOrigin: true },

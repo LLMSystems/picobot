@@ -23,6 +23,10 @@ import type {
   SubagentTimelineResponse,
   SkillListResponse,
   SkillMutationResponse,
+  McpStatusResponse,
+  McpReloadResponse,
+  McpServerConfig,
+  McpServersConfigResponse,
   MetricsCurrentSnapshot,
   MetricsHistoryResponse,
   MetricsSessionSnapshot,
@@ -321,6 +325,24 @@ export const api = {
     request<SkillMutationResponse>(`/skills/${encodeURIComponent(name)}`, {
       method: 'PATCH',
       body: JSON.stringify({ disabled }),
+    }),
+
+  getMcpStatus: () => request<McpStatusResponse>('/mcp/status'),
+
+  reloadMcp: () =>
+    request<McpReloadResponse>('/mcp/reload', { method: 'POST' }),
+
+  getMcpServers: () => request<McpServersConfigResponse>('/mcp/servers'),
+
+  upsertMcpServer: (name: string, config: McpServerConfig) =>
+    request<McpReloadResponse>(`/mcp/servers/${encodeURIComponent(name)}`, {
+      method: 'PUT',
+      body: JSON.stringify(config),
+    }),
+
+  deleteMcpServer: (name: string) =>
+    request<McpReloadResponse>(`/mcp/servers/${encodeURIComponent(name)}`, {
+      method: 'DELETE',
     }),
 
   answerAskUserQuestion: (

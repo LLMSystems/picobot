@@ -1,6 +1,15 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { ChevronDown, ClipboardPaste, RotateCcw, Wrench, X } from 'lucide-vue-next'
+import {
+  ClipboardPaste,
+  FileText,
+  RotateCcw,
+  Server,
+  SlidersHorizontal,
+  Sparkles,
+  Wrench,
+  X,
+} from 'lucide-vue-next'
 import { storeToRefs } from 'pinia'
 import {
   Dialog,
@@ -15,12 +24,9 @@ import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { Slider } from '@/components/ui/slider'
 import { Switch } from '@/components/ui/switch'
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from '@/components/ui/collapsible'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import SkillsSection from '@/components/settings/SkillsSection.vue'
+import McpSection from '@/components/settings/McpSection.vue'
 import { useSettingsStore } from '@/stores/settings'
 import { useCapabilitiesStore } from '@/stores/capabilities'
 import {
@@ -80,7 +86,17 @@ const maxIterationsInput = computed<string | number>({
   },
 })
 
-const systemPromptOpen = ref(false)
+type SettingsTab = 'prompt' | 'model' | 'tools' | 'skills' | 'mcp'
+
+const tabs = [
+  { value: 'prompt', label: 'System Prompt', icon: FileText },
+  { value: 'model', label: 'Model 參數', icon: SlidersHorizontal },
+  { value: 'tools', label: 'Tools', icon: Wrench },
+  { value: 'skills', label: 'Skills', icon: Sparkles },
+  { value: 'mcp', label: 'MCP', icon: Server },
+] as const
+
+const activeTab = ref<SettingsTab>('prompt')
 
 function resetSystemPrompt() {
   systemPrompt.value = null
@@ -151,7 +167,7 @@ function toolDescLabel(tool: { name: string; description?: string }): string {
 <template>
   <Dialog v-model:open="open">
     <DialogContent
-      class="flex max-h-[85vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl"
+      class="flex h-[80vh] max-h-[85vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl"
     >
       <DialogHeader class="border-b px-6 py-4">
         <DialogTitle>設定</DialogTitle>
@@ -160,63 +176,64 @@ function toolDescLabel(tool: { name: string; description?: string }): string {
         </DialogDescription>
       </DialogHeader>
 
-      <div class="flex-1 overflow-y-auto px-6 py-5 space-y-6">
-        <!-- System Prompt -->
-        <Collapsible
-          v-model:open="systemPromptOpen"
-          class="rounded-md border bg-muted/30"
+      <Tabs
+        v-model="activeTab"
+        orientation="vertical"
+        class="flex min-h-0 flex-1 flex-row gap-0"
+      >
+        <TabsList
+          class="flex h-auto w-44 shrink-0 flex-col items-stretch justify-start gap-1 rounded-none border-r bg-muted/20 p-2"
         >
-          <CollapsibleTrigger
-            class="group flex w-full items-center gap-2 px-3 py-2 text-left"
+          <TabsTrigger
+            v-for="t in tabs"
+            :key="t.value"
+            :value="t.value"
+            class="h-auto w-full flex-none justify-start gap-2 rounded-md px-2.5 py-2 text-left text-muted-foreground data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm"
           >
-            <ChevronDown
-              class="size-4 text-muted-foreground transition-transform group-data-[state=closed]:-rotate-90"
-            />
-            <Label class="cursor-pointer text-sm font-medium">
-              System Prompt
-            </Label>
-            <span
-              v-if="systemPrompt !== null"
-              class="inline-block size-1.5 rounded-full bg-foreground/60"
-              aria-label="已自訂"
-              :title="`已自訂 · ${systemPrompt.length} 字元`"
-            />
-            <span class="ml-auto text-xs text-muted-foreground">
+            <component :is="t.icon" class="size-4 shrink-0" />
+            <span class="truncate">{{ t.label }}</span>
+          </TabsTrigger>
+        </TabsList>
+
+        <div class="min-w-0 flex-1 overflow-y-auto px-6 py-5">
+          <!-- System Prompt -->
+          <TabsContent value="prompt" class="mt-0 space-y-2">
+            <div class="flex items-center justify-between gap-2">
+              <h3 class="text-sm font-medium">System Prompt</h3>
+              <div class="flex items-center gap-1">
+                <Button
+                  v-if="systemPrompt === null && caps.data.default_system_prompt"
+                  variant="outline"
+                  size="sm"
+                  class="h-7 px-2 text-xs"
+                  @click="loadDefaultIntoPrompt"
+                >
+                  <ClipboardPaste class="mr-1 size-3" />
+                  載入預設來微調
+                </Button>
+                <Button
+                  v-if="systemPrompt !== null"
+                  variant="ghost"
+                  size="sm"
+                  class="h-7 px-2 text-xs text-muted-foreground"
+                  @click="resetSystemPrompt"
+                >
+                  <RotateCcw class="mr-1 size-3" />
+                  還原預設
+                </Button>
+              </div>
+            </div>
+            <p class="text-xs text-muted-foreground">
               {{
                 systemPrompt !== null
                   ? `已自訂 · ${systemPrompt.length} 字元`
                   : `預設 · ${caps.data.default_system_prompt.length} 字元`
               }}
-            </span>
-          </CollapsibleTrigger>
-
-          <CollapsibleContent class="space-y-2 border-t bg-background px-3 py-3">
-            <div class="flex items-center gap-1">
-              <Button
-                v-if="systemPrompt === null && caps.data.default_system_prompt"
-                variant="outline"
-                size="sm"
-                class="h-7 px-2 text-xs"
-                @click="loadDefaultIntoPrompt"
-              >
-                <ClipboardPaste class="mr-1 size-3" />
-                載入預設來微調
-              </Button>
-              <Button
-                v-if="systemPrompt !== null"
-                variant="ghost"
-                size="sm"
-                class="h-7 px-2 text-xs text-muted-foreground"
-                @click="resetSystemPrompt"
-              >
-                <RotateCcw class="mr-1 size-3" />
-                還原預設
-              </Button>
-            </div>
+            </p>
             <Textarea
               v-model="systemPromptInput"
               :placeholder="caps.data.default_system_prompt || '輸入要覆蓋的 system prompt…'"
-              class="min-h-48 font-mono text-xs"
+              class="min-h-72 font-mono text-xs"
             />
             <p class="text-xs text-muted-foreground">
               {{
@@ -225,10 +242,10 @@ function toolDescLabel(tool: { name: string; description?: string }): string {
                   : '此內容將覆蓋後端預設值。'
               }}
             </p>
-          </CollapsibleContent>
-        </Collapsible>
+          </TabsContent>
 
-        <!-- Model Parameters -->
+          <!-- Model Parameters -->
+          <TabsContent value="model" class="mt-0 space-y-3">
         <section class="space-y-3 rounded-md border bg-muted/30 px-3 py-3">
           <h3 class="text-sm font-medium">Model 參數</h3>
 
@@ -389,8 +406,10 @@ function toolDescLabel(tool: { name: string; description?: string }): string {
             </p>
           </div>
         </section>
+          </TabsContent>
 
-        <!-- Tools -->
+          <!-- Tools -->
+          <TabsContent value="tools" class="mt-0">
         <section class="space-y-3">
           <div class="flex items-center justify-between">
             <div>
@@ -481,10 +500,19 @@ function toolDescLabel(tool: { name: string; description?: string }): string {
             </div>
           </div>
         </section>
+          </TabsContent>
 
-        <!-- Skills -->
-        <SkillsSection />
-      </div>
+          <!-- Skills -->
+          <TabsContent value="skills" class="mt-0">
+            <SkillsSection />
+          </TabsContent>
+
+          <!-- MCP Servers -->
+          <TabsContent value="mcp" class="mt-0">
+            <McpSection />
+          </TabsContent>
+        </div>
+      </Tabs>
 
       <div class="flex items-center justify-between border-t px-6 py-3">
         <Button
