@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -288,7 +289,9 @@ async def test_subagent_spawn_and_completion_are_persisted(tmp_path):
     assert persisted["ok"] is None
     assert persisted["final_content"] is None
     assert persisted["started_at"].endswith("Z")
-    assert persisted["workspace"].endswith(f".subagents/{task_id}".replace("/", "\\"))
+    workspace_path = Path(persisted["workspace"])
+    assert workspace_path.name == task_id
+    assert workspace_path.parent.name == ".subagents"
 
     await manager.wait(task_id)
     background_task = runtime._background_tasks.get("session-4")

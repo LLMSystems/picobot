@@ -95,7 +95,11 @@ def test_run_case_prepares_workspace_and_collects_outputs(tmp_path: Path):
     assert result["workspace_outputs"][0]["is_file"] is True
     assert result["workspace_outputs"][0]["size"] > 0
     assert len(result["workspace_outputs"][0]["sha256"]) == 64
-    assert result["workspace_outputs"][0]["content"] == "# Summary\r\nGenerated\r\n"
+    # Normalize newlines: Path.write_text translates "\n" to the OS line
+    # separator on write (CRLF on Windows, LF on Linux), and the output
+    # collector reads the raw on-disk bytes back.
+    collected = result["workspace_outputs"][0]["content"].replace("\r\n", "\n")
+    assert collected == "# Summary\nGenerated\n"
     assert result["score"]["pass"] is True
     assert result["score"]["failed_checks"] == 0
 
