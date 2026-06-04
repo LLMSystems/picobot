@@ -694,3 +694,37 @@ export interface MetricsSessionSnapshot {
   workspace_bytes: number | null
   workspace_measured_at: number | null
 }
+
+export interface McpServerStatus {
+  name: string
+  transport: string
+  connected: boolean
+  connecting: boolean
+  tool_count: number
+  tool_names: string[]
+  enabled_tools: string[]
+  include_resources: boolean
+  include_prompts: boolean
+  error: string | null
+}
+
+export interface McpStatusResponse {
+  supported: boolean
+  reload_supported: boolean
+  enabled: boolean
+  configured_server_count: number
+  connected_server_count: number
+  connecting_server_count: number
+  tool_count: number
+  servers: McpServerStatus[]
+}
+
+export interface McpReloadResponse extends McpStatusResponse {
+  ok: boolean
+  message: string
+  added: string[]
+  changed: string[]
+  removed: string[]
+  connected: string[]
+  failed: string[]
+}

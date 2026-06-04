@@ -23,6 +23,8 @@ import type {
   SubagentTimelineResponse,
   SkillListResponse,
   SkillMutationResponse,
+  McpStatusResponse,
+  McpReloadResponse,
   MetricsCurrentSnapshot,
   MetricsHistoryResponse,
   MetricsSessionSnapshot,
@@ -322,6 +324,11 @@ export const api = {
       method: 'PATCH',
       body: JSON.stringify({ disabled }),
     }),
+
+  getMcpStatus: () => request<McpStatusResponse>('/mcp/status'),
+
+  reloadMcp: () =>
+    request<McpReloadResponse>('/mcp/reload', { method: 'POST' }),
 
   answerAskUserQuestion: (
     sessionId: string,
