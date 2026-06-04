@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import MarkdownView from '@/components/common/MarkdownView.vue'
 import PicobotIcon from '@/components/common/PicobotIcon.vue'
 import { Button } from '@/components/ui/button'
 import type { DisplayMessage, DisplayMessageSegment } from '@/lib/types'
@@ -15,6 +14,7 @@ import {
 import { computed, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import AskUserQuestionCard from './AskUserQuestionCard.vue'
+import RevealMarkdownView from './RevealMarkdownView.vue'
 import StreamingCursor from './StreamingCursor.vue'
 import ToolCallCard from './ToolCallCard.vue'
 
@@ -204,9 +204,10 @@ async function copy() {
           class="space-y-3 border-t border-border/40 px-4 pb-4 pt-3"
         >
           <template v-for="(seg, i) in reasoningPhaseSegments" :key="i">
-            <MarkdownView
+            <RevealMarkdownView
               v-if="seg.type === 'reasoning'"
               :content="seg.content.trim()"
+              :streaming="isStreaming"
               class="text-sm text-muted-foreground"
             />
             <ToolCallCard
@@ -228,7 +229,11 @@ async function copy() {
           :tool-call="seg.toolCall"
         />
         <div v-else-if="seg.type === 'text' && seg.content.trim()" class="relative">
-          <MarkdownView :content="seg.content.trim()" :session-id="sessionId" />
+          <RevealMarkdownView
+            :content="seg.content.trim()"
+            :session-id="sessionId"
+            :streaming="isStreaming"
+          />
           <StreamingCursor
             v-if="isStreaming && idx === lastSegmentIndex"
           />

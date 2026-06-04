@@ -1,7 +1,7 @@
 <script setup lang="ts">
+import RevealMarkdownView from '@/components/chat/RevealMarkdownView.vue'
 import StreamingCursor from '@/components/chat/StreamingCursor.vue'
 import ToolCallCard from '@/components/chat/ToolCallCard.vue'
-import MarkdownView from '@/components/common/MarkdownView.vue'
 import type {
     DisplayMessageSegment,
     SubagentSummary,
@@ -116,7 +116,7 @@ const terminalConfig = computed(() => {
           <div class="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
             思考
           </div>
-          <MarkdownView :content="seg.content" />
+          <RevealMarkdownView :content="seg.content" :streaming="live" />
         </div>
       </template>
       <template v-else>

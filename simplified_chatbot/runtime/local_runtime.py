@@ -38,6 +38,13 @@ from simplified_chatbot.tools.shell import ExecTool
 
 _MEMORY_TRIM_SAFETY_BUFFER_TOKENS = 1024
 _MEMORY_SUMMARY_MAX_TOKENS = 1000
+_SESSION_EVENT_SUBSCRIBER_QUEUE_MAX_SIZE = 128
+_SESSION_EVENT_MERGEABLE_DELTA_EVENTS = {
+    "assistant_delta",
+    "assistant_reasoning_delta",
+    "subagent_delta",
+    "subagent_reasoning_delta",
+}
 
 
 @dataclass(slots=True)
@@ -46,6 +53,108 @@ class _PreparedMemoryContext:
     system_prompt_override: str | None
     compacted_message_count: int
     runtime_notices: list[dict[str, str]]
+
+
+class _SessionEventSubscriberQueue:
+    """Bounded queue for live session SSE subscribers."""
+
+    def __init__(self, *, max_size: int) -> None:
+        self._items: list[dict[str, object]] = []
+        self._has_items = asyncio.Event()
+        self._max_size = max(1, max_size)
+        self.dropped_events = 0
+
+    async def get(self) -> dict[str, object]:
+        while not self._items:
+            self._has_items.clear()
+            await self._has_items.wait()
+        item = self._items.pop(0)
+        if not self._items:
+            self._has_items.clear()
+        return item
+
+    def empty(self) -> bool:
+        return not self._items
+
+    def put_nowait(self, item: dict[str, object]) -> None:
+        event = item.get("event")
+        if event == "__close__":
+            self._make_room_for_critical()
+            self._items.append(dict(item))
+            self._has_items.set()
+            return
+
+        if len(self._items) >= self._max_size:
+            if self._can_merge_delta(item) and self._merge_delta(item):
+                self._has_items.set()
+                return
+            self._drop_or_merge_one()
+
+        if len(self._items) >= self._max_size:
+            self.dropped_events += 1
+            return
+
+        self._items.append(dict(item))
+        self._has_items.set()
+
+    def _can_merge_delta(self, item: dict[str, object]) -> bool:
+        if item.get("event") not in _SESSION_EVENT_MERGEABLE_DELTA_EVENTS:
+            return False
+        data = item.get("data")
+        return isinstance(data, dict) and isinstance(data.get("delta"), str)
+
+    def _merge_delta(self, item: dict[str, object]) -> bool:
+        if not self._items:
+            return False
+        incoming_data = item.get("data")
+        if not isinstance(incoming_data, dict):
+            return False
+        incoming_delta = incoming_data.get("delta")
+        if not isinstance(incoming_delta, str) or not incoming_delta:
+            return False
+        for existing in reversed(self._items):
+            if not self._same_delta_stream(existing, item):
+                continue
+            existing_data = existing.get("data")
+            if not isinstance(existing_data, dict):
+                continue
+            existing_data["delta"] = str(existing_data.get("delta") or "") + incoming_delta
+            for key in ("seq", "created_at"):
+                if key in item:
+                    existing[key] = item[key]
+            return True
+        return False
+
+    def _same_delta_stream(
+        self,
+        existing: dict[str, object],
+        incoming: dict[str, object],
+    ) -> bool:
+        if existing.get("event") != incoming.get("event"):
+            return False
+        for key in ("session_id", "task_id", "run_id"):
+            if existing.get(key) != incoming.get(key):
+                return False
+        return True
+
+    def _drop_or_merge_one(self) -> None:
+        for index, item in enumerate(list(self._items)):
+            if item.get("event") not in _SESSION_EVENT_MERGEABLE_DELTA_EVENTS:
+                del self._items[index]
+                self.dropped_events += 1
+                return
+        for index, item in enumerate(list(self._items)):
+            if self._can_merge_delta(item):
+                del self._items[index]
+                self.dropped_events += 1
+                return
+        if self._items:
+            self._items.pop(0)
+            self.dropped_events += 1
+
+    def _make_room_for_critical(self) -> None:
+        while len(self._items) >= self._max_size:
+            self._drop_or_merge_one()
 
 
 class LocalAgentRuntime:
@@ -88,7 +197,7 @@ class LocalAgentRuntime:
         )
         self._session_chatbots: dict[str, Any] = {}
         self._session_locks: dict[str, asyncio.Lock] = {}
-        self._session_event_subscribers: dict[str, list[asyncio.Queue[dict[str, object]]]] = {}
+        self._session_event_subscribers: dict[str, list[_SessionEventSubscriberQueue]] = {}
         self._pending_internal_messages: dict[str, list[Message]] = {}
         self._subagent_event_seq: dict[str, int] = {}
         self._recent_subagent_events: dict[str, list[dict[str, object]]] = {}
@@ -1826,8 +1935,10 @@ class LocalAgentRuntime:
     def subscribe_session_events(
         self,
         session_id: str,
-    ) -> asyncio.Queue[dict[str, object]]:
-        queue: asyncio.Queue[dict[str, object]] = asyncio.Queue()
+    ) -> _SessionEventSubscriberQueue:
+        queue = _SessionEventSubscriberQueue(
+            max_size=_SESSION_EVENT_SUBSCRIBER_QUEUE_MAX_SIZE,
+        )
         subscribers = self._session_event_subscribers.setdefault(session_id, [])
         subscribers.append(queue)
         return queue
@@ -1835,7 +1946,7 @@ class LocalAgentRuntime:
     def unsubscribe_session_events(
         self,
         session_id: str,
-        queue: asyncio.Queue[dict[str, object]],
+        queue: _SessionEventSubscriberQueue,
     ) -> None:
         subscribers = self._session_event_subscribers.get(session_id)
         if not subscribers:

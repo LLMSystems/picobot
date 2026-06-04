@@ -131,14 +131,12 @@ class OpenAICompatProvider(ChatProvider):
         parts: list[str] = []
         reasoning_parts: list[str] = []
         usage: dict[str, int] = {}
-        chunks: list[Any] = []
         tool_buffers: dict[int, dict[str, str]] = {}
         finish_reason = "stop"
         # Routes reasoning-channel deltas, redirecting any post-`</think>` text
         # (misrouted main content) back to the content stream in real time.
         reasoning_router = _ReasoningContentRouter()
         async for chunk in stream:
-            chunks.append(chunk)
             raw_reasoning = _extract_stream_reasoning_delta(chunk)
             reasoning_out, content_from_reasoning = reasoning_router.route(
                 raw_reasoning,
@@ -171,7 +169,7 @@ class OpenAICompatProvider(ChatProvider):
             tool_calls=_finalize_stream_tool_calls(tool_buffers),
             finish_reason=finish_reason,
             usage=usage,
-            raw_response=chunks,
+            raw_response=None,
         )
 
 

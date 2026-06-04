@@ -1,13 +1,9 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Check, X, CircleSlash, Wrench, Hash, Cpu } from 'lucide-vue-next'
-import SubagentAvatar from './SubagentAvatar.vue'
-import { truncate } from '@/lib/format'
-import { toolDisplayName } from '@/lib/toolDisplay'
+import { Check, X, CircleSlash, Cpu, Clock } from 'lucide-vue-next'
 import { useElapsed } from '@/composables/useElapsed'
-import { useCapabilitiesStore } from '@/stores/capabilities'
-import { useSubagentStore } from '@/stores/subagents'
 import type { SubagentSummary } from '@/lib/types'
+import picobotImg from '@/assets/picobot.png'
 
 const props = defineProps<{
   summary: SubagentSummary
@@ -16,60 +12,39 @@ const props = defineProps<{
 
 defineEmits<{ (e: 'select', taskId: string): void }>()
 
-const subagents = useSubagentStore()
-const caps = useCapabilitiesStore()
-
-const isRunning = computed(
-  () =>
-    props.summary.phase === 'running' || props.summary.phase === 'spawned',
-)
-
-const phaseColor = computed(() => {
+// Status pill shown top-right of the card header. `dot: true` renders a pulsing
+// dot instead of an icon for the in-progress phases.
+const statusConfig = computed(() => {
   switch (props.summary.phase) {
-    case 'running':
-    case 'spawned':
-      return 'bg-amber-400'
     case 'done':
-      return 'bg-emerald-500'
+      return {
+        label: '完成',
+        icon: Check,
+        dot: false,
+        pill: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
+      }
     case 'failed':
-      return 'bg-red-500'
+      return {
+        label: '失敗',
+        icon: X,
+        dot: false,
+        pill: 'bg-red-500/10 text-red-600 dark:text-red-400',
+      }
     case 'cancelled':
-      return 'bg-muted-foreground/60'
+      return {
+        label: '已取消',
+        icon: CircleSlash,
+        dot: false,
+        pill: 'bg-muted text-muted-foreground',
+      }
     default:
-      return 'bg-muted-foreground/60'
+      return {
+        label: '進行中',
+        icon: null,
+        dot: true,
+        pill: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
+      }
   }
-})
-
-// Always read the in-memory streaming snapshot if present — it survives the
-// running → done transition until a page reload, and is more accurate than
-// the persisted summary's `tool_events` (which may not be backfilled).
-const liveStreaming = computed(() =>
-  subagents.getStreaming(props.summary.task_id),
-)
-
-// "Currently using <tool>" subtitle for running subagents only.
-const currentTool = computed(() => {
-  if (!isRunning.value) return null
-  const calls = liveStreaming.value?.toolCalls ?? []
-  for (let i = calls.length - 1; i >= 0; i--) {
-    const tc = calls[i]
-    if (tc && tc.status === 'running') {
-      return toolDisplayName(tc.name, caps.toolMap.get(tc.name))
-    }
-  }
-  return null
-})
-
-const toolsCount = computed(() => {
-  const live = liveStreaming.value
-  if (live && live.toolCalls.length > 0) return live.toolCalls.length
-  return props.summary.tool_events?.length ?? 0
-})
-
-const stepsCount = computed(() => {
-  const live = liveStreaming.value
-  if (live && live.segments.length > 0) return live.segments.length
-  return props.summary.tool_events?.length ?? 0
 })
 
 const { text: elapsedText } = useElapsed(
@@ -81,107 +56,55 @@ const { text: elapsedText } = useElapsed(
 <template>
   <button
     type="button"
-    class="group relative flex w-full items-center gap-2.5 overflow-hidden rounded-lg border bg-card p-2.5 text-left text-sm transition-all"
+    class="group relative flex w-full items-center gap-0.5 overflow-hidden rounded-xl border bg-card py-3 pr-3 text-left text-sm transition-all hover:-translate-y-0.5"
     :class="
       selected
-        ? 'border-brand/50 bg-brand/5 shadow-sm'
-        : 'border-border hover:border-foreground/20 hover:bg-muted/40'
+        ? 'border-brand/50 bg-brand/5 shadow-md'
+        : 'border-border hover:border-foreground/20 hover:shadow-sm'
     "
     @click="$emit('select', summary.task_id)"
   >
-    <span
-      class="absolute inset-y-0 left-0 w-1"
-      :class="phaseColor"
+
+    <img
+      :src="picobotImg"
+      alt=""
       aria-hidden="true"
+      class="size-15 shrink-0 object-contain"
     />
 
-    <SubagentAvatar
-      :task-id="summary.task_id"
-      :running="isRunning"
-      class="ml-1"
-    />
-
-    <div class="min-w-0 flex-1 space-y-0.5">
-      <div class="flex items-start gap-1.5">
-        <div class="min-w-0 flex-1 truncate font-medium leading-tight">
-          {{ summary.label || summary.task_id }}
+    <!-- Content column: task (one line) + model · time -->
+    <div class="flex min-w-0 flex-1 flex-col gap-1">
+      <div class="flex items-center gap-2">
+        <div class="min-w-0 flex-1 truncate font-medium leading-snug">
+          {{ summary.label || summary.task || summary.task_id }}
         </div>
-        <span class="ml-auto shrink-0 text-[10px] text-muted-foreground">
-          {{ elapsedText }}
-        </span>
-      </div>
-
-      <div
-        v-if="currentTool"
-        class="flex items-center gap-1 truncate text-[11px] text-amber-600 dark:text-amber-400"
-      >
-        <Wrench class="size-3 shrink-0 animate-pulse" />
-        <span class="truncate">正在使用 {{ currentTool }}…</span>
-      </div>
-      <div
-        v-else-if="isRunning"
-        class="flex items-center gap-1 truncate text-[11px] text-muted-foreground"
-      >
-        <span class="flex gap-0.5">
-          <span class="size-1 animate-bounce rounded-full bg-amber-500 [animation-delay:-0.3s]" />
-          <span class="size-1 animate-bounce rounded-full bg-amber-500 [animation-delay:-0.15s]" />
-          <span class="size-1 animate-bounce rounded-full bg-amber-500" />
-        </span>
-        <span class="truncate">思考中…</span>
-      </div>
-      <div
-        v-else-if="summary.task"
-        class="truncate text-[11px] text-muted-foreground"
-      >
-        {{ truncate(summary.task, 60) }}
-      </div>
-
-      <div class="flex flex-wrap items-center gap-x-2 gap-y-0.5 pt-0.5 text-[10px] text-muted-foreground">
-        <span class="flex items-center gap-0.5">
-          <Hash class="size-2.5" />{{ stepsCount }} 步
-        </span>
-        <span aria-hidden="true">·</span>
-        <span class="flex items-center gap-0.5">
-          <Wrench class="size-2.5" />{{ toolsCount }} 工具
-        </span>
         <span
-          v-if="summary.model"
-          aria-hidden="true"
-        >·</span>
-        <span
-          v-if="summary.model"
-          class="flex items-center gap-0.5 truncate font-mono"
-          :title="`Model: ${summary.model}`"
+          class="inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium"
+          :class="statusConfig.pill"
         >
-          <Cpu class="size-2.5" />{{ summary.model }}
-        </span>
-        <span aria-hidden="true">·</span>
-        <span class="flex items-center gap-0.5">
-          <Check
-            v-if="summary.phase === 'done'"
-            class="size-2.5 text-emerald-500"
+          <span
+            v-if="statusConfig.dot"
+            class="inline-block size-1.5 animate-pulse rounded-full bg-current"
           />
-          <X
-            v-else-if="summary.phase === 'failed'"
-            class="size-2.5 text-red-500"
-          />
-          <CircleSlash
-            v-else-if="summary.phase === 'cancelled'"
+          <component
+            :is="statusConfig.icon"
+            v-else-if="statusConfig.icon"
             class="size-2.5"
           />
-          <span
-            v-else
-            class="inline-block size-1.5 animate-pulse rounded-full bg-amber-500"
-          />
-          {{
-            summary.phase === 'done'
-              ? '完成'
-              : summary.phase === 'failed'
-                ? '失敗'
-                : summary.phase === 'cancelled'
-                  ? '已取消'
-                  : '進行中'
-          }}
+          {{ statusConfig.label }}
+        </span>
+      </div>
+
+      <div class="flex items-center gap-2 text-[10px] text-muted-foreground">
+        <span
+          v-if="summary.model"
+          class="flex min-w-0 items-center gap-0.5 truncate font-mono"
+          :title="`Model: ${summary.model}`"
+        >
+          <Cpu class="size-2.5 shrink-0" />{{ summary.model }}
+        </span>
+        <span class="ml-auto flex shrink-0 items-center gap-0.5 tabular-nums">
+          <Clock class="size-2.5" />{{ elapsedText }}
         </span>
       </div>
     </div>

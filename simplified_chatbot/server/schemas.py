@@ -63,6 +63,7 @@ class ChatStreamRequest(ChatRequest):
     """Request body for one streamed chat turn."""
 
     client_request_id: str | None = Field(default=None, min_length=1)
+    include_trace: bool = True
 
 
 class ChatResponse(BaseModel):

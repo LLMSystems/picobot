@@ -8,7 +8,10 @@ import pytest
 from simplified_chatbot.agent.subagent import SubagentManager, SubagentSpec
 from simplified_chatbot.agent.types import Message, MessageContent
 from simplified_chatbot.config.schema import ChatbotConfig
-from simplified_chatbot.runtime.local_runtime import LocalAgentRuntime
+from simplified_chatbot.runtime.local_runtime import (
+    LocalAgentRuntime,
+    _SessionEventSubscriberQueue,
+)
 from simplified_chatbot.runtime.session_store import AioSQLiteSessionStore, InMemorySessionStore
 
 
@@ -67,6 +70,40 @@ class _FakeStreamingSubagentChatbot(_FakeSubagentChatbot):
             stop_reason="completed",
             usage={"prompt_tokens": 3},
         )
+
+
+@pytest.mark.asyncio
+async def test_session_event_subscriber_queue_merges_deltas_under_pressure():
+    queue = _SessionEventSubscriberQueue(max_size=2)
+
+    queue.put_nowait(
+        {
+            "session_id": "s1",
+            "task_id": "t1",
+            "event": "subagent_delta",
+            "data": {"delta": "a"},
+            "seq": 1,
+        },
+    )
+    queue.put_nowait({"session_id": "s1", "event": "workspace_changed", "data": {}})
+    queue.put_nowait(
+        {
+            "session_id": "s1",
+            "task_id": "t1",
+            "event": "subagent_delta",
+            "data": {"delta": "b"},
+            "seq": 2,
+        },
+    )
+    queue.put_nowait({"event": "__close__"})
+
+    first = await asyncio.wait_for(queue.get(), timeout=0.5)
+    second = await asyncio.wait_for(queue.get(), timeout=0.5)
+
+    assert first["event"] == "subagent_delta"
+    assert first["data"] == {"delta": "ab"}
+    assert first["seq"] == 2
+    assert second["event"] == "__close__"
 
 
 class _AutoResumeChatbot:
