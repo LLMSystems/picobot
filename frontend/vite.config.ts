@@ -24,6 +24,7 @@ export default defineConfig(({ command }) => ({
       '/chat': { target: BACKEND, changeOrigin: true },
       '/sessions': { target: BACKEND, changeOrigin: true },
       '/capabilities': { target: BACKEND, changeOrigin: true },
+      '/agent-types': { target: BACKEND, changeOrigin: true },
       '/skills': { target: BACKEND, changeOrigin: true },
       '/mcp': { target: BACKEND, changeOrigin: true },
       '/health': { target: BACKEND, changeOrigin: true },

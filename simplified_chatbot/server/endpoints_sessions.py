@@ -8,6 +8,7 @@ from typing import Any
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import StreamingResponse
 
+from simplified_chatbot.agents.registry import AgentRegistry
 from simplified_chatbot.server.common import error_response, get_runtime
 from simplified_chatbot.server.schemas import (
     DeleteSessionResponse,
@@ -46,11 +47,22 @@ async def create_session(
     request: Request,
     payload: SessionCreateRequest,
 ) -> SessionSummary:
-    """Create one empty session with optional title."""
+    """Create one empty session with optional title and agent type."""
     runtime = get_runtime(request)
+    if payload.agent_type is not None:
+        registry = getattr(runtime.chatbot, "agent_registry", None) or AgentRegistry.load()
+        if payload.agent_type not in registry.names():
+            available = ", ".join(registry.names())
+            return error_response(
+                request,
+                status_code=400,
+                code="UNKNOWN_AGENT_TYPE",
+                message=f"Unknown agent_type '{payload.agent_type}'. Available: {available}",
+            )
     summary = await runtime.create_session_async(
         title=payload.title,
         session_id=payload.session_id,
+        agent_type=payload.agent_type,
     )
     return SessionSummary.model_validate(summary)
 

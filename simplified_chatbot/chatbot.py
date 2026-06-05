@@ -9,6 +9,7 @@ from typing import Any
 
 from simplified_chatbot.agent.loop import AgentLoop
 from simplified_chatbot.agent.subagent import SubagentManager
+from simplified_chatbot.agents.registry import AgentRegistry
 from simplified_chatbot.agent.types import Message, MessageContent, RunResult
 from simplified_chatbot.config.loader import load_config, resolve_config_path
 from simplified_chatbot.config.schema import ChatbotConfig
@@ -39,10 +40,12 @@ class SimplifiedChatbot:
         subagent_manager: SubagentManager | None = None,
         default_session_id: str | None = None,
         mcp_manager: MCPConnectionManager | None = None,
+        agent_registry: AgentRegistry | None = None,
     ) -> None:
         self.config = config
         self.provider = provider
         self.system_prompt = system_prompt
+        self.agent_registry = agent_registry
         self._tool_factory = tool_factory
         self._system_prompt_factory = system_prompt_factory
         self.subagent_manager = subagent_manager
@@ -80,10 +83,13 @@ class SimplifiedChatbot:
         provider = build_provider(config)
         default_workspace = resolved_path.parent
         resolved_skills_dir = _resolve_skills_dir(config, resolved_path=resolved_path)
-        system_prompt_factory = lambda workspace: load_system_prompt(
+        agent_registry = AgentRegistry.load()
+        system_prompt_factory = lambda workspace, agent_type=None: load_system_prompt(
             config,
             config_path=resolved_path,
             workspace=workspace or default_workspace,
+            agent_type=agent_type,
+            registry=agent_registry,
         )
         system_prompt = system_prompt_factory(default_workspace)
         subagent_manager = None
@@ -147,10 +153,11 @@ class SimplifiedChatbot:
                 subagent_manager=subagent_manager,
                 mcp_manager=mcp_manager,
             )
-            tool_factory = lambda workspace, session_id=None: build_default_tool_registry(
+            tool_factory = lambda workspace, session_id=None, agent_type=None: build_default_tool_registry(
                 workspace=workspace,
                 skills_dir=resolved_skills_dir,
                 profile="main",
+                allowed_tools=agent_registry.allowed_tools(agent_type),
                 subagent_manager=subagent_manager,
                 session_id=session_id,
                 mcp_manager=mcp_manager,
@@ -167,6 +174,7 @@ class SimplifiedChatbot:
             system_prompt_factory=system_prompt_factory,
             subagent_manager=subagent_manager,
             mcp_manager=mcp_manager,
+            agent_registry=agent_registry,
         )
 
     @property
@@ -184,6 +192,7 @@ class SimplifiedChatbot:
         workspace: str | Path,
         *,
         session_id: str | None = None,
+        agent_type: str | None = None,
     ) -> "SimplifiedChatbot":
         """Create a new chatbot instance bound to a specific workspace."""
         if self._tool_factory is None:
@@ -193,17 +202,27 @@ class SimplifiedChatbot:
             config=self.config,
             provider=self.provider,
             system_prompt=(
-                self._system_prompt_factory(resolved_workspace)
+                _invoke_system_prompt_factory(
+                    self._system_prompt_factory,
+                    resolved_workspace,
+                    agent_type,
+                )
                 if self._system_prompt_factory is not None
                 else self.system_prompt
             ),
-            tools=_invoke_tool_factory(self._tool_factory, resolved_workspace, session_id),
+            tools=_invoke_tool_factory(
+                self._tool_factory,
+                resolved_workspace,
+                session_id,
+                agent_type,
+            ),
             tool_factory=self._tool_factory,
             default_workspace=resolved_workspace,
             system_prompt_factory=self._system_prompt_factory,
             subagent_manager=self.subagent_manager,
             default_session_id=session_id,
             mcp_manager=self.mcp_manager,
+            agent_registry=self.agent_registry,
         )
 
     def build_messages(
@@ -350,11 +369,29 @@ def _invoke_tool_factory(
     factory: Callable[..., ToolRegistry],
     workspace: Path,
     session_id: str | None,
+    agent_type: str | None = None,
 ) -> ToolRegistry:
     try:
         signature = inspect.signature(factory)
     except (TypeError, ValueError):
         return factory(workspace)
-    if len(signature.parameters) >= 2:
+    arity = len(signature.parameters)
+    if arity >= 3:
+        return factory(workspace, session_id, agent_type)
+    if arity >= 2:
         return factory(workspace, session_id)
+    return factory(workspace)
+
+
+def _invoke_system_prompt_factory(
+    factory: Callable[..., str],
+    workspace: Path,
+    agent_type: str | None,
+) -> str:
+    try:
+        signature = inspect.signature(factory)
+    except (TypeError, ValueError):
+        return factory(workspace)
+    if len(signature.parameters) >= 2:
+        return factory(workspace, agent_type)
     return factory(workspace)

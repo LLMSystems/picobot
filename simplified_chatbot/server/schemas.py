@@ -92,6 +92,7 @@ class SessionSummary(BaseModel):
 
     session_id: str
     title: str
+    agent_type: str | None = None
     created_at: str | None = None
     updated_at: str | None = None
     message_count: int = 0
@@ -104,6 +105,7 @@ class SessionCreateRequest(BaseModel):
 
     title: str | None = None
     session_id: str | None = Field(default=None, min_length=1)
+    agent_type: str | None = Field(default=None, min_length=1)
 
 
 class SessionRenameRequest(BaseModel):
@@ -243,6 +245,22 @@ class CapabilitiesFeatures(BaseModel):
     file_upload: bool = False
     multimodal: bool = False
     model_override: bool = False
+    agent_types: bool = False
+
+
+class AgentTypeInfo(BaseModel):
+    """Frontend-facing agent type metadata."""
+
+    name: str
+    display_name: str
+    description: str
+
+
+class AgentTypesResponse(BaseModel):
+    """Available agent types for session creation."""
+
+    default: str
+    agent_types: list[AgentTypeInfo] = Field(default_factory=list)
 
 
 class CapabilitiesResponse(BaseModel):

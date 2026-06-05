@@ -6,8 +6,11 @@ import importlib.util
 
 from fastapi import APIRouter, Request
 
+from simplified_chatbot.agents.registry import AgentRegistry
 from simplified_chatbot.server.common import get_runtime
 from simplified_chatbot.server.schemas import (
+    AgentTypeInfo,
+    AgentTypesResponse,
     CapabilitiesFeatures,
     CapabilitiesModelInfo,
     CapabilitiesResponse,
@@ -16,6 +19,15 @@ from simplified_chatbot.server.schemas import (
 from simplified_chatbot.tools.registry import ToolRegistry
 
 router = APIRouter()
+
+
+def _resolve_agent_registry(request: Request) -> AgentRegistry:
+    """Return the runtime's agent registry, loading the default if unset."""
+    runtime = get_runtime(request)
+    registry = getattr(runtime.chatbot, "agent_registry", None)
+    if isinstance(registry, AgentRegistry):
+        return registry
+    return AgentRegistry.load()
 
 _SHELL_TOOLS = frozenset({"exec"})
 _FILESYSTEM_TOOLS = frozenset(
@@ -105,6 +117,7 @@ async def get_capabilities(request: Request) -> CapabilitiesResponse:
     default_max_tokens_raw = getattr(config, "max_tokens", None)
     default_max_tokens = int(default_max_tokens_raw) if default_max_tokens_raw else None
     default_system_prompt = str(getattr(chatbot, "system_prompt", "") or "")
+    agent_registry = _resolve_agent_registry(request)
 
     return CapabilitiesResponse(
         model=CapabilitiesModelInfo(
@@ -135,7 +148,25 @@ async def get_capabilities(request: Request) -> CapabilitiesResponse:
             ),
             multimodal=True,
             model_override=True,
+            agent_types=len(agent_registry.names()) > 1,
         ),
+    )
+
+
+@router.get("/agent-types", response_model=AgentTypesResponse)
+async def get_agent_types(request: Request) -> AgentTypesResponse:
+    """List the agent types available for session creation."""
+    registry = _resolve_agent_registry(request)
+    return AgentTypesResponse(
+        default=registry.default_name,
+        agent_types=[
+            AgentTypeInfo(
+                name=definition.name,
+                display_name=definition.display_name,
+                description=definition.description,
+            )
+            for definition in registry.definitions()
+        ],
     )
 
 

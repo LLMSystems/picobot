@@ -583,7 +583,8 @@ class AioSQLiteSessionStore(AsyncSessionStore):
                         session_id TEXT PRIMARY KEY,
                         created_at TEXT,
                         updated_at TEXT,
-                        title TEXT
+                        title TEXT,
+                        agent_type TEXT
                     )
                     """,
                 )
@@ -592,6 +593,8 @@ class AioSQLiteSessionStore(AsyncSessionStore):
                 await cursor.close()
                 if "title" not in columns:
                     await conn.execute("ALTER TABLE session_metadata ADD COLUMN title TEXT")
+                if "agent_type" not in columns:
+                    await conn.execute("ALTER TABLE session_metadata ADD COLUMN agent_type TEXT")
                 await conn.commit()
             self._initialized = True
 
@@ -680,7 +683,7 @@ class AioSQLiteSessionStore(AsyncSessionStore):
         async with open_async(self.db_path) as conn:
             cursor = await conn.execute(
                 """
-                SELECT created_at, updated_at, title
+                SELECT created_at, updated_at, title, agent_type
                 FROM session_metadata
                 WHERE session_id = ?
                 """,
@@ -690,12 +693,13 @@ class AioSQLiteSessionStore(AsyncSessionStore):
             await cursor.close()
         if row is None:
             return None
-        created_at, updated_at, title = row
+        created_at, updated_at, title, agent_type = row
         return {
             "session_id": session_id,
             "created_at": created_at,
             "updated_at": updated_at,
             "title": title,
+            "agent_type": agent_type,
         }
 
     async def create_session(
@@ -707,14 +711,21 @@ class AioSQLiteSessionStore(AsyncSessionStore):
         payload = dict(metadata or {})
         now = _utc_timestamp()
         title = payload.get("title")
+        agent_type = payload.get("agent_type")
         async with open_async(self.db_path) as conn:
             await conn.execute(
                 """
-                INSERT INTO session_metadata (session_id, created_at, updated_at, title)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO session_metadata (session_id, created_at, updated_at, title, agent_type)
+                VALUES (?, ?, ?, ?, ?)
                 ON CONFLICT(session_id) DO NOTHING
                 """,
-                (session_id, now, now, title if isinstance(title, str) else None),
+                (
+                    session_id,
+                    now,
+                    now,
+                    title if isinstance(title, str) else None,
+                    agent_type if isinstance(agent_type, str) else None,
+                ),
             )
             await conn.commit()
         existing = await self.get_session_metadata(session_id) or {
@@ -744,11 +755,12 @@ class AioSQLiteSessionStore(AsyncSessionStore):
             await conn.execute(
                 """
                 UPDATE session_metadata
-                SET title = ?, updated_at = ?
+                SET title = ?, agent_type = ?, updated_at = ?
                 WHERE session_id = ?
                 """,
                 (
                     merged.get("title") if isinstance(merged.get("title"), str) else None,
+                    merged.get("agent_type") if isinstance(merged.get("agent_type"), str) else None,
                     merged["updated_at"],
                     session_id,
                 ),

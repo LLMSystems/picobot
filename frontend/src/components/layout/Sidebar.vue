@@ -13,8 +13,10 @@ import {
 import { Plus, MessageSquare, Search, X } from 'lucide-vue-next'
 import { useSessionsStore } from '@/stores/sessions'
 import { useChatStore } from '@/stores/chat'
+import { useCapabilitiesStore } from '@/stores/capabilities'
 import { toast } from 'vue-sonner'
 import SessionItem from '@/components/sessions/SessionItem.vue'
+import AgentTypeCards from '@/components/sessions/AgentTypeCards.vue'
 import { Skeleton } from '@/components/ui/skeleton'
 import picoagentLogo from '@/assets/picobot_head.png'
 
@@ -22,8 +24,13 @@ const emit = defineEmits<{ (e: 'select'): void }>()
 
 const sessions = useSessionsStore()
 const chat = useChatStore()
+const caps = useCapabilitiesStore()
 const router = useRouter()
 const route = useRoute()
+
+const agentTypesEnabled = computed(() => caps.data.features.agent_types)
+const pickerOpen = ref(false)
+const creating = ref(false)
 
 const currentId = computed(() =>
   route.name === 'chat' && typeof route.params.id === 'string'
@@ -51,14 +58,27 @@ const filteredSessions = computed(() => {
 })
 
 async function newChat() {
+  if (agentTypesEnabled.value) {
+    pickerOpen.value = true
+    return
+  }
+  await startCreate()
+}
+
+async function startCreate(agentType?: string) {
+  if (creating.value) return
+  creating.value = true
   try {
-    const s = await sessions.create()
+    const s = await sessions.create(agentType ? { agentType } : {})
+    pickerOpen.value = false
     router.push(`/c/${s.session_id}`)
     emit('select')
   } catch (err) {
     toast.error('建立對話失敗', {
       description: err instanceof Error ? err.message : '',
     })
+  } finally {
+    creating.value = false
   }
 }
 
@@ -176,6 +196,21 @@ async function confirmDelete() {
         </li>
       </ul>
     </div>
+
+    <Dialog
+      :open="pickerOpen"
+      @update:open="(v) => (pickerOpen = v)"
+    >
+      <DialogContent class="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>選擇 Agent 類型</DialogTitle>
+          <DialogDescription>
+            不同類型的 Picobot 有各自的專長與工具，建立後無法更改。
+          </DialogDescription>
+        </DialogHeader>
+        <AgentTypeCards :busy="creating" @select="startCreate" />
+      </DialogContent>
+    </Dialog>
 
     <Dialog
       :open="deleteTarget !== null"

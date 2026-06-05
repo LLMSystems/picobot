@@ -1,4 +1,5 @@
 import type {
+  AgentTypesResponse,
   Capabilities,
   ChatImageInput,
   ChatOverrides,
@@ -56,7 +57,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     ...init,
     headers: {
       'Content-Type': 'application/json',
-      ...(init?.headers ?? {}),
+      ...init?.headers,
     },
   })
   return parseResponse<T>(res)
@@ -117,9 +118,13 @@ export const api = {
 
   capabilities: () => request<Capabilities>('/capabilities'),
 
+  agentTypes: () => request<AgentTypesResponse>('/agent-types'),
+
   listSessions: () => request<{ sessions: SessionSummary[] }>('/sessions'),
 
-  createSession: (body: { title?: string; session_id?: string } = {}) =>
+  createSession: (
+    body: { title?: string; session_id?: string; agent_type?: string } = {},
+  ) =>
     request<SessionSummary>('/sessions', {
       method: 'POST',
       body: JSON.stringify(body),

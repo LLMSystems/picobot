@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick } from 'vue'
+import { computed, nextTick, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { Button } from '@/components/ui/button'
 import { useSessionsStore } from '@/stores/sessions'
@@ -13,10 +13,16 @@ import {
 } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import PicobotIcon from '@/components/common/PicobotIcon.vue'
+import AgentTypeCards from '@/components/sessions/AgentTypeCards.vue'
+import { useCapabilitiesStore } from '@/stores/capabilities'
 
 const router = useRouter()
 const sessions = useSessionsStore()
 const composerBus = useComposerBus()
+const caps = useCapabilitiesStore()
+
+const creating = ref(false)
+const agentTypesEnabled = computed(() => caps.data.features.agent_types)
 
 interface Command {
   icon: typeof Sparkles
@@ -52,9 +58,9 @@ const commands: Command[] = [
   },
 ]
 
-async function createSession(): Promise<string | null> {
+async function createSession(agentType?: string): Promise<string | null> {
   try {
-    const s = await sessions.create()
+    const s = await sessions.create(agentType ? { agentType } : {})
     return s.session_id
   } catch (err) {
     toast.error('建立對話失敗', {
@@ -67,6 +73,17 @@ async function createSession(): Promise<string | null> {
 async function createAndGo() {
   const id = await createSession()
   if (id) router.push(`/c/${id}`)
+}
+
+async function startWithAgent(agentType: string) {
+  if (creating.value) return
+  creating.value = true
+  try {
+    const id = await createSession(agentType)
+    if (id) await router.push(`/c/${id}`)
+  } finally {
+    creating.value = false
+  }
 }
 
 async function startWith(prompt: string) {
@@ -106,12 +123,23 @@ async function startWith(prompt: string) {
         </p>
       </div>
       <Button
+        v-if="!agentTypesEnabled"
         class="h-10 gap-1.5 rounded-xl bg-primary px-5 text-sm font-medium text-primary-foreground shadow-none transition-shadow hover:bg-primary/90 hover:shadow-md"
         @click="createAndGo"
       >
         <Plus class="size-4" />
         開始新對話
       </Button>
+    </div>
+
+    <div
+      v-if="agentTypesEnabled"
+      class="mt-8 w-full max-w-2xl sm:mt-10"
+    >
+      <p class="mb-3 text-sm font-medium text-muted-foreground">
+        選一個 Picobot 開始
+      </p>
+      <AgentTypeCards :busy="creating" @select="startWithAgent" />
     </div>
 
     <div class="mt-8 grid w-full max-w-2xl grid-cols-1 gap-3 sm:mt-10 sm:grid-cols-2">
