@@ -93,7 +93,7 @@ def test_system_prompt_mentions_read_skill_tool_rules():
     assert "`.subagents/<task_id>/`" in prompt
     assert "Use `yield_time_ms` only when you intentionally want session mode" in prompt
     assert "`write_stdin(chars=\"\")` to poll new output" in prompt
-    assert "Do not try to force binary office formats through `read_file`." in prompt
+    assert "office documents (`.pdf` / `.docx` / `.xlsx`) are auto-dispatched by extension" in prompt
 
 
 def test_system_prompt_includes_subagent_delegation_policy():

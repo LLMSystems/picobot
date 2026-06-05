@@ -28,7 +28,7 @@ _DANGEROUS_TOOLS = frozenset({"exec", "write_file", "edit_file"})
 # properties (if defined), then to the raw English name.
 _TOOL_ZH: dict[str, tuple[str, str]] = {
     # filesystem
-    "read_file": ("讀取檔案", "讀取工作區內的檔案內容"),
+    "read_file": ("讀取檔案", "讀取工作區內的檔案內容，文字檔與 PDF/Word/Excel 皆依副檔名自動解析"),
     "write_file": ("寫入檔案", "建立或覆寫工作區檔案"),
     "edit_file": ("編輯檔案", "對檔案做字串替換式編輯"),
     "list_dir": ("列出資料夾", "列出資料夾內的檔案"),
@@ -50,7 +50,6 @@ _TOOL_ZH: dict[str, tuple[str, str]] = {
     "web_fetch": ("網頁擷取", "擷取網頁內容並回傳內文"),
     # skills / docs
     "read_skill": ("讀取 skill", "讀取技能定義"),
-    "read_document": ("讀取文件", "解析 PDF、Word、Excel 等 office 文件內容（依副檔名自動判斷）"),
     "view_image": ("檢視圖片", "讓多模態模型直接看工作區內的圖片（png/jpg/gif/webp/bmp）"),
     # demo / fake
     "echo": ("回音", "回傳輸入內容（測試用）"),

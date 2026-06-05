@@ -94,6 +94,37 @@ def _is_blocked_device(path: str | Path) -> bool:
         return True
     return False
 
+_OFFICE_SUFFIXES = (".pdf", ".docx", ".xlsx")
+
+
+def _read_office_document(
+    fp: Path,
+    display_path: str,
+    pages: str | None,
+    sheet: str | None,
+    range: str | None,
+) -> str | None:
+    """Extract text from a pdf/docx/xlsx file, or None if not an office format.
+
+    Lazily imports the extractors so filesystem.py and document_readers.py don't
+    create a circular import at module load.
+    """
+    suffix = fp.suffix.lower()
+    if suffix not in _OFFICE_SUFFIXES:
+        return None
+    from simplified_chatbot.tools.document_readers import (
+        _extract_docx,
+        _extract_pdf,
+        _extract_xlsx,
+    )
+
+    if suffix == ".pdf":
+        return _extract_pdf(fp, display_path, pages)
+    if suffix == ".docx":
+        return _extract_docx(fp, display_path)
+    return _extract_xlsx(fp, display_path, sheet, range)
+
+
 @tool_parameters(
     {
         "type": "object",
@@ -109,19 +140,27 @@ def _is_blocked_device(path: str | Path) -> bool:
             },
             "limit": {
                 "type": "integer",
-                "description": "Maximum number of lines to read (default 2000).",
+                "description": "Maximum number of lines to read (text files only, default 2000).",
                 "minimum": 1,
             },
             "pages": {
                 "type": "string",
-                "description": "Reserved for PDF page ranges (not yet supported in V1).",
+                "description": "PDF only: page ranges such as '1-3,5'. Default reads all pages.",
+            },
+            "sheet": {
+                "type": "string",
+                "description": "XLSX only: worksheet name. Default uses the active sheet.",
+            },
+            "range": {
+                "type": "string",
+                "description": "XLSX only: A1 range such as 'A1:D20'. Default uses the used range.",
             },
         },
         "required": ["path"],
     },
 )
 class ReadFileTool(Tool):
-    """Read UTF-8 text files with line-number output and pagination hints."""
+    """Read text files and office documents, dispatching office formats by extension."""
 
     _MAX_CHARS = 128_000
     _DEFAULT_LIMIT = 2000
@@ -146,9 +185,9 @@ class ReadFileTool(Tool):
     @property
     def description(self) -> str:
         return (
-            "Read UTF-8 text files with optional line pagination. "
-            "Text format: LINE_NUM| CONTENT. "
-            "Use offset and limit for large files. "
+            "Read a file's contents. UTF-8 text files return LINE_NUM| CONTENT with "
+            "offset/limit pagination. Office documents are parsed by extension: "
+            ".pdf / .docx / .xlsx (use 'pages' for PDF, 'sheet'/'range' for XLSX). "
             "Reads exceeding ~128K chars are truncated."
         )
 
@@ -158,14 +197,13 @@ class ReadFileTool(Tool):
         offset: int = 1,
         limit: int | None = None,
         pages: str | None = None,
+        sheet: str | None = None,
+        range: str | None = None,
         **kwargs: Any,
     ) -> str:
         try:
             if not path:
                 return "Error reading file: Unknown path"
-
-            if pages:
-                return "Error: pages is not supported by read_file V1 yet."
 
             if _is_blocked_device(path):
                 return (
@@ -183,6 +221,10 @@ class ReadFileTool(Tool):
                 return f"Error: File not found: {path}"
             if not fp.is_file():
                 return f"Error: Not a file: {path}"
+
+            office_result = _read_office_document(fp, path, pages, sheet, range)
+            if office_result is not None:
+                return office_result
 
             raw = fp.read_bytes()
             if not raw:
@@ -766,7 +808,6 @@ def build_default_tool_registry(
 ) -> ToolRegistry:
     """Create a default tool registry for the requested execution profile."""
     from simplified_chatbot.tools.apply_patch import ApplyPatchTool
-    from simplified_chatbot.tools.document_readers import ReadDocumentTool
     from simplified_chatbot.tools.image_viewer import ViewImageTool
     from simplified_chatbot.tools.exec_session import (
         ExecSessionManager,
@@ -820,7 +861,6 @@ def build_default_tool_registry(
         registry.register(TavilySearchTool())
         registry.register(WebFetchTool())
         registry.register(ReadFileTool(workspace=ws, allowed_dir=allowed, file_states=file_states))
-        registry.register(ReadDocumentTool(workspace=ws, allowed_dir=allowed))
         registry.register(ViewImageTool(workspace=ws, allowed_dir=allowed))
         registry.register(WriteFileTool(workspace=ws, allowed_dir=allowed, file_states=file_states))
         registry.register(EditFileTool(workspace=ws, allowed_dir=allowed, file_states=file_states))

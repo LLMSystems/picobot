@@ -90,8 +90,8 @@ class ViewImageTool(Tool):
         return (
             "Look at one or more image files (.png, .jpg, .jpeg, .gif, .webp, .bmp) "
             "from the workspace. The images are attached for you to see directly; "
-            "requires a vision-capable model. Use read_document for PDFs/Office files "
-            "and read_file for text."
+            "requires a vision-capable model. Use read_file for text and "
+            "PDF/Office documents."
         )
 
     async def execute(

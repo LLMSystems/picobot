@@ -10,7 +10,6 @@ from simplified_chatbot.tools.filesystem import _is_blocked_device, _resolve_pat
 
 
 _MAX_OUTPUT_CHARS = 128_000
-_SUPPORTED_SUFFIXES = (".pdf", ".docx", ".xlsx")
 
 
 def _validate_path(
@@ -414,88 +413,3 @@ def _extract_xlsx(
         return f"Error: {exc}"
     except Exception as exc:
         return f"Error reading XLSX: {exc}"
-
-
-@tool_parameters(
-    {
-        "type": "object",
-        "properties": {
-            "path": {
-                "type": "string",
-                "description": "Path to a .pdf, .docx, or .xlsx file. Format detected by extension.",
-            },
-            "pages": {
-                "type": "string",
-                "description": (
-                    "PDF only: page ranges such as '1-3,5'. Default reads all pages. "
-                    "Ignored for non-PDF formats."
-                ),
-            },
-            "sheet": {
-                "type": "string",
-                "description": (
-                    "XLSX only: worksheet name. Default uses the active sheet. "
-                    "Ignored for non-XLSX formats."
-                ),
-            },
-            "range": {
-                "type": "string",
-                "description": (
-                    "XLSX only: A1 range such as 'A1:D20'. Default uses the used range. "
-                    "Ignored for non-XLSX formats."
-                ),
-            },
-        },
-        "required": ["path"],
-    },
-)
-class ReadDocumentTool(Tool):
-    """Read text from PDF, DOCX, or XLSX files; dispatches by file extension."""
-
-    read_only = True
-
-    def __init__(
-        self,
-        workspace: Path | None = None,
-        allowed_dir: Path | None = None,
-    ) -> None:
-        self._workspace = workspace.resolve() if workspace is not None else Path.cwd().resolve()
-        self._allowed_dir = allowed_dir.resolve() if allowed_dir is not None else self._workspace
-
-    @property
-    def name(self) -> str:
-        return "read_document"
-
-    @property
-    def description(self) -> str:
-        return (
-            "Read text from office documents (.pdf, .docx, .xlsx) in the workspace. "
-            "Dispatches by file extension. "
-            "Use 'pages' for PDF page selection; 'sheet'/'range' for XLSX targeting. "
-            "Use read_file for UTF-8 text files."
-        )
-
-    async def execute(
-        self,
-        path: str | None = None,
-        pages: str | None = None,
-        sheet: str | None = None,
-        range: str | None = None,
-        **kwargs: Any,
-    ) -> str:
-        fp, error = _validate_path(path, self._workspace, self._allowed_dir)
-        if error:
-            return error
-        display_path = path or str(fp)
-        suffix = fp.suffix.lower()
-        if suffix == ".pdf":
-            return _extract_pdf(fp, display_path, pages)
-        if suffix == ".docx":
-            return _extract_docx(fp, display_path)
-        if suffix == ".xlsx":
-            return _extract_xlsx(fp, display_path, sheet, range)
-        return (
-            f"Error: Unsupported document format '{suffix or '(none)'}'. "
-            f"Supported: {', '.join(_SUPPORTED_SUFFIXES)}. "
-            "Use read_file for UTF-8 text."
-        )
