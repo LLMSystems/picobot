@@ -110,7 +110,7 @@ async function confirmDelete() {
         :src="picoagentLogo"
         alt=""
         aria-hidden="true"
-        class="size-16 select-none object-contain"
+        class="size-10 -translate-y-0.5 select-none object-contain"
         draggable="false"
       />
       <span class="text-lg font-semibold tracking-tight">Picobot</span>

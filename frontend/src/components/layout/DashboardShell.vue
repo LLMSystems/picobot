@@ -25,7 +25,7 @@ const scrollRoot = ref<HTMLElement | null>(null)
           :src="picoagentLogo"
           alt=""
           aria-hidden="true"
-          class="size-7 select-none object-contain"
+          class="size-10 -translate-y-0.5 object-contain"
           draggable="false"
         />
         <span class="text-sm font-semibold tracking-tight">Picobot</span>
