@@ -34,7 +34,9 @@ def test_default_tool_registry_includes_wave_1a_tools(tmp_path):
     assert "write_stdin" in registry.tool_names
     assert "list_exec_sessions" in registry.tool_names
     assert "tavily_search" in registry.tool_names
-    assert "read_document" in registry.tool_names
+    assert "read_file" in registry.tool_names
+    # read_document merged into read_file; standalone doc tools stay unregistered.
+    assert "read_document" not in registry.tool_names
     assert "read_pdf" not in registry.tool_names
     assert "read_docx" not in registry.tool_names
     assert "read_xlsx" not in registry.tool_names
