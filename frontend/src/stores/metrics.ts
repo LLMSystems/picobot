@@ -132,7 +132,7 @@ export const useMetricsStore = defineStore('metrics', () => {
     let opened = false
     try {
       const url = `${API_BASE}/metrics/stream`
-      const es = new EventSource(url, { withCredentials: false })
+      const es = new EventSource(url, { withCredentials: true })
       sse = es
 
       es.addEventListener('metrics_snapshot', (raw) => {

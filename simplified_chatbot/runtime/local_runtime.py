@@ -185,6 +185,7 @@ class LocalAgentRuntime:
         skills_loader: SkillsLoader | None = None,
         mcp_manager: MCPConnectionManager | None = None,
         config_path: str | Path | None = None,
+        config_disabled_skills: set[str] | None = None,
     ) -> None:
         self.chatbot = chatbot
         self.store = store or InMemorySessionStore()
@@ -194,6 +195,14 @@ class LocalAgentRuntime:
             else None
         )
         self.skills_loader = skills_loader
+        # Roots used to build per-user skill loaders. Custom skills live under
+        # <skills_root>/users/<user_id>; the legacy global dir becomes a shared
+        # read-only root. None when no skill library is configured.
+        self._skills_root = getattr(skills_loader, "workspace_skills", None)
+        self._builtin_skills_dir = getattr(skills_loader, "builtin_skills", None)
+        # Config-level disables apply to every user's loader (e.g. hiding a
+        # builtin globally); per-user enable/disable layers on top via state file.
+        self._config_disabled_skills: set[str] = set(config_disabled_skills or set())
         self.subagent_store = subagent_store or _build_default_subagent_store(self.store)
         self.subagent_event_store = (
             subagent_event_store or _build_default_subagent_event_store(self.store)
@@ -290,6 +299,9 @@ class LocalAgentRuntime:
             skills_loader=skills_loader,
             mcp_manager=mcp_manager,
             config_path=config_file,
+            config_disabled_skills=(
+                set(loaded_config.disabled_skills) if loaded_config is not None else set()
+            ),
         )
 
     # ----- skill library management ----------------------------------------
@@ -431,26 +443,62 @@ class LocalAgentRuntime:
             raise RuntimeError("Skill library is not available in this runtime")
         return self.skills_loader
 
-    def list_skills(self) -> list[dict[str, object]]:
-        """List every skill (builtin + custom) with source / disabled flags."""
-        return self._require_skills_loader().list_all_skills()
+    def _skills_loader_for_user(self, user_id: int | None) -> SkillsLoader:
+        """Return the skill loader scoped to one user.
+
+        Writable custom skills live under ``<skills_root>/users/<user_id>``;
+        the legacy global dir is exposed as a shared read-only root and builtin
+        skills stay shared. ``user_id is None`` (non-auth / library-less local
+        runtime) falls back to the legacy global loader so existing callers and
+        tests keep working unchanged.
+        """
+        if self.skills_loader is None:
+            raise RuntimeError("Skill library is not available in this runtime")
+        if user_id is None or self._skills_root is None:
+            return self.skills_loader
+        user_dir = self._skills_root / "users" / str(user_id)
+        # Baseline disabled = config-level ∪ the shared (legacy global) dir's
+        # own .skill_state.json — the global loader already merged both at
+        # startup, so disables on shared/builtin skills apply to every user.
+        # The per-user loader then layers its own state file on top.
+        baseline_disabled = set(self._config_disabled_skills) | set(
+            self.skills_loader.disabled_skills,
+        )
+        return SkillsLoader(
+            skills_dir=user_dir,
+            shared_skills_dir=self._skills_root,
+            builtin_skills_dir=self._builtin_skills_dir,
+            disabled_skills=baseline_disabled,
+        )
+
+    def list_skills(self, user_id: int | None = None) -> list[dict[str, object]]:
+        """List every skill (builtin + shared + this user's custom) with flags."""
+        return self._skills_loader_for_user(user_id).list_all_skills()
 
     def create_skill(
         self,
         name: str,
         content: str,
         files: dict[str, bytes] | None = None,
+        *,
+        user_id: int | None = None,
     ) -> None:
-        """Create or overwrite a custom skill in the global library."""
-        self._require_skills_loader().create_skill(name, content, files=files)
+        """Create or overwrite a custom skill in the user's own library."""
+        self._skills_loader_for_user(user_id).create_skill(name, content, files=files)
 
-    def delete_skill(self, name: str) -> None:
-        """Delete a custom skill from the global library."""
-        self._require_skills_loader().delete_skill(name)
+    def delete_skill(self, name: str, *, user_id: int | None = None) -> None:
+        """Delete a custom skill from the user's own library."""
+        self._skills_loader_for_user(user_id).delete_skill(name)
 
-    def set_skill_disabled(self, name: str, disabled: bool) -> None:
-        """Enable or disable a skill globally for newly created sessions."""
-        self._require_skills_loader().set_skill_disabled(name, disabled)
+    def set_skill_disabled(
+        self,
+        name: str,
+        disabled: bool,
+        *,
+        user_id: int | None = None,
+    ) -> None:
+        """Enable or disable a skill for the user's newly created sessions."""
+        self._skills_loader_for_user(user_id).set_skill_disabled(name, disabled)
 
     def handle_message(
         self,
@@ -870,13 +918,22 @@ class LocalAgentRuntime:
         self._pending_internal_messages.pop(session_id, None)
         self._resume_requested.discard(session_id)
 
-    async def list_sessions_async(self) -> list[str]:
+    async def list_sessions_async(self, user_id: int | None = None) -> list[str]:
         if isinstance(self.store, AsyncSessionStore):
-            return await self.store.list_sessions()
+            # Only the AioSQLite store supports the user_id filter; call the
+            # plain signature when not filtering so other async stores still work.
+            if user_id is None:
+                return await self.store.list_sessions()
+            return await self.store.list_sessions(user_id=user_id)
+        # Sync stores (InMemory/Jsonl/SQLite) are deprecated and have no user
+        # column, so they cannot filter — return everything as before.
         return await asyncio.to_thread(self.store.list_sessions)
 
-    async def list_session_summaries_async(self) -> list[dict[str, object]]:
-        session_ids = await self.list_sessions_async()
+    async def list_session_summaries_async(
+        self,
+        user_id: int | None = None,
+    ) -> list[dict[str, object]]:
+        session_ids = await self.list_sessions_async(user_id=user_id)
         summaries: list[dict[str, object]] = []
         for session_id in session_ids:
             history = await self._load_history_async(session_id)
@@ -1341,13 +1398,21 @@ class LocalAgentRuntime:
         title: str | None = None,
         session_id: str | None = None,
         agent_type: str | None = None,
+        user_id: int | None = None,
+        apply_default_title: bool = True,
     ) -> dict[str, object]:
         resolved_session_id = session_id or _generate_session_id()
         resolved_agent_type = _normalize_agent_type(agent_type)
-        payload = {
-            "title": _normalize_session_title(title),
+        # When apply_default_title is False we persist a NULL title so the
+        # summary can still derive one from the first message — used when chat
+        # implicitly creates a session just to stamp its owner.
+        resolved_title = _normalize_session_title(title) if apply_default_title else title
+        payload: dict[str, object] = {
+            "title": resolved_title,
             "agent_type": resolved_agent_type,
         }
+        if user_id is not None:
+            payload["user_id"] = user_id
         self._session_agent_types[resolved_session_id] = resolved_agent_type
         create_session = getattr(self.store, "create_session", None)
         if not callable(create_session):
@@ -1362,7 +1427,18 @@ class LocalAgentRuntime:
                 payload,
             )
         if self.workspace_manager is not None:
-            self.workspace_manager.ensure_workspace(resolved_session_id)
+            # Seed the session's .skills/ with the owner's library (custom +
+            # shared + builtin). user_id is known here, so we avoid resolving
+            # ownership later in the sync per-session chatbot path.
+            owner_loader = (
+                self._skills_loader_for_user(user_id)
+                if self.skills_loader is not None
+                else None
+            )
+            self.workspace_manager.ensure_workspace(
+                resolved_session_id,
+                skills_loader=owner_loader,
+            )
         return self._build_session_summary(resolved_session_id, [], metadata)
 
     async def rename_session_async(self, session_id: str, title: str) -> dict[str, object]:
@@ -2617,6 +2693,7 @@ class LocalAgentRuntime:
         updated_at = session_metadata.get("updated_at")
         title = session_metadata.get("title")
         agent_type = session_metadata.get("agent_type")
+        user_id = session_metadata.get("user_id")
         return {
             "session_id": session_id,
             "title": (
@@ -2625,6 +2702,7 @@ class LocalAgentRuntime:
                 else _derive_session_title(first_user, session_id=session_id)
             ),
             "agent_type": agent_type if isinstance(agent_type, str) else None,
+            "user_id": user_id if isinstance(user_id, int) else None,
             "created_at": created_at if isinstance(created_at, str) else None,
             "updated_at": updated_at if isinstance(updated_at, str) else None,
             "message_count": sum(

@@ -1,6 +1,7 @@
 import asyncio
 from pathlib import Path
 import re
+import shutil
 import sys
 
 import pytest
@@ -253,6 +254,66 @@ async def test_exec_session_tools_enforce_owner_session(tmp_path: Path):
     assert listing_b == "No active exec sessions."
     assert "exec session not found" in forbidden
     assert "Session terminated." in cleanup
+
+
+def test_build_subprocess_env_strips_secrets(monkeypatch):
+    from simplified_chatbot.tools.shell import build_subprocess_env
+
+    monkeypatch.setenv("SESSION_SECRET", "should-be-gone")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-should-be-gone")
+    monkeypatch.setenv("FOO_TOKEN", "should-be-gone")
+    monkeypatch.setenv("ADMIN_USERNAMES", "boss")
+    monkeypatch.setenv("PLAIN_VALUE", "kept")
+
+    env = build_subprocess_env()
+
+    assert "SESSION_SECRET" not in env
+    assert "OPENAI_API_KEY" not in env
+    assert "FOO_TOKEN" not in env  # matched by the TOKEN pattern
+    assert "ADMIN_USERNAMES" not in env
+    assert env.get("PLAIN_VALUE") == "kept"
+    assert env["PYTHONUNBUFFERED"] == "1"
+
+
+def test_exec_does_not_expose_secrets_to_commands(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("SESSION_SECRET", "topsecret-cookie-key")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-leak-me")
+    monkeypatch.setenv("SAFE_DEMO_VAR", "safe-demo-value")
+
+    registry = build_default_tool_registry(workspace=tmp_path)
+    command = _python_command("import os; print(repr(dict(os.environ)))")
+
+    result = registry.execute("exec", {"command": command})
+
+    assert "Exit code: 0" in result
+    assert "topsecret-cookie-key" not in result
+    assert "sk-leak-me" not in result
+    # non-sensitive vars are still inherited so tools keep working
+    assert "safe-demo-value" in result
+
+
+@pytest.mark.skipif(shutil.which("bwrap") is None, reason="bubblewrap not installed")
+def test_exec_sandbox_hides_files_outside_workspace(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("PICOBOT_EXEC_SANDBOX", "1")
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    secret = tmp_path / "secret.txt"  # sibling of the workspace, outside it
+    secret.write_text("TOP-SECRET", encoding="utf-8")
+
+    registry = build_default_tool_registry(workspace=ws)
+
+    # No absolute path / ".." in the command, so the static guard allows it;
+    # only bubblewrap stops it from seeing the workspace's parent directory.
+    result = registry.execute("exec", {"command": 'ls -a "$(dirname "$PWD")"'})
+    assert "secret.txt" not in result
+
+    # The workspace itself is writable and the system toolchain works.
+    ok = registry.execute(
+        "exec",
+        {"command": "echo sandboxed-ok > marker.txt && cat marker.txt"},
+    )
+    assert "sandboxed-ok" in ok
+    assert (ws / "marker.txt").exists()
 
 
 def _python_command(code: str) -> str:

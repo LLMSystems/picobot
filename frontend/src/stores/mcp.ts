@@ -59,6 +59,14 @@ export const useMcpStore = defineStore('mcp', () => {
     await refresh()
   }
 
+  /** Drop cached state so the next load() refetches (e.g. on user switch). */
+  function reset() {
+    status.value = null
+    rawServers.value = {}
+    loaded.value = false
+    error.value = null
+  }
+
   async function reload() {
     reloading.value = true
     error.value = null
@@ -114,6 +122,7 @@ export const useMcpStore = defineStore('mcp', () => {
     error,
     refresh,
     load,
+    reset,
     reload,
     upsert,
     remove,

@@ -1,5 +1,6 @@
 import type {
   AgentTypesResponse,
+  AuthUser,
   Capabilities,
   ChatImageInput,
   ChatOverrides,
@@ -51,9 +52,18 @@ function qs(params: Record<string, string | number | boolean | undefined>): stri
 
 export const API_BASE = (import.meta.env.VITE_API_BASE ?? '').replace(/\/$/, '')
 
+// The auth store registers a handler here so any 401 (an expired/cleared
+// cookie) can drop the session and bounce the user to the login screen,
+// without every call site having to special-case it.
+let unauthorizedHandler: (() => void) | null = null
+export function onUnauthorized(handler: () => void): void {
+  unauthorizedHandler = handler
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     cache: 'no-store',
+    credentials: 'include',
     ...init,
     headers: {
       'Content-Type': 'application/json',
@@ -64,7 +74,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 async function requestRaw<T>(path: string, init: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, { cache: 'no-store', ...init })
+  const res = await fetch(`${API_BASE}${path}`, {
+    cache: 'no-store',
+    credentials: 'include',
+    ...init,
+  })
   return parseResponse<T>(res)
 }
 
@@ -76,6 +90,9 @@ async function parseResponse<T>(res: Response): Promise<T> {
       body = (await res.json()) as ApiErrorBody
     } catch {
       // ignore parse failure
+    }
+    if (res.status === 401) {
+      unauthorizedHandler?.()
     }
     throw new ApiError(
       body?.error?.code ?? 'UNKNOWN',
@@ -89,6 +106,23 @@ async function parseResponse<T>(res: Response): Promise<T> {
 
 export const api = {
   health: () => request<{ status: string }>('/health'),
+
+  authMe: () => request<AuthUser>('/auth/me'),
+
+  authLogin: (body: { username: string; password: string }) =>
+    request<AuthUser>('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  authRegister: (body: { username: string; password: string }) =>
+    request<AuthUser>('/auth/register', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  authLogout: () =>
+    request<{ ok: boolean }>('/auth/logout', { method: 'POST' }),
 
   chromeHealth: () =>
     request<{ chrome_alive: boolean; cdp_port: number }>('/health/chrome'),

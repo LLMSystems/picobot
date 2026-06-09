@@ -3,6 +3,7 @@
 import asyncio
 import json
 from pathlib import Path
+from conftest import register_test_user
 
 import pytest
 
@@ -283,9 +284,9 @@ def _build_app(monkeypatch, tmp_path):
     monkeypatch.setattr("simplified_chatbot.chatbot.build_provider", lambda _config: object())
     store = AioSQLiteSessionStore(tmp_path / "sessions_async.db")
     runtime = LocalAgentRuntime.from_config(_write_chatbot_config(tmp_path), store=store)
-    return TestClient(create_app(runtime=runtime))
-
-
+    client = TestClient(create_app(runtime=runtime))
+    register_test_user(client)
+    return client
 def test_get_agent_types_endpoint(monkeypatch, tmp_path):
     client = _build_app(monkeypatch, tmp_path)
     body = client.get("/agent-types").json()

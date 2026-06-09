@@ -11,6 +11,7 @@ pytest.importorskip("aiosqlite")
 
 from fastapi.testclient import TestClient
 
+from conftest import register_test_user
 from simplified_chatbot.agent.types import Message
 from simplified_chatbot.runtime.local_runtime import LocalAgentRuntime
 from simplified_chatbot.runtime.session_store import AioSQLiteSessionStore
@@ -57,7 +58,9 @@ def _make_client(tmp_path, alerts_yaml: str | None = None) -> TestClient:
         p.write_text(alerts_yaml, encoding="utf-8")
         alerts_path = p
     app = create_app(runtime=runtime, alerts_config_path=alerts_path)
-    return TestClient(app)
+    client = TestClient(app)
+    register_test_user(client)  # alerts is admin-only; "tester" is admin in tests
+    return client
 
 
 def test_alerts_active_returns_empty_when_no_rules(tmp_path):

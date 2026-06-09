@@ -11,6 +11,7 @@ pytest.importorskip("fastapi")
 
 from fastapi.testclient import TestClient
 
+from conftest import register_test_user
 from simplified_chatbot.agent.types import Message
 from simplified_chatbot.metrics.service import MetricsService
 from simplified_chatbot.metrics.snapshot_store import SnapshotStore
@@ -192,6 +193,7 @@ def test_history_endpoint_returns_buckets(tmp_path):
     runtime = LocalAgentRuntime(chatbot=_DummyChatbot(), store=store)
     app = create_app(runtime=runtime)
     client = TestClient(app)
+    register_test_user(client)  # /metrics is admin-only; "tester" is admin in tests
 
     # Force one snapshot to land in the table.
     task = app.state.snapshot_task
@@ -215,6 +217,7 @@ def test_history_endpoint_rejects_bad_range(tmp_path):
     store = AioSQLiteSessionStore(tmp_path / "sessions.db")
     runtime = LocalAgentRuntime(chatbot=_DummyChatbot(), store=store)
     client = TestClient(create_app(runtime=runtime))
+    register_test_user(client)  # /metrics is admin-only; "tester" is admin in tests
 
     resp = client.get(
         "/metrics/history",
@@ -228,6 +231,7 @@ def test_history_endpoint_requires_series(tmp_path):
     store = AioSQLiteSessionStore(tmp_path / "sessions.db")
     runtime = LocalAgentRuntime(chatbot=_DummyChatbot(), store=store)
     client = TestClient(create_app(runtime=runtime))
+    register_test_user(client)  # /metrics is admin-only; "tester" is admin in tests
 
     resp = client.get("/metrics/history", params={"range": "1h"})
     assert resp.status_code == 400

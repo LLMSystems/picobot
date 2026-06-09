@@ -40,38 +40,42 @@ class SkillsLoader:
         skills_dir: Path | None = None,
         builtin_skills_dir: Path | None = None,
         disabled_skills: set[str] | None = None,
+        shared_skills_dir: Path | None = None,
     ) -> None:
         self.workspace_skills = skills_dir
         self.builtin_skills = builtin_skills_dir or BUILTIN_SKILLS_DIR
+        # An extra read-only root, ranked between the writable custom dir and
+        # builtin. Used for the legacy global skill library once skills became
+        # per-user: those skills stay visible to everyone but nobody can edit them.
+        self.shared_skills = shared_skills_dir
         # Effective disabled set = caller-provided ∪ persisted state file.
         self.disabled_skills = set(disabled_skills or set())
         self.disabled_skills |= self._load_state_disabled()
 
     def list_skills(self) -> list[dict[str, str]]:
-        """List available skills from custom and builtin roots."""
+        """List available skills from custom, shared and builtin roots."""
         skills: list[dict[str, str]] = []
-        workspace_names: set[str] = set()
-        if self.workspace_skills:
-            workspace_entries = self._skill_entries_from_dir(
-                self.workspace_skills,
-                "workspace",
-            )
-            skills.extend(workspace_entries)
-            workspace_names = {entry["name"] for entry in workspace_entries}
-        skills.extend(
-            self._skill_entries_from_dir(
-                self.builtin_skills,
-                "builtin",
-                skip_names=workspace_names,
-            ),
-        )
+        seen: set[str] = set()
+        # Priority: writable custom > shared (legacy global) > builtin.
+        for base, source in (
+            (self.workspace_skills, "workspace"),
+            (self.shared_skills, "shared"),
+            (self.builtin_skills, "builtin"),
+        ):
+            entries = self._skill_entries_from_dir(base, source, skip_names=seen)
+            skills.extend(entries)
+            seen.update(entry["name"] for entry in entries)
         if self.disabled_skills:
             skills = [item for item in skills if item["name"] not in self.disabled_skills]
         return skills
 
     def load_skill(self, name: str) -> str | None:
         """Load the raw SKILL.md content by skill name."""
-        roots = [root for root in [self.workspace_skills, self.builtin_skills] if root]
+        roots = [
+            root
+            for root in [self.workspace_skills, self.shared_skills, self.builtin_skills]
+            if root
+        ]
         for root in roots:
             path = root / name / "SKILL.md"
             if path.exists():
@@ -141,6 +145,7 @@ class SkillsLoader:
         result: list[dict[str, object]] = []
         roots: list[tuple[Path | None, str]] = [
             (self.workspace_skills, "custom"),
+            (self.shared_skills, "shared"),
             (self.builtin_skills, "builtin"),
         ]
         for base, source in roots:
@@ -188,9 +193,12 @@ class SkillsLoader:
         """Delete a custom skill. Builtin skills cannot be deleted."""
         safe = self._validate_name(name)
         if self.workspace_skills is None or not self.is_custom_skill(safe):
-            if (self.builtin_skills / safe / "SKILL.md").exists():
+            shared_hit = self.shared_skills is not None and (
+                self.shared_skills / safe / "SKILL.md"
+            ).exists()
+            if (self.builtin_skills / safe / "SKILL.md").exists() or shared_hit:
                 raise SkillBuiltinReadOnlyError(
-                    f"Skill '{name}' is builtin and cannot be deleted",
+                    f"Skill '{name}' is read-only and cannot be deleted",
                 )
             raise SkillNotFoundError(name)
         shutil.rmtree(self.workspace_skills / safe)

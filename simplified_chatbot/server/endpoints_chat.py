@@ -7,12 +7,14 @@ from collections import deque
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import StreamingResponse
 
 from simplified_chatbot.agent.types import ContentBlock, MessageContent
+from simplified_chatbot.auth.users_store import User
 from simplified_chatbot.runtime.local_runtime import ModelNotAllowedError
 from simplified_chatbot.server.common import error_response, get_request_id, get_runtime
+from simplified_chatbot.server.deps import claim_or_check_session, require_user
 from simplified_chatbot.server.schemas import (
     AskUserQuestionAnswerRequest,
     AskUserQuestionAnswerResponse,
@@ -381,9 +383,16 @@ async def _record_llm_calls(
 
 
 @router.post("/chat", response_model=ChatResponse)
-async def chat(request: Request, payload: ChatRequest) -> ChatResponse:
+async def chat(
+    request: Request,
+    payload: ChatRequest,
+    user: User = Depends(require_user),
+) -> ChatResponse:
     """Return one complete assistant response."""
     runtime = get_runtime(request)
+    denied = await claim_or_check_session(request, payload.session_id, user)
+    if denied is not None:
+        return denied
     # Reuse the per-request id middleware as the chat_id so all LLM iterations
     # in this turn share a grouping key (drives iterations-per-chat metric).
     chat_id = get_request_id(request)
@@ -490,8 +499,12 @@ async def chat_stream(
     session_id: str = Query(min_length=1),
     message: str = Query(min_length=1),
     include_trace: bool = Query(default=True),
+    user: User = Depends(require_user),
 ) -> StreamingResponse:
     """Stream one assistant response using SSE."""
+    denied = await claim_or_check_session(request, session_id, user)
+    if denied is not None:
+        return denied
     return _build_chat_stream_response(
         request,
         session_id=session_id,
@@ -504,9 +517,13 @@ async def chat_stream(
 async def chat_stream_post(
     request: Request,
     payload: ChatStreamRequest,
+    user: User = Depends(require_user),
 ) -> StreamingResponse:
     """Stream one assistant response using SSE with a JSON request body."""
     runtime = get_runtime(request)
+    denied = await claim_or_check_session(request, payload.session_id, user)
+    if denied is not None:
+        return denied
     try:
         content = await _build_chat_content(
             runtime,

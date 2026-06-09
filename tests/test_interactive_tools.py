@@ -1,5 +1,7 @@
 import asyncio
 
+from conftest import register_test_user
+
 import pytest
 
 pytest.importorskip("fastapi")
@@ -123,7 +125,9 @@ def test_answer_ask_user_question_endpoint_returns_success(tmp_path):
         return True
 
     runtime.answer_ask_user_question = fake_answer  # type: ignore[method-assign]
+    asyncio.run(runtime.create_session_async(session_id="s1", user_id=1))
     client = TestClient(create_app(runtime=runtime))
+    register_test_user(client)
 
     response = client.post(
         "/sessions/s1/ask_user_question/answer",
@@ -145,7 +149,9 @@ def test_answer_ask_user_question_endpoint_returns_404_when_no_pending(tmp_path)
         return False
 
     runtime.answer_ask_user_question = fake_answer  # type: ignore[method-assign]
+    asyncio.run(runtime.create_session_async(session_id="s1", user_id=1))
     client = TestClient(create_app(runtime=runtime))
+    register_test_user(client)
 
     response = client.post(
         "/sessions/s1/ask_user_question/answer",

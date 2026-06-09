@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import base64
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 
+from simplified_chatbot.auth.users_store import User
 from simplified_chatbot.server.common import error_response, get_runtime
+from simplified_chatbot.server.deps import require_user
 from simplified_chatbot.server.schemas import (
     SkillCreateRequest,
     SkillDisableRequest,
@@ -25,11 +27,14 @@ router = APIRouter()
 
 
 @router.get("/skills", response_model=SkillListResponse)
-async def list_skills(request: Request) -> SkillListResponse:
-    """List every builtin and custom skill with its enabled state."""
+async def list_skills(
+    request: Request,
+    user: User = Depends(require_user),
+) -> SkillListResponse:
+    """List builtin + shared + this user's custom skills with enabled state."""
     runtime = get_runtime(request)
     try:
-        skills = runtime.list_skills()
+        skills = runtime.list_skills(user_id=user.id)
     except RuntimeError as exc:
         return error_response(
             request,
@@ -44,8 +49,9 @@ async def list_skills(request: Request) -> SkillListResponse:
 async def create_skill(
     request: Request,
     body: SkillCreateRequest,
+    user: User = Depends(require_user),
 ) -> SkillMutationResponse:
-    """Create or overwrite a custom skill in the global library."""
+    """Create or overwrite a custom skill in the caller's own library."""
     runtime = get_runtime(request)
     files: dict[str, bytes] = {}
     for item in body.files:
@@ -59,7 +65,7 @@ async def create_skill(
                 message=f"File '{item.path}' is not valid base64",
             )
     try:
-        runtime.create_skill(body.name, body.content, files=files or None)
+        runtime.create_skill(body.name, body.content, files=files or None, user_id=user.id)
     except RuntimeError as exc:
         return error_response(
             request,
@@ -85,11 +91,15 @@ async def create_skill(
 
 
 @router.delete("/skills/{name}", response_model=SkillMutationResponse)
-async def delete_skill(request: Request, name: str) -> SkillMutationResponse:
-    """Delete a custom skill. Builtin skills cannot be deleted."""
+async def delete_skill(
+    request: Request,
+    name: str,
+    user: User = Depends(require_user),
+) -> SkillMutationResponse:
+    """Delete one of the caller's custom skills. Builtin/shared are read-only."""
     runtime = get_runtime(request)
     try:
-        runtime.delete_skill(name)
+        runtime.delete_skill(name, user_id=user.id)
     except RuntimeError as exc:
         return error_response(
             request,
@@ -126,11 +136,12 @@ async def set_skill_disabled(
     request: Request,
     name: str,
     body: SkillDisableRequest,
+    user: User = Depends(require_user),
 ) -> SkillMutationResponse:
-    """Enable or disable a skill for newly created sessions."""
+    """Enable or disable a skill for the caller's newly created sessions."""
     runtime = get_runtime(request)
     try:
-        runtime.set_skill_disabled(name, body.disabled)
+        runtime.set_skill_disabled(name, body.disabled, user_id=user.id)
     except RuntimeError as exc:
         return error_response(
             request,

@@ -3,6 +3,12 @@ export interface ModelInfo {
   name: string
 }
 
+export interface AuthUser {
+  id: number
+  username: string
+  is_admin: boolean
+}
+
 export interface ToolCapability {
   name: string
   description: string
@@ -481,7 +487,8 @@ export interface WorkspaceDeleteDirectoryResponse {
 
 export interface SkillInfo {
   name: string
-  source: 'builtin' | 'custom'
+  // 'shared' = legacy global custom skills, now read-only for everyone.
+  source: 'builtin' | 'custom' | 'shared'
   description: string
   always: boolean
   disabled: boolean

@@ -17,6 +17,7 @@ import { useCapabilitiesStore } from '@/stores/capabilities'
 import { toast } from 'vue-sonner'
 import SessionItem from '@/components/sessions/SessionItem.vue'
 import AgentTypeCards from '@/components/sessions/AgentTypeCards.vue'
+import SidebarUserMenu from '@/components/layout/SidebarUserMenu.vue'
 import { Skeleton } from '@/components/ui/skeleton'
 import picoagentLogo from '@/assets/picobot_head.png'
 
@@ -196,6 +197,8 @@ async function confirmDelete() {
         </li>
       </ul>
     </div>
+
+    <SidebarUserMenu />
 
     <Dialog
       :open="pickerOpen"

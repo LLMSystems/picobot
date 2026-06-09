@@ -3,15 +3,14 @@ import { computed, ref, watch, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
 import { useSessionsStore } from '@/stores/sessions'
 import { useCapabilitiesStore } from '@/stores/capabilities'
+import { useAuthStore } from '@/stores/auth'
 import { Button } from '@/components/ui/button'
-import { Menu, Pencil, Moon, Sun, PanelRight, Bell, BellOff, Download, Settings, MemoryStick } from 'lucide-vue-next'
+import { Menu, Pencil, PanelRight, Download, MemoryStick } from 'lucide-vue-next'
 import ModeSwitcher from '@/components/layout/ModeSwitcher.vue'
 import AlertsBadge from '@/components/layout/AlertsBadge.vue'
 import AgentTypeAvatar from '@/components/common/AgentTypeAvatar.vue'
 import { useAgentTypesStore } from '@/stores/agentTypes'
-import SettingsDialog from '@/components/settings/SettingsDialog.vue'
 import SessionMemoryPanel from '@/components/chat/SessionMemoryPanel.vue'
-import { useSettingsStore } from '@/stores/settings'
 import { useSessionMemoryStore } from '@/stores/sessionMemory'
 import {
   DropdownMenu,
@@ -20,9 +19,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { toast } from 'vue-sonner'
-import { useTheme } from '@/composables/useTheme'
 import { useWorkspaceStore } from '@/stores/workspace'
-import { useNotifications } from '@/composables/useNotifications'
 import { api } from '@/lib/api'
 import {
   downloadAsFile,
@@ -36,14 +33,12 @@ defineEmits<{ (e: 'toggle-sidebar'): void }>()
 const route = useRoute()
 const sessions = useSessionsStore()
 const caps = useCapabilitiesStore()
+const auth = useAuthStore()
 const ws = useWorkspaceStore()
-const settings = useSettingsStore()
+
 const memory = useSessionMemoryStore()
-const { theme, toggle: toggleTheme } = useTheme()
-const notifs = useNotifications()
 
 const exporting = ref(false)
-const settingsOpen = ref(false)
 const memoryOpen = ref(false)
 
 async function exportSession(format: 'markdown' | 'json') {
@@ -69,27 +64,6 @@ async function exportSession(format: 'markdown' | 'json') {
     })
   } finally {
     exporting.value = false
-  }
-}
-
-async function toggleNotifications() {
-  if (!notifs.supported) {
-    toast.error('此瀏覽器不支援通知')
-    return
-  }
-  const result = await notifs.toggle()
-  if (notifs.permission.value === 'denied') {
-    toast.error('通知權限已被瀏覽器拒絕', {
-      description: '請在瀏覽器設定開啟此網站的通知權限',
-    })
-    return
-  }
-  if (result) {
-    toast.success('已開啟通知', {
-      description: '長任務完成時若分頁不在前景會通知你',
-    })
-  } else {
-    toast.info('已關閉通知')
   }
 }
 
@@ -206,8 +180,10 @@ function cancel() {
     </div>
 
     <div class="flex items-center gap-2 text-xs text-muted-foreground">
-      <AlertsBadge />
-      <ModeSwitcher />
+      <template v-if="auth.isAdmin">
+        <AlertsBadge />
+        <ModeSwitcher />
+      </template>
       <DropdownMenu v-if="currentSession">
         <DropdownMenuTrigger as-child>
           <Button
@@ -246,45 +222,6 @@ function cancel() {
         />
       </Button>
       <Button
-        v-if="notifs.supported"
-        variant="ghost"
-        size="icon"
-        :aria-pressed="notifs.enabled.value"
-        aria-label="切換通知"
-        title="長任務完成通知"
-        @click="toggleNotifications"
-      >
-        <Bell
-          v-if="notifs.enabled.value && notifs.permission.value === 'granted'"
-          class="size-4"
-        />
-        <BellOff v-else class="size-4 opacity-50" />
-      </Button>
-      <Button
-        variant="ghost"
-        size="icon"
-        aria-label="設定"
-        title="設定"
-        class="relative"
-        @click="settingsOpen = true"
-      >
-        <Settings class="size-4" />
-        <span
-          v-if="settings.hasOverrides"
-          class="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-amber-500"
-          aria-hidden="true"
-        />
-      </Button>
-      <Button
-        variant="ghost"
-        size="icon"
-        aria-label="切換主題"
-        @click="toggleTheme"
-      >
-        <Sun v-if="theme === 'dark'" class="size-4" />
-        <Moon v-else class="size-4" />
-      </Button>
-      <Button
         v-if="caps.data.features.session_workspace"
         variant="ghost"
         size="icon"
@@ -298,7 +235,6 @@ function cancel() {
     </div>
   </header>
 
-  <SettingsDialog v-model:open="settingsOpen" />
   <SessionMemoryPanel
     v-model:open="memoryOpen"
     :session-id="currentId"

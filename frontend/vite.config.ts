@@ -21,6 +21,7 @@ export default defineConfig(({ command }) => ({
   },
   server: {
     proxy: {
+      '/auth': { target: BACKEND, changeOrigin: true },
       '/chat': { target: BACKEND, changeOrigin: true },
       '/sessions': { target: BACKEND, changeOrigin: true },
       '/capabilities': { target: BACKEND, changeOrigin: true },

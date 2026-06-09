@@ -26,10 +26,7 @@ def load_system_prompt(
         registry=registry,
     )
     resolved_workspace = _resolve_workspace(workspace, config_path=config_path)
-    loader = SkillsLoader(
-        skills_dir=_resolve_skills_dir(config, config_path=config_path),
-        disabled_skills=set(config.disabled_skills),
-    )
+    loader = _skills_loader_for_prompt(config, config_path, resolved_workspace)
     active_skills = _resolve_active_skills(config, loader)
     active_content = loader.load_skills_for_context(active_skills, workspace=resolved_workspace) if active_skills else ""
     summary = loader.build_skills_summary(exclude=set(active_skills), workspace=resolved_workspace)
@@ -64,10 +61,7 @@ def load_subagent_system_prompt(
     """Build the focused system prompt used by background subagents."""
     base_prompt = _built_in_subagent_prompt_path().read_text(encoding="utf-8").strip()
     resolved_workspace = _resolve_workspace(workspace, config_path=config_path)
-    loader = SkillsLoader(
-        skills_dir=_resolve_skills_dir(config, config_path=config_path),
-        disabled_skills=set(config.disabled_skills),
-    )
+    loader = _skills_loader_for_prompt(config, config_path, resolved_workspace)
     summary = loader.build_skills_summary(workspace=resolved_workspace)
 
     parts = [
@@ -155,6 +149,32 @@ def _resolve_skills_dir(
     if not config.skills_dir:
         return None
     return _resolve_prompt_path(config.skills_dir, config_path=config_path)
+
+
+def _skills_loader_for_prompt(
+    config: ChatbotConfig,
+    config_path: str | Path | None,
+    resolved_workspace: Path | None,
+) -> SkillsLoader:
+    """Build the loader the system prompt reads skills from.
+
+    Skills are materialized into the session's ``.skills/`` (already per-user
+    isolated, and disabled-filtered at copy time), so when that directory
+    exists we read from it — this makes the prompt's skill list per-user
+    without threading a user id through the prompt factory. Falls back to the
+    global skills dir for the base / workspaceless case.
+    """
+    if resolved_workspace is not None:
+        ws_skills = resolved_workspace / ".skills"
+        if ws_skills.exists():
+            return SkillsLoader(
+                skills_dir=ws_skills,
+                disabled_skills=set(config.disabled_skills),
+            )
+    return SkillsLoader(
+        skills_dir=_resolve_skills_dir(config, config_path=config_path),
+        disabled_skills=set(config.disabled_skills),
+    )
 
 
 def _resolve_active_skills(

@@ -28,6 +28,13 @@ export const useSkillsStore = defineStore('skills', () => {
     await refresh()
   }
 
+  /** Drop the cached list so the next load() refetches (e.g. on user switch). */
+  function reset() {
+    skills.value = []
+    loaded.value = false
+    error.value = null
+  }
+
   async function create(
     name: string,
     content: string,
@@ -55,7 +62,8 @@ export const useSkillsStore = defineStore('skills', () => {
   }
 
   const customSkills = computed(() => skills.value.filter((s) => s.source === 'custom'))
-  const builtinSkills = computed(() => skills.value.filter((s) => s.source === 'builtin'))
+  // builtin + shared (legacy global) are both read-only, shown together.
+  const builtinSkills = computed(() => skills.value.filter((s) => s.source !== 'custom'))
   const enabledCount = computed(() => skills.value.filter((s) => !s.disabled).length)
 
   return {
@@ -65,6 +73,7 @@ export const useSkillsStore = defineStore('skills', () => {
     error,
     refresh,
     load,
+    reset,
     create,
     remove,
     setDisabled,

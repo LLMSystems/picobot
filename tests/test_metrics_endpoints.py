@@ -1,6 +1,7 @@
 """End-to-end tests for the /metrics endpoints via FastAPI TestClient."""
 
 from __future__ import annotations
+from conftest import register_test_user
 
 import asyncio
 import sqlite3
@@ -126,9 +127,9 @@ def _make_app(tmp_path) -> TestClient:
     store = AioSQLiteSessionStore(tmp_path / "sessions.db")
     runtime = LocalAgentRuntime(chatbot=_DummyChatbot(), store=store)
     app = create_app(runtime=runtime)
-    return TestClient(app)
-
-
+    client = TestClient(app)
+    register_test_user(client)
+    return client
 def test_metrics_current_returns_well_formed_snapshot(tmp_path):
     client = _make_app(tmp_path)
     resp = client.get("/metrics/current")
@@ -166,7 +167,7 @@ def test_memory_compaction_llm_events_are_excluded_from_metrics(tmp_path):
     runtime = LocalAgentRuntime(chatbot=_MetricsEventChatbot(), store=store)
     app = create_app(runtime=runtime)
     client = TestClient(app)
-
+    register_test_user(client)
     chat_resp = client.post(
         "/chat",
         json={"session_id": "s1", "message": "hi"},
