@@ -1,6 +1,7 @@
 import asyncio
 from pathlib import Path
 import re
+import shutil
 import sys
 
 import pytest
@@ -289,6 +290,30 @@ def test_exec_does_not_expose_secrets_to_commands(tmp_path: Path, monkeypatch):
     assert "sk-leak-me" not in result
     # non-sensitive vars are still inherited so tools keep working
     assert "safe-demo-value" in result
+
+
+@pytest.mark.skipif(shutil.which("bwrap") is None, reason="bubblewrap not installed")
+def test_exec_sandbox_hides_files_outside_workspace(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("PICOBOT_EXEC_SANDBOX", "1")
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    secret = tmp_path / "secret.txt"  # sibling of the workspace, outside it
+    secret.write_text("TOP-SECRET", encoding="utf-8")
+
+    registry = build_default_tool_registry(workspace=ws)
+
+    # No absolute path / ".." in the command, so the static guard allows it;
+    # only bubblewrap stops it from seeing the workspace's parent directory.
+    result = registry.execute("exec", {"command": 'ls -a "$(dirname "$PWD")"'})
+    assert "secret.txt" not in result
+
+    # The workspace itself is writable and the system toolchain works.
+    ok = registry.execute(
+        "exec",
+        {"command": "echo sandboxed-ok > marker.txt && cat marker.txt"},
+    )
+    assert "sandboxed-ok" in ok
+    assert (ws / "marker.txt").exists()
 
 
 def _python_command(code: str) -> str:

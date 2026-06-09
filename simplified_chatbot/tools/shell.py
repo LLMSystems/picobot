@@ -6,6 +6,7 @@ import asyncio
 import os
 import re
 import shutil
+import signal
 import sys
 from pathlib import Path
 from typing import Any
@@ -71,6 +72,41 @@ def build_subprocess_env() -> dict[str, str]:
     }
     env["PYTHONUNBUFFERED"] = "1"
     return env
+
+
+# Single-file size cap (in 1 KiB blocks for `ulimit -f`): 4 GiB. Guards against
+# one command filling the disk; soft + silenced so it never aborts valid work.
+_ULIMIT_FSIZE_BLOCKS = 4 * 1024 * 1024
+_BWRAP_PATH_CACHE: str | None = None
+
+
+def _bwrap_path() -> str | None:
+    """Resolve the bubblewrap binary once. Honors PICOBOT_EXEC_SANDBOX=0 to opt out."""
+    global _BWRAP_PATH_CACHE
+    if os.environ.get("PICOBOT_EXEC_SANDBOX", "").strip() == "0":
+        return None
+    if _BWRAP_PATH_CACHE is None:
+        _BWRAP_PATH_CACHE = "" if _IS_WINDOWS else (shutil.which("bwrap") or "")
+    return _BWRAP_PATH_CACHE or None
+
+
+def _resource_prefix(cpu_seconds: int | None) -> str:
+    """Soft ulimits applied inside the shell, inherited by children."""
+    parts = [f"ulimit -S -f {_ULIMIT_FSIZE_BLOCKS} 2>/dev/null"]
+    if cpu_seconds:
+        parts.append(f"ulimit -S -t {int(cpu_seconds)} 2>/dev/null")
+    return "; ".join(parts) + "; "
+
+
+def _kill_process_group(process: asyncio.subprocess.Process) -> None:
+    """SIGKILL the whole process group so timed-out commands leave no orphans."""
+    try:
+        os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+    except (ProcessLookupError, PermissionError, OSError):
+        try:
+            process.kill()
+        except ProcessLookupError:
+            pass
 
 
 @tool_parameters(
@@ -244,14 +280,14 @@ class ExecTool(Tool):
                 return f"Error executing command: {exc}"
 
         try:
-            process = await self._spawn(command, cwd, env)
+            process = await self._spawn(command, cwd, env, cpu_limit=effective_timeout + 60)
             try:
                 stdout, stderr = await asyncio.wait_for(
                     process.communicate(),
                     timeout=effective_timeout,
                 )
             except asyncio.TimeoutError:
-                process.kill()
+                _kill_process_group(process)
                 await process.wait()
                 return f"Error: Command timed out after {effective_timeout} seconds"
 
@@ -289,11 +325,51 @@ class ExecTool(Tool):
             )
         return resolved
 
-    @staticmethod
+    def _build_sandbox_argv(self, inner_argv: list[str], cwd: Path) -> list[str] | None:
+        """Wrap a command in bubblewrap so it only sees its own workspace.
+
+        Binds the host toolchain read-only (/usr + the /bin,/lib symlinks),
+        a tmpfs /tmp, /proc and /dev, and bind-mounts only this session's
+        workspace read-write. Network is shared so agent-browser still reaches
+        the host Chrome CDP on loopback. Returns None when bubblewrap is
+        unavailable or the tool isn't workspace-restricted (then we fall back
+        to running directly).
+        """
+        bwrap = _bwrap_path()
+        if bwrap is None or self._allowed_dir is None:
+            return None
+        ws = str(self._allowed_dir)
+        return [
+            bwrap,
+            "--ro-bind", "/usr", "/usr",
+            "--symlink", "usr/bin", "/bin",
+            "--symlink", "usr/lib", "/lib",
+            "--symlink", "usr/lib64", "/lib64",
+            "--symlink", "usr/sbin", "/sbin",
+            "--ro-bind", "/etc", "/etc",
+            "--proc", "/proc",
+            "--dev", "/dev",
+            "--tmpfs", "/tmp",
+            "--bind", ws, ws,
+            "--chdir", str(cwd),
+            # Override the server's dev PATH/HOME (which point outside the
+            # sandbox) with a clean system layout.
+            "--setenv", "PATH", "/usr/local/bin:/usr/bin:/bin",
+            "--setenv", "HOME", ws,
+            "--unshare-user", "--unshare-pid", "--unshare-ipc", "--unshare-uts",
+            "--share-net",
+            "--die-with-parent",
+            "--new-session",
+            "--",
+            *inner_argv,
+        ]
+
     async def _spawn(
+        self,
         command: str,
         cwd: Path,
         env: dict[str, str],
+        cpu_limit: int | None = None,
     ) -> asyncio.subprocess.Process:
         if _IS_WINDOWS:
             return await asyncio.create_subprocess_shell(
@@ -304,19 +380,19 @@ class ExecTool(Tool):
                 env=env,
             )
         bash = shutil.which("bash") or "/bin/bash"
+        inner = [bash, "-l", "-c", _resource_prefix(cpu_limit) + command]
+        argv = self._build_sandbox_argv(inner, Path(cwd)) or inner
         return await asyncio.create_subprocess_exec(
-            bash,
-            "-l",
-            "-c",
-            command,
+            *argv,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=str(cwd),
             env=env,
+            start_new_session=True,
         )
 
-    @staticmethod
     async def _spawn_session(
+        self,
         command: str,
         cwd: str,
         env: dict[str, str],
@@ -331,16 +407,17 @@ class ExecTool(Tool):
                 env=env,
             )
         bash = shutil.which("bash") or "/bin/bash"
+        # Long-lived sessions skip the CPU ulimit (idle time must not kill them).
+        inner = [bash, "-l", "-c", _resource_prefix(None) + command]
+        argv = self._build_sandbox_argv(inner, Path(cwd)) or inner
         return await asyncio.create_subprocess_exec(
-            bash,
-            "-l",
-            "-c",
-            command,
+            *argv,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=cwd,
             env=env,
+            start_new_session=True,
         )
 
     def _guard_command(self, command: str, cwd: Path) -> str | None:

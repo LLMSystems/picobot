@@ -26,6 +26,10 @@ def restore_environment():
     # dashboard tests reach the admin-only metrics/alerts routers. Tests that
     # exercise the non-admin path override ADMIN_USERNAMES in the test body.
     os.environ.setdefault("ADMIN_USERNAMES", "tester")
+    # exec runs unsandboxed in tests by default: the suite invokes the project
+    # venv python by absolute path, which isn't bound inside bubblewrap. The
+    # dedicated sandbox-isolation test re-enables it explicitly.
+    os.environ.setdefault("PICOBOT_EXEC_SANDBOX", "0")
     try:
         yield
     finally:
