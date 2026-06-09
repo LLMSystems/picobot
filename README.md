@@ -10,6 +10,7 @@
 
 ![python](https://img.shields.io/badge/python-3.11+-blue)
 ![frontend](https://img.shields.io/badge/frontend-Vue%203-42b883)
+![license](https://img.shields.io/badge/license-MIT-green)
 ![status](https://img.shields.io/badge/status-experimental-orange)
 
 ![web0](assets/image0.png)
