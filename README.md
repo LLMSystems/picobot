@@ -26,6 +26,8 @@
 - 以 AioSQLite 為主的 session / history / subagent persistence
 - 可調用工具、瀏覽網頁的多輪互動能力
 - session 與 per-session workspace 管理
+- **認證與多使用者隔離**：httpOnly 簽名 cookie session（`/auth/register|login|logout|me`）；session / 歷史 / workspace / subagent / 自建 skills 皆綁定 owner，跨使用者存取一律回 404
+- **exec 沙箱化**：bubblewrap 檔案隔離（指令只看得到自身 session workspace）、剔除環境變數中的 secret、`ulimit` 資源限額、timeout 收整組行程
 - subagent orchestration：`spawn`、`list_subagents`、`subagent_status`、`subagent_wait`、`cancel_subagent`
 - subagent 自動回注與 same-session auto-resume
 - subagent runs / events 持久化，支援 reload 後恢復
@@ -33,12 +35,16 @@
 - 結構化檔案操作工具：`find_files`、`apply_patch`
 - 可直接掛到 FastAPI 的後端 API
 - 可逐步擴充的 skills、prompt、eval 架構
-- **Dashboard 指標 API**：`/metrics/current`、`/metrics/history`、`/metrics/stream`(SSE)、`/metrics/sessions/{id}`
-- **Alerts 規則引擎**：YAML 規則、狀態機（含 `for_seconds`）、`alert_events` 持久化、SSE push
+- **Dashboard 指標 API**（admin-only）：`/metrics/current`、`/metrics/history`、`/metrics/stream`(SSE)、`/metrics/sessions/{id}`
+- **Alerts 規則引擎**（admin-only）：YAML 規則、狀態機（含 `for_seconds`）、`alert_events` 持久化、SSE push
+- **MCP 管理 API**（admin-only）：`/mcp/status`、`/mcp/reload`、`/mcp/servers`（含 `${ENV}` 佔位的伺服器設定）
+- **角色控制**：營運 Dashboard / Alerts / MCP 管理僅限管理者（由 `ADMIN_USERNAMES` 指定）
 
 **前端 Web UI**
 
-- Chat / Dashboard 分頁，獨立 Shell；TopBar 一鍵切換
+- 登入 / 註冊頁，未登入自動導向；任一 API 回 401 即清狀態並回登入
+- 左下角帳號選單（ChatGPT 風格）：設定、深淺主題、通知開關、登出
+- Chat / Dashboard 分頁，獨立 Shell；TopBar 一鍵切換（Dashboard 與告警鈴僅 admin 可見）
 - 多 session 管理（建立、重新命名、刪除）
 - SSE 串流即時顯示 AI 回答
 - Subagent 面板：執行中狀態、事件時間線、結果摘要
@@ -60,20 +66,23 @@
 picobot/
   simplified_chatbot/
     agent/          # agent loop, message flow, run result
+    auth/           # users store + argon2 password hashing
     config/         # config schema / loader / env handling
+    metrics/        # metrics service / snapshot / chat-usage stores
+    alerts/         # alert rules engine + events store
     prompts/        # system prompt 與 prompt 組裝
     providers/      # OpenAI-compatible provider
     runtime/        # session runtime, SQLite store, subagent/event persistence
-    server/         # FastAPI endpoints 與 schemas
-    skills/         # builtin / workspace skills loader
-    tools/          # file, patch, search, shell, subagent, skill tools
+    server/         # FastAPI endpoints、schemas、auth deps (require_user/admin)
+    skills/         # builtin / shared / per-user skills loader
+    tools/          # file, patch, search, shell(sandboxed), subagent tools
   frontend/
     src/
       components/   # chat、layout、workspace、common UI 元件
       composables/  # useAutoScroll、useHorizontalResize、useVerticalSplit 等
       lib/          # api、sse、markdown、types
-      stores/       # Pinia stores（capabilities、sessions、chat、workspace）
-      views/        # ChatView、EmptyView
+      stores/       # Pinia stores（auth、capabilities、sessions、chat、workspace、skills、mcp）
+      views/        # ChatView、EmptyView、LoginView、RegisterView
   eval/             # eval datasets, runs, scripts
   tests/            # pytest 測試
   README.md
@@ -175,13 +184,21 @@ python3 -m pip install -e .
 OPENAI_API_KEY=your_api_key_here
 CORS_ALLOWED_ORIGINS=web_url_here
 TAVILY_API_KEY=tvly-your_api_key_here
+
+# 認證 / 權限
+SESSION_SECRET=change-me-to-a-long-random-string   # 簽 cookie 用；未設會用臨時值，重啟即登出所有人
+ADMIN_USERNAMES=alice,bob                           # 管理者帳號（逗號分隔，大小寫不敏感）；可見 Dashboard/Alerts/MCP
 ```
 
 可選：
 
 ```env
 OPENAI_BASE_URL=http://localhost:11434/v1
+SESSION_COOKIE_SECURE=true       # 部署在 HTTPS 後設為 true
+PICOBOT_EXEC_SANDBOX=0           # 關閉 exec 的 bubblewrap 沙箱（除錯用，預設啟用）
 ```
+
+> 帳號由使用者自行在登入頁註冊（無公開 admin 後台）。要成為管理者，把帳號名加進 `ADMIN_USERNAMES` 後重啟後端即可。
 
 ### 4.3 範例設定檔
 
@@ -231,7 +248,8 @@ python3 fastapi_server.py --config example_config.json --db-path sessions_async.
 
 預設會使用 AioSQLite 儲存：
 
-- session message history
+- users（帳號 + argon2 密碼雜湊）
+- session message history（含 owner `user_id`）
 - subagent runs
 - subagent timeline events
 - metrics snapshots (7 天)
@@ -306,9 +324,39 @@ python3 -m pytest tests -q
 
 ---
 
-## 5. 前端功能說明
+## 5. 認證、多使用者隔離與 exec 沙箱
 
-### 5.1 多 Session 管理
+### 5.1 認證
+
+- httpOnly 簽名 cookie session（Starlette `SessionMiddleware`）；選 cookie 而非 Bearer token，是為了讓前端的 `EventSource` 串流也能帶憑證（`withCredentials`）。
+- 端點：`POST /auth/register`、`POST /auth/login`、`POST /auth/logout`、`GET /auth/me`。
+- 密碼以 **argon2** 雜湊；登入/註冊失敗回一致訊息，避免帳號列舉。
+
+### 5.2 多使用者隔離
+
+- 每個 session 綁定 owner（`session_metadata.user_id`）。`GET /sessions` 只回自己的；存取他人 session（含其 messages / workspace / subagent）一律回 **404**（不洩漏存在性）。
+- chat 進一個全新的 session id 會自動歸戶給當前使用者。
+- 自建 skills 為 **per-user**（`<skills_root>/users/<id>/`）；builtin 與舊有全域 skills 為共用唯讀。
+
+### 5.3 角色（admin）
+
+- 管理者由 `ADMIN_USERNAMES` 指定（見 §4.2）。
+- 僅管理者可存取 Dashboard 指標（`/metrics/*`）、Alerts（`/alerts/*`）、MCP 管理（`/mcp/*`）；前端對一般使用者隱藏這些入口（Dashboard 切換、告警鈴、設定中的 MCP 分頁）。
+
+### 5.4 exec 沙箱
+
+- 安裝 `bubblewrap` 後，`exec` 會在沙箱內執行：只 bind-mount 該 session 的 workspace（可寫）+ 唯讀系統工具，**看不到專案 `.env`、其他人的 workspace 或主機家目錄**。
+- 環境變數中的 secret（`*SECRET* / *API_KEY* / *TOKEN* / ...`）一律剔除，指令讀不到伺服器金鑰。
+- 資源護欄：單檔大小上限、CPU backstop、timeout 以 process group 收整組（不留孤兒）。
+- 沙箱保留 loopback 網路 → agent-browser 仍可連共用 Chrome 的 CDP。bubblewrap 未安裝時自動 fallback 為直接執行（仍套用 secret 剔除與資源限額）。
+
+> 安裝 bubblewrap（Debian/Ubuntu）：`sudo apt install bubblewrap`。沙箱內使用的是**系統 toolchain**（`/usr/bin` 的 python/node/agent-browser），而非專案的 `.venv`。
+
+---
+
+## 6. 前端功能說明
+
+### 6.1 多 Session 管理
 
 左側 Sidebar 列出所有對話，可：
 
@@ -316,7 +364,7 @@ python3 -m pytest tests -q
 - 點擊 session 切換對話
 - 右鍵或點選選單可重新命名、刪除
 
-### 5.2 串流聊天
+### 6.2 串流聊天
 
 訊息送出後透過 SSE 即時顯示 AI 回答，支援：
 
@@ -333,7 +381,7 @@ python3 -m pytest tests -q
 | `Escape` | 停止串流 / 清空輸入框 |
 | `↑`（空白時） | 帶回上一則使用者訊息 |
 
-### 5.3 Markdown 渲染
+### 6.3 Markdown 渲染
 
 AI 回答支援完整 Markdown，包含：
 
@@ -343,11 +391,11 @@ AI 回答支援完整 Markdown，包含：
 - Mermaid 圖表（`flowchart`、`sequenceDiagram` 等）
 - 行內程式碼
 
-### 5.4 工具呼叫視覺化
+### 6.4 工具呼叫視覺化
 
 Agent 每次呼叫工具時，訊息中會顯示 ToolCall 卡片，包含工具名稱、輸入參數、執行結果，可展開查看詳情。
 
-### 5.5 Subagent 面板
+### 6.5 Subagent 面板
 
 Workspace 區域整合了 Subagent Panel，可用來觀察背景子代理的執行狀態：
 
@@ -363,7 +411,7 @@ Subagent 資料來源分成兩條：
 
 因此即使重新整理頁面，也能恢復既有 subagent 狀態，再接續即時更新。
 
-### 5.6 Workspace 面板
+### 6.6 Workspace 面板
 
 當後端 capabilities 回傳 `session_workspace: true` 時，右側會出現 Workspace 面板：
 
@@ -377,7 +425,7 @@ Subagent 資料來源分成兩條：
 
 Workspace 會監聽串流中的 `workspace_changed` 事件，AI 操作檔案後自動刷新。
 
-### 5.7 可拖拉版面
+### 6.7 可拖拉版面
 
 三欄式版面均可用滑鼠拖拉調整：
 
@@ -389,13 +437,22 @@ Workspace 會監聽串流中的 `workspace_changed` 事件，AI 操作檔案後�
 
 寬度 / 比例會自動儲存至 `localStorage`。
 
-### 5.8 主題切換
+### 6.8 帳號選單與主題切換
 
-右上角提供深色 / 淺色主題切換，設定儲存至 `localStorage`。
+左下角的帳號選單（頭像 + 帳號名）提供：**設定**、深淺主題切換、通知開關、**登出**。主題設定儲存至 `localStorage`。
 
 ---
 
-## 6. API 摘要
+## 7. API 摘要
+
+> 除 `/auth/*`、`/capabilities`、`/health` 外，其餘端點都需登入（cookie session）。`/metrics/*`、`/alerts/*`、`/mcp/*` 另需管理者。所有 `/sessions/{id}/...` 只有 owner 能存取，否則回 404。
+
+### Auth
+
+- `POST /auth/register` — 註冊並直接登入（set cookie）
+- `POST /auth/login` — 登入
+- `POST /auth/logout` — 登出
+- `GET /auth/me` — 取得目前使用者（含 `is_admin`）
 
 ### Chat
 
@@ -420,7 +477,21 @@ Workspace 會監聽串流中的 `workspace_changed` 事件，AI 操作檔案後�
 - `GET /sessions/{session_id}/workspace/tree` — 列出 workspace 目錄內容
 - `GET /sessions/{session_id}/workspace/file` — 讀取 workspace 中的 UTF-8 文字檔
 
-### Capability / Health
+### Workspace（其他）
+
+- `POST /sessions/{session_id}/workspace/upload`、`PUT/POST .../file`、`POST .../mkdir`、`POST .../move`、`DELETE .../file`、`DELETE .../directory`、`GET .../download` — 上傳 / 建立 / 改名 / 刪除 / 下載
+
+### Skills（per-user）
+
+- `GET /skills`、`POST /skills`、`DELETE /skills/{name}`、`PATCH /skills/{name}` — 列出 / 建立 / 刪除 / 停用自己的 skills（builtin 與共用 skills 唯讀）
+
+### 管理者 API（admin-only）
+
+- `GET /metrics/current`、`/metrics/history`、`/metrics/stream`(SSE)、`/metrics/sessions/{id}`
+- `GET /alerts/active`、`/alerts/history`、`/alerts/rules`、`/alerts/stream`(SSE)、`POST /alerts/...`（ack / 靜音）
+- `GET /mcp/status`、`POST /mcp/reload`、`GET /mcp/servers`、`PUT/DELETE /mcp/servers/{name}`
+
+### Capability / Health（公開）
 
 - `GET /capabilities` — 回傳 model、tools、feature flags
 - `GET /health` — 健康檢查
@@ -453,16 +524,16 @@ Workspace 會監聽串流中的 `workspace_changed` 事件，AI 操作檔案後�
 | `subagent_failed` | 子代理失敗 |
 | `subagent_cancelled` | 子代理被取消 |
 
-## 6.1 目前內建工具能力摘要
+## 7.1 目前內建工具能力摘要
 
 目前 `picobot` 內建工具大致分成：
 
 - **檔案 / 搜尋**：`read_file`、`write_file`、`edit_file`、`apply_patch`、`list_dir`、`find_files`、`glob`、`grep`
-- **文件讀取**：`read_pdf`、`read_docx`、`read_xlsx`
-- **Shell / 執行**：`exec`、`write_stdin`、`list_exec_sessions`
-- **Web search**：`tavily_search`
+- **文件 / 圖片讀取**：`read_pdf`、`read_docx`、`read_xlsx`、`view_image`
+- **Shell / 執行**：`exec`、`write_stdin`、`list_exec_sessions`（裝了 bubblewrap 時於沙箱內執行）
+- **Web**：`tavily_search`、`web_fetch`
 - **Subagent control**：`spawn`、`list_subagents`、`subagent_status`、`subagent_wait`、`cancel_subagent`
-- **Skills**：`read_skill`
+- **互動 / 規劃**：`ask_user_question`、`todo_write`
 
 其中：
 
@@ -470,10 +541,11 @@ Workspace 會監聽串流中的 `workspace_changed` 事件，AI 操作檔案後�
 - `find_files` 用於在不確定精確路徑時縮小候選檔案
 - `exec(..., yield_time_ms=...)` 可啟動可持續互動的 exec session
 - `write_stdin` / `list_exec_sessions` 用於接續或找回該 session 下的執行中命令
+- skills 不再透過 `read_skill` 工具讀取：session 啟動時會把可用 skills 複製到 workspace 的 `.skills/`，agent 直接以 `read_file` 讀取（`read_skill` 已棄用）
 
 ---
 
-## 7. 前端技術棧
+## 8. 前端技術棧
 
 | 分類 | 套件 |
 |------|------|
@@ -488,7 +560,7 @@ Workspace 會監聽串流中的 `workspace_changed` 事件，AI 操作檔案後�
 
 ---
 
-## 8. 感謝
+## 9. 感謝
 
 `picobot` 的整體架構設計主要參考了 [nanobot](https://github.com/HKUDS/nanobot)，特別是在以下方向上受到啟發：
 

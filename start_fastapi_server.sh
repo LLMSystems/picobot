@@ -5,6 +5,7 @@ set -eu
 echo "[1/4] Installing Node.js and npm..."
 apt-get update
 apt-get install -y nodejs npm
+apt-get install -y bubblewrap
 
 echo "[2/4] Installing Chrome runtime dependencies..."
 apt-get install -y \
