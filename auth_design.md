@@ -288,6 +288,15 @@ if "user_id" not in columns:
 
 > 之前 `/metrics`、`/alerts` 是**完全公開**（未登入可讀），此階段一併修正為需登入 + admin。
 
+### MCP servers — 同樣 admin-only
+
+MCP 目前是**單一全域**架構（一份 `config.json` + 一組共用連線，工具對所有人一視同仁），且設定可能含 secret。原本任何登入者都能讀設定與改/刪、重連全站。決定走 **admin-only**（而非 per-user，後者要改儲存模型 + runtime 維護多組連線，工程量大且多數情境非必要）：
+
+- **後端**：`mcp` router 改掛 `require_admin`（原為 `require_user`）。
+- **前端**：`SettingsDialog` 的 MCP 分頁與內容對非 admin 隱藏（`McpSection` 不掛載 → 不會打 `/mcp/*`）。
+
+若未來真有「使用者各自帶私人 MCP 整合」需求，再評估 per-user 路線（per-user 設定儲存 + per-user 連線池 + per-session 工具注入）。
+
 ---
 
 ## 11. 對既有功能的影響

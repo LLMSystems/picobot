@@ -107,6 +107,18 @@ def test_metrics_allowed_for_admin(tmp_path):
     assert client.get("/metrics/current").status_code == 200
 
 
+def test_mcp_is_admin_only(tmp_path):
+    os.environ["ADMIN_USERNAMES"] = "boss"
+    # Regular user: forbidden.
+    client = _client(tmp_path)
+    register_test_user(client, username="regular")
+    assert client.get("/mcp/status").status_code == 403
+    # Admin: reachable.
+    admin = _client(tmp_path)
+    register_test_user(admin, username="boss")
+    assert admin.get("/mcp/status").status_code == 200
+
+
 def test_auth_me_reports_admin_flag(tmp_path):
     os.environ["ADMIN_USERNAMES"] = "boss, other"
     client = _client(tmp_path)

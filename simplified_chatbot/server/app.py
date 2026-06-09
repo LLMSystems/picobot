@@ -282,7 +282,9 @@ def create_app(
     app.include_router(sessions_router, dependencies=session_scoped)
     app.include_router(workspace_router, dependencies=session_scoped)
     app.include_router(skills_router, dependencies=protected)
-    app.include_router(mcp_router, dependencies=protected)
+    # MCP servers are operator-managed infrastructure (configs may hold secrets,
+    # connections are shared across all users), so management is admin-only.
+    app.include_router(mcp_router, dependencies=admin_only)
     if screencast_router is not None:
         app.include_router(screencast_router, dependencies=session_scoped)
     return app

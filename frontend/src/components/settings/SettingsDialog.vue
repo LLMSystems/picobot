@@ -27,6 +27,7 @@ import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import SkillsSection from '@/components/settings/SkillsSection.vue'
 import McpSection from '@/components/settings/McpSection.vue'
+import { useAuthStore } from '@/stores/auth'
 import { useSettingsStore } from '@/stores/settings'
 import { useCapabilitiesStore } from '@/stores/capabilities'
 import {
@@ -88,13 +89,20 @@ const maxIterationsInput = computed<string | number>({
 
 type SettingsTab = 'prompt' | 'model' | 'tools' | 'skills' | 'mcp'
 
-const tabs = [
+const auth = useAuthStore()
+
+const ALL_TABS = [
   { value: 'prompt', label: 'System Prompt', icon: FileText },
   { value: 'model', label: 'Model 參數', icon: SlidersHorizontal },
   { value: 'tools', label: 'Tools', icon: Wrench },
   { value: 'skills', label: 'Skills', icon: Sparkles },
   { value: 'mcp', label: 'MCP', icon: Server },
 ] as const
+
+// MCP management is admin-only (operator-managed infra; configs may hold secrets).
+const tabs = computed(() =>
+  ALL_TABS.filter((t) => t.value !== 'mcp' || auth.isAdmin),
+)
 
 const activeTab = ref<SettingsTab>('prompt')
 
@@ -507,8 +515,8 @@ function toolDescLabel(tool: { name: string; description?: string }): string {
             <SkillsSection />
           </TabsContent>
 
-          <!-- MCP Servers -->
-          <TabsContent value="mcp" class="mt-0">
+          <!-- MCP Servers (admin-only) -->
+          <TabsContent v-if="auth.isAdmin" value="mcp" class="mt-0">
             <McpSection />
           </TabsContent>
         </div>
