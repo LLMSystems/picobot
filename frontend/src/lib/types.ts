@@ -6,6 +6,7 @@ export interface ModelInfo {
 export interface AuthUser {
   id: number
   username: string
+  is_admin: boolean
 }
 
 export interface ToolCapability {

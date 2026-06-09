@@ -11,6 +11,7 @@ export const useAuthStore = defineStore('auth', () => {
   const ready = ref(false)
 
   const isAuthenticated = computed(() => user.value !== null)
+  const isAdmin = computed(() => user.value?.is_admin === true)
 
   /** Resolve the current session from the cookie. Safe to call repeatedly. */
   async function fetchMe(): Promise<void> {
@@ -44,5 +45,5 @@ export const useAuthStore = defineStore('auth', () => {
     user.value = null
   }
 
-  return { user, ready, isAuthenticated, fetchMe, login, register, logout, reset }
+  return { user, ready, isAuthenticated, isAdmin, fetchMe, login, register, logout, reset }
 })

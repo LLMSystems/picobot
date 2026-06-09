@@ -277,6 +277,19 @@ if "user_id" not in columns:
 
 ---
 
+## 10b. Admin-only 營運儀表板（Metrics / Alerts）
+
+`/metrics/*` 與 `/alerts/*` 是系統層級 / 跨使用者的資料（CPU、API latency、全站 token、per-session 用量、alert 規則），**一般使用者看了沒用且會洩漏他人資訊**，因此設為 **admin-only**（而非 per-user 複製）。
+
+- **admin 判定**：環境變數 `ADMIN_USERNAMES`（逗號分隔的帳號名，大小寫不敏感）。不動 DB schema，由維運者掌控。
+- **後端**：新增 `require_admin` 依賴（未登入 401、登入非 admin 403），掛在 `metrics` / `alerts` router。`/auth/me`、login、register 回傳 `is_admin`。
+- **前端**：`auth.isAdmin`；非 admin 隱藏 TopBar 的 AlertsBadge 與 Chat↔Dashboard 切換；`/dashboard` route 加 `requiresAdmin` guard，非 admin 導回 `/`（連帶不會掛載 metrics/alerts 的 EventSource）。
+- `/capabilities`、`/health` 維持公開。
+
+> 之前 `/metrics`、`/alerts` 是**完全公開**（未登入可讀），此階段一併修正為需登入 + admin。
+
+---
+
 ## 11. 對既有功能的影響
 
 - 既有測試大量直接打 `/sessions`、`/chat`（未帶 cookie）→ Phase 2 後會變 401。**對策**：提供 pytest fixture（`authed_client`）幫測試自動註冊+登入帶 cookie；或讓既有 endpoint 測試改用該 fixture。這部分在 Phase 2 一併處理，避免打爛現有 CI。

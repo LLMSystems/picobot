@@ -7,6 +7,8 @@ and gate protected routes.
 
 from __future__ import annotations
 
+import os
+
 from fastapi import HTTPException, Request
 from starlette.requests import HTTPConnection
 
@@ -14,6 +16,21 @@ from simplified_chatbot.auth.users_store import User, UsersStore
 from simplified_chatbot.server.common import get_runtime
 
 SESSION_USER_KEY = "user_id"
+
+
+def _admin_usernames() -> set[str]:
+    """Admin accounts, from the ADMIN_USERNAMES env var (comma-separated).
+
+    Read at request time so the set follows the loaded .env. Usernames are
+    normalized to lowercase to match how UsersStore stores them.
+    """
+    raw = os.environ.get("ADMIN_USERNAMES", "")
+    return {name.strip().lower() for name in raw.split(",") if name.strip()}
+
+
+def is_admin_user(user: User) -> bool:
+    """True iff the user's name is listed in ADMIN_USERNAMES."""
+    return user.username.lower() in _admin_usernames()
 
 
 class SessionAccessError(Exception):
@@ -59,6 +76,18 @@ async def require_user(conn: HTTPConnection) -> User:
     user = await get_current_user(conn)
     if user is None:
         raise HTTPException(status_code=401, detail="Authentication required")
+    return user
+
+
+async def require_admin(conn: HTTPConnection) -> User:
+    """FastAPI dependency: 401 if anonymous, 403 if logged in but not an admin.
+
+    Gates the operational dashboard (metrics/alerts), which exposes system-wide
+    and cross-user data that regular users must not see.
+    """
+    user = await require_user(conn)
+    if not is_admin_user(user):
+        raise HTTPException(status_code=403, detail="Administrator access required")
     return user
 
 

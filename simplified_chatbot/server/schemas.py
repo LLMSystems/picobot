@@ -548,6 +548,7 @@ class UserResponse(BaseModel):
 
     id: int
     username: str
+    is_admin: bool = False
 
 
 class LogoutResponse(BaseModel):

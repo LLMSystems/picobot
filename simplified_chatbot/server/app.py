@@ -26,6 +26,7 @@ from simplified_chatbot.auth.users_store import UsersStore
 from simplified_chatbot.server.deps import (
     SessionAccessError,
     enforce_session_ownership,
+    require_admin,
     require_user,
 )
 from simplified_chatbot.server.endpoints_auth import router as auth_router
@@ -270,11 +271,13 @@ def create_app(
     # Session-scoped routers additionally enforce per-session ownership on any
     # /sessions/{session_id}/... route (no-op on collection / body-scoped routes).
     session_scoped = [Depends(require_user), Depends(enforce_session_ownership)]
+    # The operational dashboard is system-wide / cross-user, so it is admin-only.
+    admin_only = [Depends(require_admin)]
     app.include_router(auth_router)
     app.include_router(capabilities_router)
     app.include_router(health_router)
-    app.include_router(metrics_router)
-    app.include_router(alerts_router)
+    app.include_router(metrics_router, dependencies=admin_only)
+    app.include_router(alerts_router, dependencies=admin_only)
     app.include_router(chat_router, dependencies=session_scoped)
     app.include_router(sessions_router, dependencies=session_scoped)
     app.include_router(workspace_router, dependencies=session_scoped)

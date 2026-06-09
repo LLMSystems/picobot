@@ -3,6 +3,7 @@ import { computed, ref, watch, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
 import { useSessionsStore } from '@/stores/sessions'
 import { useCapabilitiesStore } from '@/stores/capabilities'
+import { useAuthStore } from '@/stores/auth'
 import { Button } from '@/components/ui/button'
 import { Menu, Pencil, PanelRight, Download, MemoryStick } from 'lucide-vue-next'
 import ModeSwitcher from '@/components/layout/ModeSwitcher.vue'
@@ -32,6 +33,7 @@ defineEmits<{ (e: 'toggle-sidebar'): void }>()
 const route = useRoute()
 const sessions = useSessionsStore()
 const caps = useCapabilitiesStore()
+const auth = useAuthStore()
 const ws = useWorkspaceStore()
 
 const memory = useSessionMemoryStore()
@@ -178,8 +180,10 @@ function cancel() {
     </div>
 
     <div class="flex items-center gap-2 text-xs text-muted-foreground">
-      <AlertsBadge />
-      <ModeSwitcher />
+      <template v-if="auth.isAdmin">
+        <AlertsBadge />
+        <ModeSwitcher />
+      </template>
       <DropdownMenu v-if="currentSession">
         <DropdownMenuTrigger as-child>
           <Button

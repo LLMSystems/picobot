@@ -1,8 +1,9 @@
 """Phase 2: routes that require a logged-in user.
 
 Verifies that protected routers (chat / sessions / workspace / skills / mcp)
-reject anonymous callers with 401 UNAUTHENTICATED, while public routers
-(capabilities / health / metrics / alerts / auth) stay reachable.
+reject anonymous callers with 401 UNAUTHENTICATED, that the operational
+dashboard (metrics / alerts) is admin-only, and that public routers
+(capabilities / health / auth) stay reachable.
 """
 
 import os
@@ -75,13 +76,47 @@ def test_protected_routes_return_401_without_cookie(tmp_path, method, path):
     [
         "/health",
         "/capabilities",
-        "/metrics/current",
     ],
 )
 def test_public_routes_remain_open(tmp_path, path):
     client = _client(tmp_path)
     resp = client.get(path)
     assert resp.status_code == 200, (path, resp.text)
+
+
+# ─── operational dashboard is admin-only ───────────────────────────────────
+
+def test_metrics_requires_authentication(tmp_path):
+    client = _client(tmp_path)
+    assert client.get("/metrics/current").status_code == 401
+
+
+def test_metrics_forbidden_for_non_admin(tmp_path):
+    os.environ["ADMIN_USERNAMES"] = "boss"
+    client = _client(tmp_path)
+    register_test_user(client, username="regular")  # not in ADMIN_USERNAMES
+    resp = client.get("/metrics/current")
+    assert resp.status_code == 403
+    assert resp.json()["error"]["code"] == "FORBIDDEN"
+
+
+def test_metrics_allowed_for_admin(tmp_path):
+    os.environ["ADMIN_USERNAMES"] = "boss"
+    client = _client(tmp_path)
+    register_test_user(client, username="boss")
+    assert client.get("/metrics/current").status_code == 200
+
+
+def test_auth_me_reports_admin_flag(tmp_path):
+    os.environ["ADMIN_USERNAMES"] = "boss, other"
+    client = _client(tmp_path)
+    register_test_user(client, username="Boss")  # case-insensitive match
+    me = client.get("/auth/me").json()
+    assert me["is_admin"] is True
+
+    client2 = _client(tmp_path)
+    register_test_user(client2, username="nobody")
+    assert client2.get("/auth/me").json()["is_admin"] is False
 
 
 # ─── after login the same protected routes work ────────────────────────────

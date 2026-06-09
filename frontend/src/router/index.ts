@@ -33,7 +33,7 @@ const router = createRouter({
       path: '/dashboard',
       name: 'dashboard',
       component: () => import('@/views/DashboardView.vue'),
-      meta: { shell: 'dashboard' },
+      meta: { shell: 'dashboard', requiresAdmin: true },
     },
     { path: '/:pathMatch(.*)*', redirect: '/', meta: { shell: 'app' } },
   ],
@@ -55,6 +55,10 @@ router.beforeEach(async (to) => {
     }
   }
   if (auth.isAuthenticated && isPublic) {
+    return { path: '/' }
+  }
+  // Admin-only routes (the operational dashboard) are off-limits to regular users.
+  if (to.meta.requiresAdmin === true && !auth.isAdmin) {
     return { path: '/' }
   }
   return true

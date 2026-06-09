@@ -22,6 +22,10 @@ def restore_environment():
     original = os.environ.copy()
     # Stable secret so /auth/* cookies survive across requests in a single test.
     os.environ.setdefault("SESSION_SECRET", "test-secret-not-for-production")
+    # The default test user (register_test_user → "tester") is an admin so
+    # dashboard tests reach the admin-only metrics/alerts routers. Tests that
+    # exercise the non-admin path override ADMIN_USERNAMES in the test body.
+    os.environ.setdefault("ADMIN_USERNAMES", "tester")
     try:
         yield
     finally:

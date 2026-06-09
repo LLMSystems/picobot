@@ -14,6 +14,7 @@ from simplified_chatbot.server.common import error_response
 from simplified_chatbot.server.deps import (
     SESSION_USER_KEY,
     get_users_store,
+    is_admin_user,
     require_user,
 )
 from simplified_chatbot.server.schemas import (
@@ -24,6 +25,10 @@ from simplified_chatbot.server.schemas import (
 )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+def _user_response(user: User) -> UserResponse:
+    return UserResponse(id=user.id, username=user.username, is_admin=is_admin_user(user))
 
 
 @router.post("/register", response_model=UserResponse)
@@ -49,7 +54,7 @@ async def register(request: Request, payload: RegisterRequest) -> UserResponse:
             message=str(exc),
         )
     request.session[SESSION_USER_KEY] = user.id
-    return UserResponse(id=user.id, username=user.username)
+    return _user_response(user)
 
 
 @router.post("/login", response_model=UserResponse)
@@ -66,7 +71,7 @@ async def login(request: Request, payload: LoginRequest) -> UserResponse:
             message="Invalid username or password",
         )
     request.session[SESSION_USER_KEY] = user.id
-    return UserResponse(id=user.id, username=user.username)
+    return _user_response(user)
 
 
 @router.post("/logout", response_model=LogoutResponse)
@@ -81,4 +86,4 @@ async def logout(request: Request) -> LogoutResponse:
 @router.get("/me", response_model=UserResponse)
 async def me(user: User = Depends(require_user)) -> UserResponse:
     """Return the currently authenticated user, or 401."""
-    return UserResponse(id=user.id, username=user.username)
+    return _user_response(user)
