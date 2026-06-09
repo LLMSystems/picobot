@@ -255,6 +255,42 @@ async def test_exec_session_tools_enforce_owner_session(tmp_path: Path):
     assert "Session terminated." in cleanup
 
 
+def test_build_subprocess_env_strips_secrets(monkeypatch):
+    from simplified_chatbot.tools.shell import build_subprocess_env
+
+    monkeypatch.setenv("SESSION_SECRET", "should-be-gone")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-should-be-gone")
+    monkeypatch.setenv("FOO_TOKEN", "should-be-gone")
+    monkeypatch.setenv("ADMIN_USERNAMES", "boss")
+    monkeypatch.setenv("PLAIN_VALUE", "kept")
+
+    env = build_subprocess_env()
+
+    assert "SESSION_SECRET" not in env
+    assert "OPENAI_API_KEY" not in env
+    assert "FOO_TOKEN" not in env  # matched by the TOKEN pattern
+    assert "ADMIN_USERNAMES" not in env
+    assert env.get("PLAIN_VALUE") == "kept"
+    assert env["PYTHONUNBUFFERED"] == "1"
+
+
+def test_exec_does_not_expose_secrets_to_commands(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("SESSION_SECRET", "topsecret-cookie-key")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-leak-me")
+    monkeypatch.setenv("SAFE_DEMO_VAR", "safe-demo-value")
+
+    registry = build_default_tool_registry(workspace=tmp_path)
+    command = _python_command("import os; print(repr(dict(os.environ)))")
+
+    result = registry.execute("exec", {"command": command})
+
+    assert "Exit code: 0" in result
+    assert "topsecret-cookie-key" not in result
+    assert "sk-leak-me" not in result
+    # non-sensitive vars are still inherited so tools keep working
+    assert "safe-demo-value" in result
+
+
 def _python_command(code: str) -> str:
     escaped = code.replace('"', '\\"')
     return f'"{sys.executable}" -c "{escaped}"'

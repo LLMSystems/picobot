@@ -40,6 +40,38 @@ _WORKSPACE_BOUNDARY_NOTE = (
     "Do not retry with shell tricks or alternative tools."
 )
 
+# Server secrets / auth material must never reach a spawned shell, or the agent
+# could read them with `printenv`. We scrub by exact name and by pattern (so new
+# *_API_KEY / *_SECRET style vars are stripped too) rather than using a strict
+# whitelist, which would risk breaking tools like agent-browser / node / builds
+# that depend on inherited PATH/HOME/DISPLAY/NODE_* etc.
+_SENSITIVE_ENV_EXACT = frozenset(
+    {
+        "SESSION_SECRET",
+        "ADMIN_USERNAMES",
+        "OPENAI_API_KEY",
+        "TAVILY_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "CORS_ALLOWED_ORIGINS",
+    },
+)
+_SENSITIVE_ENV_PATTERN = re.compile(
+    r"SECRET|API[_-]?KEY|ACCESS[_-]?KEY|SECRET[_-]?KEY|TOKEN|PASSWORD|PASSWD"
+    r"|CREDENTIAL|PRIVATE[_-]?KEY|AUTH",
+    re.IGNORECASE,
+)
+
+
+def build_subprocess_env() -> dict[str, str]:
+    """Return a copy of the process env with secrets/auth material removed."""
+    env = {
+        key: value
+        for key, value in os.environ.items()
+        if key not in _SENSITIVE_ENV_EXACT and not _SENSITIVE_ENV_PATTERN.search(key)
+    }
+    env["PYTHONUNBUFFERED"] = "1"
+    return env
+
 
 @tool_parameters(
     {
@@ -185,8 +217,7 @@ class ExecTool(Tool):
             return guard_error
 
         effective_timeout = min(timeout or self._timeout, self._MAX_TIMEOUT)
-        env = os.environ.copy()
-        env["PYTHONUNBUFFERED"] = "1"
+        env = build_subprocess_env()
 
         if max_output_chars is None:
             max_output_chars = max_output_tokens
