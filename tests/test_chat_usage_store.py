@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timedelta, timezone
 
+from conftest import register_test_user
+
 import pytest
 
 pytest.importorskip("aiosqlite")
@@ -198,6 +200,7 @@ def test_chat_usage_survives_restart(tmp_path):
     store_a = AioSQLiteSessionStore(db_path)
     runtime_a = LocalAgentRuntime(chatbot=_DummyChatbot(), store=store_a)
     client_a = TestClient(create_app(runtime=runtime_a))
+    register_test_user(client_a)
     client_a.post("/chat", json={"session_id": "abc", "message": "hi"})
     client_a.post("/chat", json={"session_id": "abc", "message": "again"})
     snap_a = client_a.get("/metrics/current").json()
@@ -207,6 +210,7 @@ def test_chat_usage_survives_restart(tmp_path):
     store_b = AioSQLiteSessionStore(db_path)
     runtime_b = LocalAgentRuntime(chatbot=_DummyChatbot(), store=store_b)
     client_b = TestClient(create_app(runtime=runtime_b))
+    register_test_user(client_b)
     snap_b = client_b.get("/metrics/current").json()
     # Without persistence this would be 0 (in-memory ring is fresh).
     assert snap_b["usage"]["tokens_in_24h"] == 10

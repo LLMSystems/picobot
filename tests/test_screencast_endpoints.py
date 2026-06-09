@@ -44,7 +44,6 @@ def _build_app() -> FastAPI:
 
 def test_health_chrome_reports_running_process():
     client = TestClient(_build_app())
-
     response = client.get("/health/chrome")
 
     assert response.status_code == 200
@@ -64,7 +63,6 @@ def test_list_tabs_uses_normalized_chrome_endpoint(monkeypatch):
 
     monkeypatch.setattr(endpoints_screencast, "_list_page_targets", fake_list_page_targets)
     client = TestClient(app)
-
     response = client.get("/browser/tabs")
 
     assert response.status_code == 200
@@ -90,7 +88,6 @@ def test_create_close_and_activate_tab_routes_call_cdp(monkeypatch):
 
     monkeypatch.setattr(endpoints_screencast, "_one_shot_cdp", fake_one_shot)
     client = TestClient(app)
-
     create_response = client.post("/browser/tabs", json={"url": "example.com"})
     close_response = client.delete("/browser/tabs/tab_123")
     activate_response = client.post("/browser/tabs/tab_123/activate")
@@ -222,7 +219,6 @@ def test_screencast_websocket_returns_error_when_no_page_targets(monkeypatch):
 
     monkeypatch.setattr(endpoints_screencast, "_list_page_targets", fake_list_page_targets)
     client = TestClient(app)
-
     with client.websocket_connect("/ws/browser/screencast") as websocket:
         payload = websocket.receive_json()
 

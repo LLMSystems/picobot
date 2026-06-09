@@ -93,6 +93,7 @@ class SessionSummary(BaseModel):
     session_id: str
     title: str
     agent_type: str | None = None
+    user_id: int | None = None
     created_at: str | None = None
     updated_at: str | None = None
     message_count: int = 0
@@ -524,5 +525,32 @@ class AskUserQuestionAnswerRequest(BaseModel):
 
 class AskUserQuestionAnswerResponse(BaseModel):
     """Response body for submitting user answers."""
+
+    ok: bool
+
+
+class RegisterRequest(BaseModel):
+    """Request body for user registration."""
+
+    username: str = Field(min_length=1, max_length=64)
+    password: str = Field(min_length=1)
+
+
+class LoginRequest(BaseModel):
+    """Request body for user login."""
+
+    username: str = Field(min_length=1, max_length=64)
+    password: str = Field(min_length=1)
+
+
+class UserResponse(BaseModel):
+    """Public view of an authenticated user (never includes the password hash)."""
+
+    id: int
+    username: str
+
+
+class LogoutResponse(BaseModel):
+    """Response body for logout."""
 
     ok: bool

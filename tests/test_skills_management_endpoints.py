@@ -6,6 +6,7 @@ import pytest
 pytest.importorskip("fastapi")
 
 from fastapi.testclient import TestClient
+from conftest import register_test_user
 
 from simplified_chatbot.config.schema import ChatbotConfig
 from simplified_chatbot.runtime.local_runtime import LocalAgentRuntime
@@ -28,7 +29,9 @@ def _build_client(tmp_path):
         chatbot=_SkillsChatbot(),
         skills_loader=loader,
     )
-    return TestClient(create_app(runtime=runtime)), skills_dir
+    client = TestClient(create_app(runtime=runtime))
+    register_test_user(client)
+    return client, skills_dir
 
 
 def _skill_markdown(name: str, description: str = "Demo skill") -> str:

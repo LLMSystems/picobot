@@ -1,6 +1,7 @@
 import asyncio
 import json
 from pathlib import Path
+from conftest import register_test_user
 
 import pytest
 
@@ -356,7 +357,7 @@ def test_post_chat_returns_full_response_and_persists_history(tmp_path):
     runtime = LocalAgentRuntime(chatbot=_AsyncOnlyChatbot(), store=store)
     app = create_app(runtime=runtime)
     client = TestClient(app)
-
+    register_test_user(client)
     response = client.post(
         "/chat",
         json={"session_id": "s1", "message": "hello"},
@@ -391,7 +392,7 @@ def test_post_chat_accepts_model_override(tmp_path):
     runtime = LocalAgentRuntime(chatbot=chatbot, store=store)
     app = create_app(runtime=runtime)
     client = TestClient(app)
-
+    register_test_user(client)
     response = client.post(
         "/chat",
         json={"session_id": "s1", "message": "hello", "model": "gpt-5-mini"},
@@ -408,7 +409,7 @@ def test_post_chat_rejects_model_outside_allowlist(tmp_path):
     runtime = LocalAgentRuntime(chatbot=chatbot, store=store)
     app = create_app(runtime=runtime)
     client = TestClient(app)
-
+    register_test_user(client)
     response = client.post(
         "/chat",
         json={"session_id": "s1", "message": "hello", "model": "gpt-unknown"},
@@ -424,7 +425,7 @@ def test_cors_preflight_returns_expected_headers(tmp_path, monkeypatch):
     monkeypatch.setenv("CORS_ALLOWED_ORIGINS", "https://picobot.zeabur.app")
     app = create_app(runtime=runtime)
     client = TestClient(app)
-
+    register_test_user(client)
     response = client.options(
         "/capabilities",
         headers={
@@ -447,7 +448,7 @@ def test_cors_actual_request_returns_allow_origin_header(tmp_path, monkeypatch):
     monkeypatch.setenv("CORS_ALLOWED_ORIGINS", "https://picobot.zeabur.app")
     app = create_app(runtime=runtime)
     client = TestClient(app)
-
+    register_test_user(client)
     response = client.get(
         "/health",
         headers={"Origin": "https://picobot.zeabur.app"},
@@ -465,7 +466,7 @@ def test_get_chat_stream_returns_sse_events_and_persists_history(tmp_path):
     runtime = LocalAgentRuntime(chatbot=_AsyncOnlyChatbot(), store=store)
     app = create_app(runtime=runtime)
     client = TestClient(app)
-
+    register_test_user(client)
     with client.stream(
         "GET",
         "/chat/stream",
@@ -501,7 +502,7 @@ def test_post_chat_stream_returns_sse_events_and_persists_history(tmp_path):
     runtime = LocalAgentRuntime(chatbot=_AsyncOnlyChatbot(), store=store)
     app = create_app(runtime=runtime)
     client = TestClient(app)
-
+    register_test_user(client)
     with client.stream(
         "POST",
         "/chat/stream",
@@ -545,7 +546,7 @@ def test_post_chat_stream_accepts_model_override(tmp_path):
     runtime = LocalAgentRuntime(chatbot=chatbot, store=store)
     app = create_app(runtime=runtime)
     client = TestClient(app)
-
+    register_test_user(client)
     with client.stream(
         "POST",
         "/chat/stream",
@@ -563,7 +564,7 @@ def test_get_chat_stream_emits_tool_events(tmp_path):
     runtime = LocalAgentRuntime(chatbot=_EventfulToolChatbot(), store=store)
     app = create_app(runtime=runtime)
     client = TestClient(app)
-
+    register_test_user(client)
     with client.stream(
         "GET",
         "/chat/stream",
@@ -586,7 +587,7 @@ def test_post_chat_stream_can_suppress_trace_events(tmp_path):
     runtime = LocalAgentRuntime(chatbot=_EventfulToolChatbot(), store=store)
     app = create_app(runtime=runtime)
     client = TestClient(app)
-
+    register_test_user(client)
     with client.stream(
         "POST",
         "/chat/stream",
@@ -607,7 +608,7 @@ def test_get_chat_stream_emits_reasoning_events_and_persists_metadata(tmp_path):
     runtime = LocalAgentRuntime(chatbot=_ReasoningChatbot(), store=store)
     app = create_app(runtime=runtime)
     client = TestClient(app)
-
+    register_test_user(client)
     with client.stream(
         "GET",
         "/chat/stream",
@@ -630,7 +631,7 @@ def test_chat_stream_batches_reasoning_deltas_before_text_delta(tmp_path):
     runtime = LocalAgentRuntime(chatbot=_MultiReasoningChatbot(), store=store)
     app = create_app(runtime=runtime)
     client = TestClient(app)
-
+    register_test_user(client)
     with client.stream(
         "GET",
         "/chat/stream",
@@ -650,7 +651,7 @@ def test_post_chat_returns_trace_events(tmp_path):
     runtime = LocalAgentRuntime(chatbot=_EventfulToolChatbot(), store=store)
     app = create_app(runtime=runtime)
     client = TestClient(app)
-
+    register_test_user(client)
     response = client.post(
         "/chat",
         json={"session_id": "s1", "message": "hello"},
@@ -695,7 +696,7 @@ def test_post_chat_returns_reasoning_trace_events(tmp_path):
     runtime = LocalAgentRuntime(chatbot=_ReasoningChatbot(), store=store)
     app = create_app(runtime=runtime)
     client = TestClient(app)
-
+    register_test_user(client)
     response = client.post(
         "/chat",
         json={"session_id": "s1", "message": "hello"},
@@ -779,7 +780,7 @@ def test_get_capabilities_returns_frontend_metadata(tmp_path):
     )
     app = create_app(runtime=runtime)
     client = TestClient(app)
-
+    register_test_user(client)
     response = client.get("/capabilities")
 
     assert response.status_code == 200
@@ -875,7 +876,7 @@ def test_post_chat_trace_includes_workspace_changed(tmp_path):
     runtime = LocalAgentRuntime(chatbot=_WriteEventfulToolChatbot(), store=store)
     app = create_app(runtime=runtime)
     client = TestClient(app)
-
+    register_test_user(client)
     response = client.post("/chat", json={"session_id": "s1", "message": "write it"})
 
     assert response.status_code == 200
@@ -891,7 +892,7 @@ def test_stream_emits_workspace_changed_event(tmp_path):
     runtime = LocalAgentRuntime(chatbot=_WriteEventfulToolChatbot(), store=store)
     app = create_app(runtime=runtime)
     client = TestClient(app)
-
+    register_test_user(client)
     with client.stream(
         "GET",
         "/chat/stream",
@@ -962,7 +963,7 @@ def test_get_session_memory_returns_summary(tmp_path):
     runtime = LocalAgentRuntime(chatbot=_MemoryConfigChatbot(), store=store)
     app = create_app(runtime=runtime)
     client = TestClient(app)
-
+    register_test_user(client)
     created = client.post(
         "/sessions",
         json={"title": "Memory session", "session_id": "s1"},
@@ -997,7 +998,7 @@ def test_get_session_memory_includes_user_notes(tmp_path):
     runtime = LocalAgentRuntime(chatbot=_MemoryConfigChatbot(), store=store)
     app = create_app(runtime=runtime)
     client = TestClient(app)
-
+    register_test_user(client)
     created = client.post(
         "/sessions",
         json={"title": "Memory session", "session_id": "s1"},
@@ -1032,7 +1033,7 @@ def test_get_session_memory_returns_empty_payload_before_compaction(tmp_path):
     runtime = LocalAgentRuntime(chatbot=_MemoryConfigChatbot(), store=store)
     app = create_app(runtime=runtime)
     client = TestClient(app)
-
+    register_test_user(client)
     created = client.post(
         "/sessions",
         json={"title": "Memory session", "session_id": "s1"},
@@ -1067,7 +1068,7 @@ def test_create_session_memory_note(tmp_path):
     runtime = LocalAgentRuntime(chatbot=_MemoryConfigChatbot(), store=store)
     app = create_app(runtime=runtime)
     client = TestClient(app)
-
+    register_test_user(client)
     created = client.post(
         "/sessions",
         json={"title": "Memory session", "session_id": "s1"},
@@ -1093,7 +1094,7 @@ def test_delete_session_memory_note_archives_it(tmp_path):
     runtime = LocalAgentRuntime(chatbot=_MemoryConfigChatbot(), store=store)
     app = create_app(runtime=runtime)
     client = TestClient(app)
-
+    register_test_user(client)
     created = client.post(
         "/sessions",
         json={"title": "Memory session", "session_id": "s1"},
@@ -1126,7 +1127,7 @@ def test_clear_session_memory_summary_keeps_notes(tmp_path):
     runtime = LocalAgentRuntime(chatbot=_MemoryConfigChatbot(), store=store)
     app = create_app(runtime=runtime)
     client = TestClient(app)
-
+    register_test_user(client)
     created = client.post(
         "/sessions",
         json={"title": "Memory session", "session_id": "s1"},
@@ -1447,7 +1448,7 @@ def test_post_chat_stream_returns_structured_validation_error(tmp_path):
 def test_health_returns_ok():
     app = create_app(runtime=LocalAgentRuntime(chatbot=_AsyncOnlyChatbot()))
     client = TestClient(app)
-
+    register_test_user(client)
     response = client.get("/health")
 
     assert response.status_code == 200
@@ -1463,6 +1464,7 @@ def _build_client(tmp_path, *, with_runtime: bool = False):
     )
     app = create_app(runtime=runtime)
     client = TestClient(app)
+    register_test_user(client)
     if with_runtime:
         return client, runtime, store
     return client, store

@@ -8,6 +8,7 @@ pytest.importorskip("fastapi")
 pytest.importorskip("aiosqlite")
 
 from fastapi.testclient import TestClient
+from conftest import register_test_user
 
 from simplified_chatbot.config.schema import ChatbotConfig
 from simplified_chatbot.runtime.local_runtime import LocalAgentRuntime
@@ -39,12 +40,12 @@ def _build_runtime(tmp_path):
 
 def test_get_workspace_file_raw_returns_bytes_and_headers(tmp_path):
     runtime = _build_runtime(tmp_path)
-    asyncio.run(runtime.create_session_async(session_id="s1", title="demo"))
+    asyncio.run(runtime.create_session_async(session_id="s1", title="demo", user_id=1))
     workspace = runtime.workspace_manager.ensure_workspace("s1")
     content = b"<svg xmlns='http://www.w3.org/2000/svg'></svg>"
     (workspace / "diagram.svg").write_bytes(content)
     client = TestClient(create_app(runtime=runtime))
-
+    register_test_user(client)
     response = client.get(
         "/sessions/s1/workspace/file/raw",
         params={"path": "diagram.svg"},
@@ -59,10 +60,11 @@ def test_get_workspace_file_raw_returns_bytes_and_headers(tmp_path):
 
 def test_get_workspace_file_raw_rejects_large_files(tmp_path, monkeypatch):
     runtime = _build_runtime(tmp_path)
-    asyncio.run(runtime.create_session_async(session_id="s1", title="demo"))
+    asyncio.run(runtime.create_session_async(session_id="s1", title="demo", user_id=1))
     workspace = runtime.workspace_manager.ensure_workspace("s1")
     (workspace / "big.bin").write_bytes(b"1234")
     client = TestClient(create_app(runtime=runtime))
+    register_test_user(client)
     monkeypatch.setattr(endpoints_workspace, "_RAW_MAX_BYTES", 3)
 
     response = client.get(
@@ -76,13 +78,13 @@ def test_get_workspace_file_raw_rejects_large_files(tmp_path, monkeypatch):
 
 def test_download_workspace_zip_returns_archive_contents(tmp_path):
     runtime = _build_runtime(tmp_path)
-    asyncio.run(runtime.create_session_async(session_id="s1", title="demo"))
+    asyncio.run(runtime.create_session_async(session_id="s1", title="demo", user_id=1))
     workspace = runtime.workspace_manager.ensure_workspace("s1")
     (workspace / "docs").mkdir()
     (workspace / "docs" / "notes.md").write_text("# Notes\n", encoding="utf-8")
     (workspace / "docs" / "todo.txt").write_text("item\n", encoding="utf-8")
     client = TestClient(create_app(runtime=runtime))
-
+    register_test_user(client)
     response = client.get(
         "/sessions/s1/workspace/download",
         params={"path": "docs"},
@@ -99,11 +101,11 @@ def test_download_workspace_zip_returns_archive_contents(tmp_path):
 
 def test_create_workspace_file_success(tmp_path):
     runtime = _build_runtime(tmp_path)
-    asyncio.run(runtime.create_session_async(session_id="s1", title="demo"))
+    asyncio.run(runtime.create_session_async(session_id="s1", title="demo", user_id=1))
     workspace = runtime.workspace_manager.ensure_workspace("s1")
     (workspace / "docs").mkdir()
     client = TestClient(create_app(runtime=runtime))
-
+    register_test_user(client)
     response = client.post(
         "/sessions/s1/workspace/file",
         json={"path": "docs/new.md", "content": "hello\n"},
@@ -120,12 +122,12 @@ def test_create_workspace_file_success(tmp_path):
 
 def test_create_workspace_file_rejects_existing_without_overwrite(tmp_path):
     runtime = _build_runtime(tmp_path)
-    asyncio.run(runtime.create_session_async(session_id="s1", title="demo"))
+    asyncio.run(runtime.create_session_async(session_id="s1", title="demo", user_id=1))
     workspace = runtime.workspace_manager.ensure_workspace("s1")
     (workspace / "docs").mkdir()
     (workspace / "docs" / "new.md").write_text("old\n", encoding="utf-8")
     client = TestClient(create_app(runtime=runtime))
-
+    register_test_user(client)
     response = client.post(
         "/sessions/s1/workspace/file",
         json={"path": "docs/new.md", "content": "hello\n"},
@@ -137,12 +139,12 @@ def test_create_workspace_file_rejects_existing_without_overwrite(tmp_path):
 
 def test_save_workspace_file_success(tmp_path):
     runtime = _build_runtime(tmp_path)
-    asyncio.run(runtime.create_session_async(session_id="s1", title="demo"))
+    asyncio.run(runtime.create_session_async(session_id="s1", title="demo", user_id=1))
     workspace = runtime.workspace_manager.ensure_workspace("s1")
     (workspace / "docs").mkdir()
     (workspace / "docs" / "draft.md").write_text("old\n", encoding="utf-8")
     client = TestClient(create_app(runtime=runtime))
-
+    register_test_user(client)
     response = client.put(
         "/sessions/s1/workspace/file",
         json={"path": "docs/draft.md", "content": "new\n"},
@@ -159,9 +161,9 @@ def test_save_workspace_file_success(tmp_path):
 
 def test_save_workspace_file_requires_existing_parent_directory(tmp_path):
     runtime = _build_runtime(tmp_path)
-    asyncio.run(runtime.create_session_async(session_id="s1", title="demo"))
+    asyncio.run(runtime.create_session_async(session_id="s1", title="demo", user_id=1))
     client = TestClient(create_app(runtime=runtime))
-
+    register_test_user(client)
     response = client.put(
         "/sessions/s1/workspace/file",
         json={"path": "missing/draft.md", "content": "new\n"},
@@ -173,12 +175,12 @@ def test_save_workspace_file_requires_existing_parent_directory(tmp_path):
 
 def test_delete_workspace_directory_recursive_success(tmp_path):
     runtime = _build_runtime(tmp_path)
-    asyncio.run(runtime.create_session_async(session_id="s1", title="demo"))
+    asyncio.run(runtime.create_session_async(session_id="s1", title="demo", user_id=1))
     workspace = runtime.workspace_manager.ensure_workspace("s1")
     (workspace / "docs" / "nested").mkdir(parents=True)
     (workspace / "docs" / "nested" / "note.txt").write_text("hello\n", encoding="utf-8")
     client = TestClient(create_app(runtime=runtime))
-
+    register_test_user(client)
     response = client.delete(
         "/sessions/s1/workspace/directory",
         params={"path": "docs", "recursive": "true"},
@@ -195,12 +197,12 @@ def test_delete_workspace_directory_recursive_success(tmp_path):
 
 def test_delete_workspace_directory_rejects_non_empty_without_recursive(tmp_path):
     runtime = _build_runtime(tmp_path)
-    asyncio.run(runtime.create_session_async(session_id="s1", title="demo"))
+    asyncio.run(runtime.create_session_async(session_id="s1", title="demo", user_id=1))
     workspace = runtime.workspace_manager.ensure_workspace("s1")
     (workspace / "docs").mkdir()
     (workspace / "docs" / "note.txt").write_text("hello\n", encoding="utf-8")
     client = TestClient(create_app(runtime=runtime))
-
+    register_test_user(client)
     response = client.delete(
         "/sessions/s1/workspace/directory",
         params={"path": "docs"},
@@ -212,9 +214,9 @@ def test_delete_workspace_directory_rejects_non_empty_without_recursive(tmp_path
 
 def test_delete_workspace_directory_rejects_workspace_root(tmp_path):
     runtime = _build_runtime(tmp_path)
-    asyncio.run(runtime.create_session_async(session_id="s1", title="demo"))
+    asyncio.run(runtime.create_session_async(session_id="s1", title="demo", user_id=1))
     client = TestClient(create_app(runtime=runtime))
-
+    register_test_user(client)
     response = client.delete(
         "/sessions/s1/workspace/directory",
         params={"path": "."},

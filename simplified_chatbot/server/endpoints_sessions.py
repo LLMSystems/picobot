@@ -5,11 +5,13 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import StreamingResponse
 
 from simplified_chatbot.agents.registry import AgentRegistry
+from simplified_chatbot.auth.users_store import User
 from simplified_chatbot.server.common import error_response, get_runtime
+from simplified_chatbot.server.deps import require_user
 from simplified_chatbot.server.schemas import (
     DeleteSessionResponse,
     SessionCreateRequest,
@@ -32,12 +34,15 @@ router = APIRouter()
 
 
 @router.get("/sessions", response_model=SessionListResponse)
-async def list_sessions(request: Request) -> SessionListResponse:
-    """List known session ids."""
+async def list_sessions(
+    request: Request,
+    user: User = Depends(require_user),
+) -> SessionListResponse:
+    """List the calling user's own sessions."""
     runtime = get_runtime(request)
     sessions = [
         SessionSummary.model_validate(item)
-        for item in await runtime.list_session_summaries_async()
+        for item in await runtime.list_session_summaries_async(user_id=user.id)
     ]
     return SessionListResponse(sessions=sessions)
 
@@ -46,8 +51,9 @@ async def list_sessions(request: Request) -> SessionListResponse:
 async def create_session(
     request: Request,
     payload: SessionCreateRequest,
+    user: User = Depends(require_user),
 ) -> SessionSummary:
-    """Create one empty session with optional title and agent type."""
+    """Create one empty session owned by the calling user."""
     runtime = get_runtime(request)
     if payload.agent_type is not None:
         registry = getattr(runtime.chatbot, "agent_registry", None) or AgentRegistry.load()
@@ -63,6 +69,7 @@ async def create_session(
         title=payload.title,
         session_id=payload.session_id,
         agent_type=payload.agent_type,
+        user_id=user.id,
     )
     return SessionSummary.model_validate(summary)
 

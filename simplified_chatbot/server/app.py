@@ -10,17 +10,25 @@ from pathlib import Path
 import uuid
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.exceptions import RequestValidationError
 from fastapi.requests import Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.middleware.sessions import SessionMiddleware
 
 from simplified_chatbot.config.loader import load_env_for_config, load_config
 from simplified_chatbot.runtime.local_runtime import LocalAgentRuntime
 from simplified_chatbot.runtime.session_store import AioSQLiteSessionStore
 from simplified_chatbot.server.common import error_response, get_request_id
+from simplified_chatbot.auth.users_store import UsersStore
+from simplified_chatbot.server.deps import (
+    SessionAccessError,
+    enforce_session_ownership,
+    require_user,
+)
+from simplified_chatbot.server.endpoints_auth import router as auth_router
 from simplified_chatbot.server.endpoints_capabilities import router as capabilities_router
 from simplified_chatbot.server.endpoints_chat import router as chat_router
 from simplified_chatbot.server.endpoints_health import router as health_router
@@ -124,6 +132,18 @@ def create_app(
             allow_headers=["*"],
         )
 
+    # Signed httpOnly session cookie. Carries only {"user_id": int}; chosen over
+    # Bearer tokens so the frontend's EventSource streams (which cannot set
+    # Authorization headers) authenticate via cookie with withCredentials.
+    session_secret, session_https_only = _resolve_session_settings(config_path)
+    app.add_middleware(
+        SessionMiddleware,
+        secret_key=session_secret,
+        session_cookie="picobot_session",
+        same_site="lax",
+        https_only=session_https_only,
+    )
+
     # Raw ASGI middleware — pure asgi (not BaseHTTPMiddleware) so streaming
     # responses (e.g. SSE on /metrics/stream and /chat/stream) pass through
     # without being buffered.
@@ -154,7 +174,11 @@ def create_app(
     @app.exception_handler(StarletteHTTPException)
     async def handle_http_exception(request: Request, exc: StarletteHTTPException) -> JSONResponse:
         code = "HTTP_ERROR"
-        if exc.status_code == 404:
+        if exc.status_code == 401:
+            code = "UNAUTHENTICATED"
+        elif exc.status_code == 403:
+            code = "FORBIDDEN"
+        elif exc.status_code == 404:
             code = "NOT_FOUND"
         elif exc.status_code == 405:
             code = "METHOD_NOT_ALLOWED"
@@ -163,6 +187,16 @@ def create_app(
             status_code=exc.status_code,
             code=code,
             message=str(exc.detail),
+        )
+
+    @app.exception_handler(SessionAccessError)
+    async def handle_session_access_error(request: Request, exc: SessionAccessError) -> JSONResponse:
+        # Rendered identically to a missing session so ownership can't be probed.
+        return error_response(
+            request,
+            status_code=404,
+            code="SESSION_NOT_FOUND",
+            message=f"Session '{exc.session_id}' not found",
         )
 
     @app.exception_handler(RequestValidationError)
@@ -199,6 +233,14 @@ def create_app(
     app.state.chrome = chrome
     app.state.config = config
 
+    # Users live in the same SQLite file as sessions so a single DB path backs
+    # the whole app; fall back to the conventional path when the runtime store
+    # does not expose one (e.g. in-memory test doubles).
+    users_db_path = getattr(getattr(runtime, "store", None), "db_path", None)
+    if users_db_path is None:
+        users_db_path = (Path.cwd() / "sessions_async.db").resolve()
+    app.state.users_store = UsersStore(users_db_path)
+
     metrics = _build_metrics_service(runtime, chrome)
     app.state.metrics = metrics
     app.add_middleware(ApiStatsMiddleware, recorder=metrics.api_stats)
@@ -221,17 +263,25 @@ def create_app(
             alert_service=alert_service,
         )
 
-    app.include_router(chat_router)
+    # Protected routes (need a logged-in user) vs public routes.
+    # capabilities/health/metrics/alerts stay public: the frontend reads them
+    # before login, and metrics/alerts is operational telemetry.
+    protected = [Depends(require_user)]
+    # Session-scoped routers additionally enforce per-session ownership on any
+    # /sessions/{session_id}/... route (no-op on collection / body-scoped routes).
+    session_scoped = [Depends(require_user), Depends(enforce_session_ownership)]
+    app.include_router(auth_router)
     app.include_router(capabilities_router)
-    app.include_router(sessions_router)
-    app.include_router(workspace_router)
-    app.include_router(skills_router)
     app.include_router(health_router)
     app.include_router(metrics_router)
     app.include_router(alerts_router)
-    app.include_router(mcp_router)
+    app.include_router(chat_router, dependencies=session_scoped)
+    app.include_router(sessions_router, dependencies=session_scoped)
+    app.include_router(workspace_router, dependencies=session_scoped)
+    app.include_router(skills_router, dependencies=protected)
+    app.include_router(mcp_router, dependencies=protected)
     if screencast_router is not None:
-        app.include_router(screencast_router)
+        app.include_router(screencast_router, dependencies=session_scoped)
     return app
 
 
@@ -288,6 +338,30 @@ def _build_metrics_service(
         lambda: chrome.proc is not None and chrome.proc.poll() is None,
     )
     return service
+
+
+def _resolve_session_settings(config_path: str | Path | None) -> tuple[str, bool]:
+    """Resolve the session-cookie secret and secure flag from the environment.
+
+    ``SESSION_SECRET`` signs the cookie. Missing it is fine for local dev — we
+    generate an ephemeral secret (so cookies reset on restart) and warn — but a
+    real deployment must set a stable value or every restart logs everyone out.
+    ``SESSION_COOKIE_SECURE`` should be ``true`` behind HTTPS.
+    """
+    load_env_for_config(config_path)
+    secret = os.environ.get("SESSION_SECRET", "").strip()
+    if not secret:
+        logger.warning(
+            "SESSION_SECRET is not set; generating an ephemeral secret. "
+            "Sessions will be invalidated on restart. Set SESSION_SECRET in production.",
+        )
+        secret = uuid.uuid4().hex + uuid.uuid4().hex
+    https_only = os.environ.get("SESSION_COOKIE_SECURE", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+    }
+    return secret, https_only
 
 
 def _resolve_cors_allowed_origins(

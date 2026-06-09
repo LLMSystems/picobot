@@ -870,13 +870,22 @@ class LocalAgentRuntime:
         self._pending_internal_messages.pop(session_id, None)
         self._resume_requested.discard(session_id)
 
-    async def list_sessions_async(self) -> list[str]:
+    async def list_sessions_async(self, user_id: int | None = None) -> list[str]:
         if isinstance(self.store, AsyncSessionStore):
-            return await self.store.list_sessions()
+            # Only the AioSQLite store supports the user_id filter; call the
+            # plain signature when not filtering so other async stores still work.
+            if user_id is None:
+                return await self.store.list_sessions()
+            return await self.store.list_sessions(user_id=user_id)
+        # Sync stores (InMemory/Jsonl/SQLite) are deprecated and have no user
+        # column, so they cannot filter — return everything as before.
         return await asyncio.to_thread(self.store.list_sessions)
 
-    async def list_session_summaries_async(self) -> list[dict[str, object]]:
-        session_ids = await self.list_sessions_async()
+    async def list_session_summaries_async(
+        self,
+        user_id: int | None = None,
+    ) -> list[dict[str, object]]:
+        session_ids = await self.list_sessions_async(user_id=user_id)
         summaries: list[dict[str, object]] = []
         for session_id in session_ids:
             history = await self._load_history_async(session_id)
@@ -1341,13 +1350,21 @@ class LocalAgentRuntime:
         title: str | None = None,
         session_id: str | None = None,
         agent_type: str | None = None,
+        user_id: int | None = None,
+        apply_default_title: bool = True,
     ) -> dict[str, object]:
         resolved_session_id = session_id or _generate_session_id()
         resolved_agent_type = _normalize_agent_type(agent_type)
-        payload = {
-            "title": _normalize_session_title(title),
+        # When apply_default_title is False we persist a NULL title so the
+        # summary can still derive one from the first message — used when chat
+        # implicitly creates a session just to stamp its owner.
+        resolved_title = _normalize_session_title(title) if apply_default_title else title
+        payload: dict[str, object] = {
+            "title": resolved_title,
             "agent_type": resolved_agent_type,
         }
+        if user_id is not None:
+            payload["user_id"] = user_id
         self._session_agent_types[resolved_session_id] = resolved_agent_type
         create_session = getattr(self.store, "create_session", None)
         if not callable(create_session):
@@ -2617,6 +2634,7 @@ class LocalAgentRuntime:
         updated_at = session_metadata.get("updated_at")
         title = session_metadata.get("title")
         agent_type = session_metadata.get("agent_type")
+        user_id = session_metadata.get("user_id")
         return {
             "session_id": session_id,
             "title": (
@@ -2625,6 +2643,7 @@ class LocalAgentRuntime:
                 else _derive_session_title(first_user, session_id=session_id)
             ),
             "agent_type": agent_type if isinstance(agent_type, str) else None,
+            "user_id": user_id if isinstance(user_id, int) else None,
             "created_at": created_at if isinstance(created_at, str) else None,
             "updated_at": updated_at if isinstance(updated_at, str) else None,
             "message_count": sum(

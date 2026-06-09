@@ -146,22 +146,32 @@ class MetricsService:
 
     async def build_session_snapshot(self, session_id: str) -> dict[str, Any] | None:
         """Assemble the `/metrics/sessions/{id}` payload, or None if no session."""
+        import sqlite3
         from simplified_chatbot.metrics.aggregators.sessions import _scalar  # type: ignore
         from simplified_chatbot.runtime.sqlite_pragmas import open_async
 
         if self._db_path is None or not self._db_path.exists():
             return None
-        async with open_async(self._db_path) as conn:
-            cursor = await conn.execute(
-                """
-                SELECT created_at, updated_at
-                FROM session_metadata
-                WHERE session_id = ?
-                """,
-                (session_id,),
-            )
-            row = await cursor.fetchone()
-            await cursor.close()
+        # session_metadata is created lazily by the session store on first
+        # write. Other tenants on the same DB file (e.g. UsersStore) may have
+        # created the file without that table existing yet → treat as "no
+        # session" rather than 500.
+        try:
+            async with open_async(self._db_path) as conn:
+                cursor = await conn.execute(
+                    """
+                    SELECT created_at, updated_at
+                    FROM session_metadata
+                    WHERE session_id = ?
+                    """,
+                    (session_id,),
+                )
+                row = await cursor.fetchone()
+                await cursor.close()
+        except sqlite3.OperationalError as exc:
+            if "no such table" in str(exc).lower():
+                return None
+            raise
         if row is None:
             return None
         created_at, updated_at = row

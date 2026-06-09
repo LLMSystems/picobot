@@ -4,6 +4,7 @@ import sys
 import textwrap
 import time
 from pathlib import Path
+from conftest import register_test_user
 
 import pytest
 
@@ -224,6 +225,7 @@ def test_runtime_from_config_exposes_mcp_tools_in_capabilities(monkeypatch, tmp_
     runtime.ensure_mcp_connected()
     app = create_app(runtime=runtime)
     client = TestClient(app)
+    register_test_user(client)
     response = client.get("/capabilities")
 
     assert response.status_code == 200
@@ -254,6 +256,8 @@ def test_mcp_status_endpoint_reports_connected_server_details(monkeypatch, tmp_p
     app = create_app(runtime=runtime)
 
     with TestClient(app) as client:
+
+        register_test_user(client)
         response = client.get("/mcp/status")
         assert response.status_code == 200
         payload = _poll_mcp_status(client, lambda p: p["connected_server_count"] == 1)
@@ -293,6 +297,8 @@ def test_mcp_status_endpoint_reports_connection_failures(monkeypatch, tmp_path: 
     app = create_app(runtime=runtime)
 
     with TestClient(app) as client:
+
+        register_test_user(client)
         response = client.get("/mcp/status")
         assert response.status_code == 200
         payload = _poll_mcp_status(
@@ -333,6 +339,8 @@ def test_mcp_reload_endpoint_reconciles_changed_server_tools(monkeypatch, tmp_pa
     app = create_app(runtime=runtime)
 
     with TestClient(app) as client:
+
+        register_test_user(client)
         before = _poll_mcp_status(
             client,
             lambda p: p["servers"][0]["tool_names"] == ["mcp_demo_greet"],
@@ -386,7 +394,7 @@ def test_mcp_reload_endpoint_returns_400_without_config_path(monkeypatch, tmp_pa
     runtime = LocalAgentRuntime(chatbot=_DummyChatbot())
     app = create_app(runtime=runtime)
     client = TestClient(app)
-
+    register_test_user(client)
     response = client.post("/mcp/reload")
 
     assert response.status_code == 400
@@ -528,6 +536,8 @@ def test_mcp_status_reports_connecting_server_while_background_connect_is_pendin
     app = create_app(runtime=runtime)
 
     with TestClient(app) as client:
+
+        register_test_user(client)
         started = time.perf_counter()
         while not start_event.is_set():
             if time.perf_counter() - started > 2:
@@ -557,6 +567,8 @@ def test_mcp_upsert_and_delete_server_endpoints(monkeypatch, tmp_path: Path):
     app = create_app(runtime=runtime)
 
     with TestClient(app) as client:
+
+        register_test_user(client)
         created = client.put(
             "/mcp/servers/demo",
             json={

@@ -20,6 +20,8 @@ def tmp_path():
 @pytest.fixture(autouse=True)
 def restore_environment():
     original = os.environ.copy()
+    # Stable secret so /auth/* cookies survive across requests in a single test.
+    os.environ.setdefault("SESSION_SECRET", "test-secret-not-for-production")
     try:
         yield
     finally:
@@ -28,3 +30,36 @@ def restore_environment():
             if key not in original:
                 os.environ.pop(key, None)
         os.environ.update(original)
+
+
+def register_test_user(
+    client,
+    username: str = "tester",
+    password: str = "test-password-123",
+) -> dict:
+    """Register and log in a user against a TestClient; returns the user payload.
+
+    Endpoint tests use this so protected routes (Phase 2+) don't have to repeat
+    the register/login boilerplate.
+    """
+    resp = client.post(
+        "/auth/register",
+        json={"username": username, "password": password},
+    )
+    if resp.status_code == 200:
+        return resp.json()
+    if resp.status_code == 409:
+        # Same DB reused across multiple TestClient instances in one test —
+        # fall back to login so the cookie still ends up set.
+        login = client.post(
+            "/auth/login",
+            json={"username": username, "password": password},
+        )
+        if login.status_code == 200:
+            return login.json()
+        raise RuntimeError(
+            f"register_test_user fallback login failed: {login.status_code} {login.text}"
+        )
+    raise RuntimeError(
+        f"register_test_user failed: {resp.status_code} {resp.text}"
+    )
