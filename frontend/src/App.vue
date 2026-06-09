@@ -9,6 +9,8 @@ import { useAgentTypesStore } from '@/stores/agentTypes'
 import { useSessionsStore } from '@/stores/sessions'
 import { useChatStore } from '@/stores/chat'
 import { useAuthStore } from '@/stores/auth'
+import { useSkillsStore } from '@/stores/skills'
+import { useMcpStore } from '@/stores/mcp'
 import { useTheme } from '@/composables/useTheme'
 import { useGlobalShortcuts } from '@/composables/useShortcuts'
 import { useComposerBus } from '@/composables/useComposerBus'
@@ -21,6 +23,8 @@ const agentTypes = useAgentTypesStore()
 const sessions = useSessionsStore()
 const chat = useChatStore()
 const auth = useAuthStore()
+const skills = useSkillsStore()
+const mcp = useMcpStore()
 const router = useRouter()
 const route = useRoute()
 const bus = useComposerBus()
@@ -49,9 +53,15 @@ onUnauthorized(() => {
 // Load app data only once authenticated; re-runs after login. The router guard
 // resolves auth before the first navigation, so this fires on initial load too.
 watch(
-  () => auth.isAuthenticated,
-  async (authed) => {
-    if (!authed) return
+  () => auth.user?.id ?? null,
+  async (id, prevId) => {
+    // On any user switch (incl. logout), drop caches that lazy-load and would
+    // otherwise survive into the next user's session within the same page.
+    if (id !== prevId) {
+      skills.reset()
+      mcp.reset()
+    }
+    if (!auth.isAuthenticated) return
     await Promise.all([caps.load(), sessions.fetchAll()])
     if (caps.failed) {
       toast.warning('能力資訊載入失敗，已使用預設值')

@@ -28,6 +28,13 @@ export const useSkillsStore = defineStore('skills', () => {
     await refresh()
   }
 
+  /** Drop the cached list so the next load() refetches (e.g. on user switch). */
+  function reset() {
+    skills.value = []
+    loaded.value = false
+    error.value = null
+  }
+
   async function create(
     name: string,
     content: string,
@@ -66,6 +73,7 @@ export const useSkillsStore = defineStore('skills', () => {
     error,
     refresh,
     load,
+    reset,
     create,
     remove,
     setDisabled,
