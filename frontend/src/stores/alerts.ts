@@ -164,7 +164,7 @@ export const useAlertsStore = defineStore('alerts', () => {
     if (sse !== null) return
     let opened = false
     try {
-      const es = new EventSource(`${API_BASE}/alerts/stream`, { withCredentials: false })
+      const es = new EventSource(`${API_BASE}/alerts/stream`, { withCredentials: true })
       sse = es
 
       es.addEventListener('alert_snapshot', (raw) => {

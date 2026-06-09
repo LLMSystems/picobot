@@ -3,6 +3,11 @@ export interface ModelInfo {
   name: string
 }
 
+export interface AuthUser {
+  id: number
+  username: string
+}
+
 export interface ToolCapability {
   name: string
   description: string

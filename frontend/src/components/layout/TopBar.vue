@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { computed, ref, watch, nextTick } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useSessionsStore } from '@/stores/sessions'
 import { useCapabilitiesStore } from '@/stores/capabilities'
+import { useAuthStore } from '@/stores/auth'
 import { Button } from '@/components/ui/button'
-import { Menu, Pencil, Moon, Sun, PanelRight, Bell, BellOff, Download, Settings, MemoryStick } from 'lucide-vue-next'
+import { Menu, Pencil, Moon, Sun, PanelRight, Bell, BellOff, Download, Settings, MemoryStick, LogOut } from 'lucide-vue-next'
 import ModeSwitcher from '@/components/layout/ModeSwitcher.vue'
 import AlertsBadge from '@/components/layout/AlertsBadge.vue'
 import AgentTypeAvatar from '@/components/common/AgentTypeAvatar.vue'
@@ -34,9 +35,16 @@ import {
 defineEmits<{ (e: 'toggle-sidebar'): void }>()
 
 const route = useRoute()
+const router = useRouter()
 const sessions = useSessionsStore()
 const caps = useCapabilitiesStore()
+const auth = useAuthStore()
 const ws = useWorkspaceStore()
+
+async function handleLogout() {
+  await auth.logout()
+  await router.replace({ name: 'login' })
+}
 const settings = useSettingsStore()
 const memory = useSessionMemoryStore()
 const { theme, toggle: toggleTheme } = useTheme()
@@ -283,6 +291,16 @@ function cancel() {
       >
         <Sun v-if="theme === 'dark'" class="size-4" />
         <Moon v-else class="size-4" />
+      </Button>
+      <Button
+        v-if="auth.isAuthenticated"
+        variant="ghost"
+        size="icon"
+        aria-label="登出"
+        :title="auth.user ? `登出 ${auth.user.username}` : '登出'"
+        @click="handleLogout"
+      >
+        <LogOut class="size-4" />
       </Button>
       <Button
         v-if="caps.data.features.session_workspace"

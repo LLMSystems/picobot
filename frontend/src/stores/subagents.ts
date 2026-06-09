@@ -472,7 +472,7 @@ export const useSubagentStore = defineStore('subagents', () => {
     disconnectSSE()
     sessionId.value = sid
     const url = api.sessionEventStreamUrl(sid)
-    const es = new EventSource(url, { withCredentials: false })
+    const es = new EventSource(url, { withCredentials: true })
     sseSource = es
     for (const name of LIVE_EVENT_NAMES) {
       es.addEventListener(name, (raw) => {
