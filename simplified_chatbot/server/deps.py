@@ -8,6 +8,7 @@ and gate protected routes.
 from __future__ import annotations
 
 from fastapi import HTTPException, Request
+from starlette.requests import HTTPConnection
 
 from simplified_chatbot.auth.users_store import User, UsersStore
 from simplified_chatbot.server.common import get_runtime
@@ -27,40 +28,41 @@ class SessionAccessError(Exception):
         self.session_id = session_id
 
 
-def get_users_store(request: Request) -> UsersStore:
+def get_users_store(conn: HTTPConnection) -> UsersStore:
     """Return the UsersStore stored on FastAPI app state."""
-    store = getattr(request.app.state, "users_store", None)
+    store = getattr(conn.app.state, "users_store", None)
     if not isinstance(store, UsersStore):
         raise RuntimeError("UsersStore is not initialized")
     return store
 
 
-async def get_current_user(request: Request) -> User | None:
+async def get_current_user(conn: HTTPConnection) -> User | None:
     """Resolve the logged-in user from the session cookie, or None.
 
-    Returns None (rather than raising) so callers that allow anonymous access
-    can branch on it. A stale cookie pointing at a deleted user resolves to
-    None as well.
+    Typed against HTTPConnection (the shared base of Request and WebSocket) so
+    the same gate works on HTTP routes and the screencast WebSocket. Returns
+    None (rather than raising) so callers that allow anonymous access can branch
+    on it. A stale cookie pointing at a deleted user resolves to None as well.
     """
-    session = getattr(request, "session", None)
+    session = getattr(conn, "session", None)
     if not session:
         return None
     user_id = session.get(SESSION_USER_KEY)
     if not isinstance(user_id, int):
         return None
-    store = get_users_store(request)
+    store = get_users_store(conn)
     return await store.get_by_id(user_id)
 
 
-async def require_user(request: Request) -> User:
+async def require_user(conn: HTTPConnection) -> User:
     """FastAPI dependency: 401 unless a valid session cookie is present."""
-    user = await get_current_user(request)
+    user = await get_current_user(conn)
     if user is None:
         raise HTTPException(status_code=401, detail="Authentication required")
     return user
 
 
-async def enforce_session_ownership(request: Request) -> None:
+async def enforce_session_ownership(conn: HTTPConnection) -> None:
     """Router-level dependency for ``/sessions/{session_id}/...`` routes.
 
     A no-op on collection routes (``GET/POST /sessions``) and on routes that
@@ -69,11 +71,11 @@ async def enforce_session_ownership(request: Request) -> None:
     Owning means ``session.user_id == current_user.id``; legacy NULL-owner
     sessions are owned by nobody and therefore invisible to everyone.
     """
-    session_id = request.path_params.get("session_id")
+    session_id = conn.path_params.get("session_id")
     if not session_id:
         return
-    user = await require_user(request)
-    runtime = get_runtime(request)
+    user = await require_user(conn)
+    runtime = get_runtime(conn)
     summary = await runtime.get_session_summary_async(session_id)
     if summary is None or summary.get("user_id") != user.id:
         raise SessionAccessError(session_id)
