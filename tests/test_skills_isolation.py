@@ -79,6 +79,33 @@ def test_other_user_cannot_delete_your_skill(tmp_path):
     assert "alice-skill" in _custom_names(alice)
 
 
+def test_shared_dir_disabled_state_applies_to_users(tmp_path):
+    # A legacy/shared skill disabled via the global dir's .skill_state.json
+    # must stay disabled for every user.
+    import json
+
+    skills_root = tmp_path / "skills"
+    shared_skill = skills_root / "legacy"
+    shared_skill.mkdir(parents=True)
+    (shared_skill / "SKILL.md").write_text(_skill_md("legacy", "old shared"), encoding="utf-8")
+    (skills_root / ".skill_state.json").write_text(
+        json.dumps({"disabled": ["legacy"]}), encoding="utf-8"
+    )
+
+    loader = SkillsLoader(skills_dir=skills_root)
+    runtime = LocalAgentRuntime(
+        chatbot=_SkillsChatbot(),
+        store=AioSQLiteSessionStore(tmp_path / "sessions.db"),
+        skills_loader=loader,
+    )
+    app = create_app(runtime=runtime)
+    alice = _user_client(app, "alice")
+
+    entry = next(s for s in alice.get("/skills").json()["skills"] if s["name"] == "legacy")
+    assert entry["source"] == "shared"
+    assert entry["disabled"] is True
+
+
 def test_same_name_skills_are_independent_per_user(tmp_path):
     app = _app(tmp_path)
     alice = _user_client(app, "alice")

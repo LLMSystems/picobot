@@ -457,11 +457,18 @@ class LocalAgentRuntime:
         if user_id is None or self._skills_root is None:
             return self.skills_loader
         user_dir = self._skills_root / "users" / str(user_id)
+        # Baseline disabled = config-level ∪ the shared (legacy global) dir's
+        # own .skill_state.json — the global loader already merged both at
+        # startup, so disables on shared/builtin skills apply to every user.
+        # The per-user loader then layers its own state file on top.
+        baseline_disabled = set(self._config_disabled_skills) | set(
+            self.skills_loader.disabled_skills,
+        )
         return SkillsLoader(
             skills_dir=user_dir,
             shared_skills_dir=self._skills_root,
             builtin_skills_dir=self._builtin_skills_dir,
-            disabled_skills=set(self._config_disabled_skills),
+            disabled_skills=baseline_disabled,
         )
 
     def list_skills(self, user_id: int | None = None) -> list[dict[str, object]]:
