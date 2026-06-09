@@ -30,8 +30,10 @@ def _build_client(tmp_path):
         skills_loader=loader,
     )
     client = TestClient(create_app(runtime=runtime))
-    register_test_user(client)
-    return client, skills_dir
+    user = register_test_user(client)
+    # Custom skills are now stored per-user under <skills_dir>/users/<id>.
+    user_dir = skills_dir / "users" / str(user["id"])
+    return client, user_dir
 
 
 def _skill_markdown(name: str, description: str = "Demo skill") -> str:

@@ -55,7 +55,8 @@ export const useSkillsStore = defineStore('skills', () => {
   }
 
   const customSkills = computed(() => skills.value.filter((s) => s.source === 'custom'))
-  const builtinSkills = computed(() => skills.value.filter((s) => s.source === 'builtin'))
+  // builtin + shared (legacy global) are both read-only, shown together.
+  const builtinSkills = computed(() => skills.value.filter((s) => s.source !== 'custom'))
   const enabledCount = computed(() => skills.value.filter((s) => !s.disabled).length)
 
   return {

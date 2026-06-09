@@ -297,6 +297,15 @@ MCP 目前是**單一全域**架構（一份 `config.json` + 一組共用連線�
 
 若未來真有「使用者各自帶私人 MCP 整合」需求，再評估 per-user 路線（per-user 設定儲存 + per-user 連線池 + per-session 工具注入）。
 
+### Skills — per-user（builtin/legacy 共用唯讀）
+
+`read_skill` 工具已棄用（import 但未註冊），所以 skills 進 agent 的路徑只剩：(1) session workspace 的 `.skills/` 複製、(2) system prompt 的 skills 摘要。兩者都收斂在**已 per-user 隔離的 workspace** 上，因此不需動 chatbot/tool_factory 核心。
+
+- **儲存**：可寫的自建 skills 放 `<skills_root>/users/<user_id>/`；**builtin**（出貨）與**舊的全域 skills**（legacy）皆為**共用唯讀**。`SkillsLoader` 新增唯讀的 `shared_skills_dir`（排序：custom > shared > builtin）。
+- **管理層**：`/skills` CRUD 帶 `current_user.id` → runtime 用 `_skills_loader_for_user(user_id)` 只操作該 user 的 dir；刪除 builtin/shared 會被擋（read-only）。
+- **執行層**：`create_session_async`（已知 owner）把 owner 的 skills 複製進該 session 的 `.skills/`；system prompt 的 `SkillsLoader` 改讀 `workspace/.skills/`（存在時），自動 per-user 且免把 user_id 穿進 prompt factory。`.skills/` 在建立時複製一次（skills 為 session 建立當下的快照）。
+- **相容**：`user_id is None`（非 auth 的本機 runtime / 測試）沿用舊全域 loader，行為不變。前端 Skills 分頁照常對所有 user 開放（顯示的是自己的 skills）；legacy 的 `shared` 來源在 UI 視為唯讀（與 builtin 同組）。
+
 ---
 
 ## 11. 對既有功能的影響

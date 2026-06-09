@@ -32,11 +32,19 @@ class SessionWorkspaceManager:
     def path_for(self, session_id: str) -> Path:
         return self.root_dir / self.safe_name(session_id)
 
-    def ensure_workspace(self, session_id: str) -> Path:
+    def ensure_workspace(
+        self,
+        session_id: str,
+        skills_loader: SkillsLoader | None = None,
+    ) -> Path:
         workspace = self.path_for(session_id)
         workspace.mkdir(parents=True, exist_ok=True)
-        if self._skills_loader is not None:
-            self._skills_loader.copy_to_workspace(workspace)
+        # copy_to_workspace is a no-op once .skills exists, so the first call
+        # (made at session creation with the owner's loader) wins; later calls
+        # that pass the default loader won't clobber it.
+        loader = skills_loader or self._skills_loader
+        if loader is not None:
+            loader.copy_to_workspace(workspace)
         return workspace
 
     def delete_workspace(self, session_id: str) -> None:

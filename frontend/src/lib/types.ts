@@ -487,7 +487,8 @@ export interface WorkspaceDeleteDirectoryResponse {
 
 export interface SkillInfo {
   name: string
-  source: 'builtin' | 'custom'
+  // 'shared' = legacy global custom skills, now read-only for everyone.
+  source: 'builtin' | 'custom' | 'shared'
   description: string
   always: boolean
   disabled: boolean

@@ -185,6 +185,7 @@ class LocalAgentRuntime:
         skills_loader: SkillsLoader | None = None,
         mcp_manager: MCPConnectionManager | None = None,
         config_path: str | Path | None = None,
+        config_disabled_skills: set[str] | None = None,
     ) -> None:
         self.chatbot = chatbot
         self.store = store or InMemorySessionStore()
@@ -194,6 +195,14 @@ class LocalAgentRuntime:
             else None
         )
         self.skills_loader = skills_loader
+        # Roots used to build per-user skill loaders. Custom skills live under
+        # <skills_root>/users/<user_id>; the legacy global dir becomes a shared
+        # read-only root. None when no skill library is configured.
+        self._skills_root = getattr(skills_loader, "workspace_skills", None)
+        self._builtin_skills_dir = getattr(skills_loader, "builtin_skills", None)
+        # Config-level disables apply to every user's loader (e.g. hiding a
+        # builtin globally); per-user enable/disable layers on top via state file.
+        self._config_disabled_skills: set[str] = set(config_disabled_skills or set())
         self.subagent_store = subagent_store or _build_default_subagent_store(self.store)
         self.subagent_event_store = (
             subagent_event_store or _build_default_subagent_event_store(self.store)
@@ -290,6 +299,9 @@ class LocalAgentRuntime:
             skills_loader=skills_loader,
             mcp_manager=mcp_manager,
             config_path=config_file,
+            config_disabled_skills=(
+                set(loaded_config.disabled_skills) if loaded_config is not None else set()
+            ),
         )
 
     # ----- skill library management ----------------------------------------
@@ -431,26 +443,55 @@ class LocalAgentRuntime:
             raise RuntimeError("Skill library is not available in this runtime")
         return self.skills_loader
 
-    def list_skills(self) -> list[dict[str, object]]:
-        """List every skill (builtin + custom) with source / disabled flags."""
-        return self._require_skills_loader().list_all_skills()
+    def _skills_loader_for_user(self, user_id: int | None) -> SkillsLoader:
+        """Return the skill loader scoped to one user.
+
+        Writable custom skills live under ``<skills_root>/users/<user_id>``;
+        the legacy global dir is exposed as a shared read-only root and builtin
+        skills stay shared. ``user_id is None`` (non-auth / library-less local
+        runtime) falls back to the legacy global loader so existing callers and
+        tests keep working unchanged.
+        """
+        if self.skills_loader is None:
+            raise RuntimeError("Skill library is not available in this runtime")
+        if user_id is None or self._skills_root is None:
+            return self.skills_loader
+        user_dir = self._skills_root / "users" / str(user_id)
+        return SkillsLoader(
+            skills_dir=user_dir,
+            shared_skills_dir=self._skills_root,
+            builtin_skills_dir=self._builtin_skills_dir,
+            disabled_skills=set(self._config_disabled_skills),
+        )
+
+    def list_skills(self, user_id: int | None = None) -> list[dict[str, object]]:
+        """List every skill (builtin + shared + this user's custom) with flags."""
+        return self._skills_loader_for_user(user_id).list_all_skills()
 
     def create_skill(
         self,
         name: str,
         content: str,
         files: dict[str, bytes] | None = None,
+        *,
+        user_id: int | None = None,
     ) -> None:
-        """Create or overwrite a custom skill in the global library."""
-        self._require_skills_loader().create_skill(name, content, files=files)
+        """Create or overwrite a custom skill in the user's own library."""
+        self._skills_loader_for_user(user_id).create_skill(name, content, files=files)
 
-    def delete_skill(self, name: str) -> None:
-        """Delete a custom skill from the global library."""
-        self._require_skills_loader().delete_skill(name)
+    def delete_skill(self, name: str, *, user_id: int | None = None) -> None:
+        """Delete a custom skill from the user's own library."""
+        self._skills_loader_for_user(user_id).delete_skill(name)
 
-    def set_skill_disabled(self, name: str, disabled: bool) -> None:
-        """Enable or disable a skill globally for newly created sessions."""
-        self._require_skills_loader().set_skill_disabled(name, disabled)
+    def set_skill_disabled(
+        self,
+        name: str,
+        disabled: bool,
+        *,
+        user_id: int | None = None,
+    ) -> None:
+        """Enable or disable a skill for the user's newly created sessions."""
+        self._skills_loader_for_user(user_id).set_skill_disabled(name, disabled)
 
     def handle_message(
         self,
@@ -1379,7 +1420,18 @@ class LocalAgentRuntime:
                 payload,
             )
         if self.workspace_manager is not None:
-            self.workspace_manager.ensure_workspace(resolved_session_id)
+            # Seed the session's .skills/ with the owner's library (custom +
+            # shared + builtin). user_id is known here, so we avoid resolving
+            # ownership later in the sync per-session chatbot path.
+            owner_loader = (
+                self._skills_loader_for_user(user_id)
+                if self.skills_loader is not None
+                else None
+            )
+            self.workspace_manager.ensure_workspace(
+                resolved_session_id,
+                skills_loader=owner_loader,
+            )
         return self._build_session_summary(resolved_session_id, [], metadata)
 
     async def rename_session_async(self, session_id: str, title: str) -> dict[str, object]:
