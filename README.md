@@ -6,7 +6,9 @@
 
 # picobot
 
-**小而清楚、可擴展的多使用者 Web Agent** —— 聊天、調用工具、操作 workspace、瀏覽網頁、搜尋資料，每個對話跑在獨立的沙箱裡。
+**A small, clear, and extensible multi-user Web Agent** — chat, call tools, operate a workspace, browse the web, search for information, with each conversation running in an isolated sandbox.
+
+[English](README.md) | [中文](README_zh-CN.md)
 
 ![python](https://img.shields.io/badge/python-3.11+-blue)
 ![frontend](https://img.shields.io/badge/frontend-Vue%203-42b883)
@@ -21,78 +23,78 @@
 
 ## Features
 
-- **多輪 agent 核心** —— 可調用工具、可瀏覽網頁、可操作 per-session workspace
-- **Subagent orchestration** —— 背景委派子代理（spawn / wait / cancel），執行狀態持久化、reload 後可恢復
-- **多使用者隔離** —— cookie session 登入註冊；對話、歷史、workspace、自建 skills 皆 per-user，跨使用者一律 404
-- **exec 沙箱** —— 指令在 bubblewrap 內執行，只看得到自己的 workspace，環境 secret 已剔除
-- **角色控制** —— 營運 Dashboard / Alerts / MCP 管理僅限管理者
-- **Dashboard 與 Alerts** —— 系統 / Agent / API 即時指標、趨勢圖、規則式告警
-- **完整 Web UI** —— SSE 串流、Markdown（含 Mermaid）、工具呼叫視覺化、Workspace 檔案樹、深淺主題
-- **OpenAI-compatible** —— 可接任何相容 OpenAI 介面的模型（含本地）
+- **Multi-turn agent core** — tool calling, web browsing, and per-session workspace operations
+- **Subagent orchestration** — delegate tasks to background subagents (spawn / wait / cancel); execution state is persisted and recoverable after reload
+- **Multi-user isolation** — cookie-based session login and registration; conversations, history, workspace, and user-defined skills are all per-user; cross-user access returns 404
+- **exec sandbox** — commands run inside bubblewrap, only the session's own workspace is visible, and environment secrets are stripped
+- **Role-based access** — Dashboard / Alerts / MCP management restricted to admins
+- **Dashboard & Alerts** — real-time system / agent / API metrics, trend charts, and rule-based alerts
+- **Full Web UI** — SSE streaming, Markdown (with Mermaid), tool call visualization, workspace file tree, light/dark themes
+- **OpenAI-compatible** — works with any OpenAI-compatible model, including local ones
 
 ---
 
 ## Quick Start
 
-需求：Python 3.11+、Node.js 18+。
+Requirements: Python 3.11+, Node.js 18+.
 
 ```bash
-# 1) 後端
+# 1) Install backend
 python3 -m pip install -e .
 ```
 
-在專案根目錄建立 `.env`（最小）：
+Create a `.env` file in the project root (minimal):
 
 ```env
 OPENAI_API_KEY=your_api_key_here
 SESSION_SECRET=change-me-to-a-long-random-string
-ADMIN_USERNAMES=your_username      # 想看 Dashboard/Alerts/MCP 就把自己加進來
+ADMIN_USERNAMES=your_username      # add yourself here to access Dashboard/Alerts/MCP
 ```
 
 ```bash
-# 2) 起後端（預設 :8000）
+# 2) Start the backend (default: :8000)
 python3 fastapi_server.py --config example_config.json
 
-# 3) 起前端（另開終端，預設 :5173，會代理到 :8000）
+# 3) Start the frontend (in a new terminal, default: :5173, proxies to :8000)
 cd frontend && npm install && npm run dev
 ```
 
-開 `http://localhost:5173` → **註冊一個帳號** → 開始對話。
+Open `http://localhost:5173` → **register an account** → start chatting.
 
-> 想要 exec 的檔案沙箱：`sudo apt install bubblewrap`（未安裝會自動 fallback 為直接執行）。
-> 正式部署：`cd frontend && npm run build`，產物在 `frontend/dist/`，可由後端或任意靜態伺服器提供。
+> For exec file sandboxing: `sudo apt install bubblewrap` (falls back to direct execution if not installed).
+> For production: `cd frontend && npm run build`, output goes to `frontend/dist/` and can be served by the backend or any static file server.
 
-完整設定（設定檔、告警、CLI 參數、函式庫用法）見 **[docs/configuration.md](docs/configuration.md)**。
+For full configuration (config file, alerts, CLI args, library usage) see **[docs/configuration.md](docs/configuration.md)**.
 
 ---
 
-## 多使用者與沙箱
+## Multi-user & Sandbox
 
-- **隔離**：每個 session 綁定 owner，`GET /sessions` 只回自己的；存取他人 session / workspace / subagent 一律回 404。自建 skills 為 per-user，builtin 與舊有全域 skills 共用唯讀。
-- **沙箱**：裝了 `bubblewrap` 時，`exec` 只 bind-mount 該 session 的 workspace + 唯讀系統工具，看不到專案 `.env`、別人的 workspace 或主機家目錄；環境變數中的 secret 一律剔除，並有資源限額。
-- **角色**：管理者由 `ADMIN_USERNAMES` 指定，獨享 Dashboard / Alerts / MCP 管理。
+- **Isolation**: Each session is bound to its owner; `GET /sessions` only returns your own. Accessing another user's session / workspace / subagent always returns 404. User-defined skills are per-user; built-in and legacy global skills are shared read-only.
+- **Sandbox**: When `bubblewrap` is installed, `exec` only bind-mounts the session's workspace plus read-only system tools — the project `.env`, other users' workspaces, and the host home directory are not visible. Secrets are stripped from environment variables, and resource limits are applied.
+- **Roles**: Admins are specified via `ADMIN_USERNAMES` and have exclusive access to Dashboard / Alerts / MCP management.
 
-設計細節：[auth_design.md](auth_design.md)、[exec_sandbox_design.md](exec_sandbox_design.md)。
+Design details: [auth_design.md](auth_design.md), [exec_sandbox_design.md](exec_sandbox_design.md).
 
 ---
 
 ## Architecture
 
-後端 Python（FastAPI + AioSQLite，異步），前端 Vue 3 + Pinia + Tailwind。agent loop、工具、runtime、skills、metrics/alerts 各自分層。完整目錄樹與技術棧見 **[docs/architecture.md](docs/architecture.md)**。
+Backend: Python (FastAPI + AioSQLite, async). Frontend: Vue 3 + Pinia + Tailwind. The agent loop, tools, runtime, skills, and metrics/alerts are each in their own layer. For the full directory tree and tech stack, see **[docs/architecture.md](docs/architecture.md)**.
 
 ---
 
 ## Docs
 
-- [Configuration](docs/configuration.md) — 環境變數、設定檔、告警、啟動、函式庫用法
-- [API Reference](docs/api.md) — 端點、權限、SSE 事件、內建工具
-- [前端功能](docs/frontend.md) — UI 各面板、快捷鍵、版面
-- [Architecture](docs/architecture.md) — 目錄樹、技術棧、設計文件索引
-- [Evaluation](docs/evaluation.md) — 評測方法與結果
+- [Configuration](docs/configuration.md) — environment variables, config file, alerts, startup, library usage
+- [API Reference](docs/api.md) — endpoints, permissions, SSE events, built-in tools
+- [Frontend](docs/frontend.md) — UI panels, keyboard shortcuts, layout
+- [Architecture](docs/architecture.md) — directory tree, tech stack, design document index
+- [Evaluation](docs/evaluation.md) — evaluation methodology and results
 
 ---
 
-## 測試
+## Testing
 
 ```bash
 python3 -m pytest tests -q
@@ -102,7 +104,7 @@ python3 -m pytest tests -q
 
 ## Contributing
 
-歡迎 issue / PR。送 PR 前請先跑 `python3 -m pytest tests -q`，前端改動請跑 `npm run build`。
+Issues and PRs are welcome. Before submitting a PR, run `python3 -m pytest tests -q`; for frontend changes, also run `npm run build`.
 
 ## License
 
@@ -112,4 +114,4 @@ python3 -m pytest tests -q
 
 ## Acknowledgements
 
-`picobot` 的整體架構參考了 [nanobot](https://github.com/HKUDS/nanobot)（agent loop、tool calling、skills 機制、prompt 分層、workspace/runtime 導向的設計）。picobot 走更小的開發範圍、以異步為核心、並有明確的 per-session workspace 與多使用者隔離路線，維持「小而清楚，但可持續擴展」的方向。
+`picobot`'s overall architecture draws inspiration from [nanobot](https://github.com/HKUDS/nanobot) — specifically the agent loop, tool calling, skills mechanism, prompt layering, and workspace/runtime-oriented design. picobot takes a narrower scope, is async-first, and has a clear path toward per-session workspaces and multi-user isolation, staying true to the "small and clear, but sustainably extensible" direction.
