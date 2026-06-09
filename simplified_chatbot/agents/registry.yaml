@@ -1,0 +1,49 @@
+# Agent type manifest. Each type is a base system prompt plus an optional
+# tool allowlist. Runtime context, skills and platform policy are appended to
+# every type by the prompt loader regardless of the entry below.
+#
+# tools: "*" means all main-profile tools; a list restricts to those names.
+
+default: default
+
+agents:
+  - name: default
+    display_name: 通用助手
+    description: 通用編碼、工作區操作、瀏覽與搜尋的全能 agent。
+    prompt_file: ../prompts/system.md
+    tools: "*"
+
+  - name: coder
+    display_name: 程式開發
+    description: 專注讀寫程式碼、搜尋參照、跑測試與修 bug，不做網路搜尋。
+    prompt_file: prompts/coder.md
+    tools:
+      - read_file
+      - view_image
+      - write_file
+      - edit_file
+      - apply_patch
+      - list_dir
+      - glob
+      - grep
+      - exec
+      - write_stdin
+      - list_exec_sessions
+      - todo_write
+      - ask_user_question
+
+  - name: researcher
+    display_name: 研究者
+    description: 搜尋網路與工作區資料、交叉查證並彙整有來源的答案，不改動程式碼。
+    prompt_file: prompts/researcher.md
+    tools:
+      - tavily_search
+      - web_fetch
+      - read_file
+      - view_image
+      - list_dir
+      - glob
+      - grep
+      - write_file
+      - todo_write
+      - ask_user_question

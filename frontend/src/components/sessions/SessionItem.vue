@@ -11,6 +11,11 @@ import { Button } from '@/components/ui/button'
 import type { SessionSummary } from '@/lib/types'
 import { useRelativeTime } from '@/composables/useRelativeTime'
 import { truncate } from '@/lib/format'
+import AgentTypeAvatar from '@/components/common/AgentTypeAvatar.vue'
+import { useCapabilitiesStore } from '@/stores/capabilities'
+
+const caps = useCapabilitiesStore()
+const showAvatar = computed(() => caps.data.features.agent_types)
 
 const props = defineProps<{
   session: SessionSummary
@@ -76,6 +81,12 @@ function onClick(e: MouseEvent) {
     "
     @click="onClick"
   >
+    <AgentTypeAvatar
+      v-if="showAvatar"
+      :name="session.agent_type"
+      :size="28"
+      class="mt-0.5"
+    />
 
     <div class="min-w-0 flex-1 pl-1">
       <input

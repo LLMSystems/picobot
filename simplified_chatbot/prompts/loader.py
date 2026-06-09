@@ -5,6 +5,7 @@ from __future__ import annotations
 import platform
 from pathlib import Path
 
+from simplified_chatbot.agents.registry import AgentRegistry
 from simplified_chatbot.config.schema import ChatbotConfig
 from simplified_chatbot.skills.loader import SkillsLoader
 
@@ -14,9 +15,16 @@ def load_system_prompt(
     *,
     config_path: str | Path | None = None,
     workspace: str | Path | None = None,
+    agent_type: str | None = None,
+    registry: AgentRegistry | None = None,
 ) -> str:
     """Resolve the final system prompt using config override rules."""
-    base_prompt = _resolve_base_prompt(config, config_path=config_path)
+    base_prompt = _resolve_base_prompt(
+        config,
+        config_path=config_path,
+        agent_type=agent_type,
+        registry=registry,
+    )
     resolved_workspace = _resolve_workspace(workspace, config_path=config_path)
     loader = SkillsLoader(
         skills_dir=_resolve_skills_dir(config, config_path=config_path),
@@ -83,6 +91,8 @@ def _resolve_base_prompt(
     config: ChatbotConfig,
     *,
     config_path: str | Path | None = None,
+    agent_type: str | None = None,
+    registry: AgentRegistry | None = None,
 ) -> str:
     if config.system_prompt:
         return config.system_prompt.strip()
@@ -95,6 +105,10 @@ def _resolve_base_prompt(
         if not prompt_path.exists():
             raise FileNotFoundError(f"System prompt file not found: {prompt_path}")
         return prompt_path.read_text(encoding="utf-8").strip()
+
+    if agent_type is not None:
+        resolved_registry = registry if registry is not None else AgentRegistry.load()
+        return resolved_registry.load_prompt(agent_type)
 
     return _built_in_prompt_path().read_text(encoding="utf-8").strip()
 

@@ -27,8 +27,13 @@ export const useSessionsStore = defineStore('sessions', () => {
     }
   }
 
-  async function create(title?: string): Promise<SessionSummary> {
-    const created = await api.createSession(title ? { title } : {})
+  async function create(
+    options: { title?: string; agentType?: string } = {},
+  ): Promise<SessionSummary> {
+    const body: { title?: string; agent_type?: string } = {}
+    if (options.title) body.title = options.title
+    if (options.agentType) body.agent_type = options.agentType
+    const created = await api.createSession(body)
     list.value = sortByUpdatedDesc([created, ...list.value])
     return created
   }

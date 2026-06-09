@@ -18,6 +18,18 @@ export interface CapabilityFeatures {
   file_upload: boolean
   multimodal: boolean
   model_override: boolean
+  agent_types: boolean
+}
+
+export interface AgentType {
+  name: string
+  display_name: string
+  description: string
+}
+
+export interface AgentTypesResponse {
+  default: string
+  agent_types: AgentType[]
 }
 
 export interface Capabilities {
@@ -44,6 +56,7 @@ export interface ChatOverrides {
 export interface SessionSummary {
   session_id: string
   title: string
+  agent_type: string | null
   created_at: string
   updated_at: string
   message_count: number

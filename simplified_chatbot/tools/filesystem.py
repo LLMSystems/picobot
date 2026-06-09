@@ -7,7 +7,7 @@ import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Collection, Literal
 
 from simplified_chatbot.tools.base import Tool, tool_parameters
 from simplified_chatbot.tools.file_state import FileStates
@@ -801,12 +801,18 @@ def build_default_tool_registry(
     skills_dir: Path | None = None,
     builtin_skills_dir: Path | None = None,
     profile: Literal["main", "subagent"] = "main",
+    allowed_tools: Collection[str] | None = None,
     subagent_manager: Any | None = None,
     subagent_store: Any | None = None,
     session_id: str | None = None,
     mcp_manager: Any | None = None,
 ) -> ToolRegistry:
-    """Create a default tool registry for the requested execution profile."""
+    """Create a default tool registry for the requested execution profile.
+
+    When ``allowed_tools`` is given, builtin tools whose name is not in the
+    allowlist are dropped after registration; MCP tools (``mcp_*``) are kept
+    regardless so external integrations are not affected by an agent type.
+    """
     from simplified_chatbot.tools.apply_patch import ApplyPatchTool
     from simplified_chatbot.tools.image_viewer import ViewImageTool
     from simplified_chatbot.tools.exec_session import (
@@ -908,5 +914,13 @@ def build_default_tool_registry(
     register_mcp_tools = getattr(mcp_manager, "register_tools_into", None)
     if callable(register_mcp_tools):
         register_mcp_tools(registry, profile=profile)
+
+    if allowed_tools is not None:
+        allowed = set(allowed_tools)
+        for name in list(registry.tool_names):
+            if name.startswith("mcp_"):
+                continue
+            if name not in allowed:
+                registry.unregister(name)
 
     return registry

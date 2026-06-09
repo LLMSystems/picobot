@@ -7,6 +7,8 @@ import { Button } from '@/components/ui/button'
 import { Menu, Pencil, Moon, Sun, PanelRight, Bell, BellOff, Download, Settings, MemoryStick } from 'lucide-vue-next'
 import ModeSwitcher from '@/components/layout/ModeSwitcher.vue'
 import AlertsBadge from '@/components/layout/AlertsBadge.vue'
+import AgentTypeAvatar from '@/components/common/AgentTypeAvatar.vue'
+import { useAgentTypesStore } from '@/stores/agentTypes'
 import SettingsDialog from '@/components/settings/SettingsDialog.vue'
 import SessionMemoryPanel from '@/components/chat/SessionMemoryPanel.vue'
 import { useSettingsStore } from '@/stores/settings'
@@ -103,6 +105,15 @@ const currentSession = computed(() =>
 
 const title = computed(() => currentSession.value?.title ?? '')
 
+const agentTypes = useAgentTypesStore()
+const currentAgentType = computed(() => {
+  if (!caps.data.features.agent_types || !currentSession.value) return null
+  const name = currentSession.value.agent_type
+  const info = agentTypes.find(name)
+  if (!name && !info) return null
+  return { name, label: info?.display_name ?? name ?? '' }
+})
+
 const editing = ref(false)
 const draft = ref('')
 const inputRef = ref<HTMLInputElement | null>(null)
@@ -161,6 +172,14 @@ function cancel() {
 
     <div class="flex min-w-0 flex-1 items-center gap-2">
       <template v-if="currentSession">
+        <span
+          v-if="currentAgentType && !editing"
+          class="flex shrink-0 items-center gap-1.5 rounded-full bg-muted/70 py-0.5 pl-1 pr-2.5 text-xs font-medium text-muted-foreground"
+          :title="`Agent 類型：${currentAgentType.label}`"
+        >
+          <AgentTypeAvatar :name="currentAgentType.name" :size="20" />
+          <span class="max-w-[120px] truncate">{{ currentAgentType.label }}</span>
+        </span>
         <input
           v-if="editing"
           ref="inputRef"

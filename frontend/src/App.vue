@@ -5,6 +5,7 @@ import AppShell from '@/components/layout/AppShell.vue'
 import DashboardShell from '@/components/layout/DashboardShell.vue'
 import { Toaster } from '@/components/ui/sonner'
 import { useCapabilitiesStore } from '@/stores/capabilities'
+import { useAgentTypesStore } from '@/stores/agentTypes'
 import { useSessionsStore } from '@/stores/sessions'
 import { useChatStore } from '@/stores/chat'
 import { useTheme } from '@/composables/useTheme'
@@ -14,6 +15,7 @@ import { useWorkspaceStore } from '@/stores/workspace'
 import { toast } from 'vue-sonner'
 
 const caps = useCapabilitiesStore()
+const agentTypes = useAgentTypesStore()
 const sessions = useSessionsStore()
 const chat = useChatStore()
 const router = useRouter()
@@ -31,6 +33,9 @@ onMounted(async () => {
   await Promise.all([caps.load(), sessions.fetchAll()])
   if (caps.failed) {
     toast.warning('能力資訊載入失敗，已使用預設值')
+  }
+  if (caps.data.features.agent_types) {
+    void agentTypes.load()
   }
   if (route.name === 'empty' && sessions.list[0]) {
     router.replace(`/c/${sessions.list[0].session_id}`)

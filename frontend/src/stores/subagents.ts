@@ -377,7 +377,7 @@ export const useSubagentStore = defineStore('subagents', () => {
       final_content: data.content ?? null,
     }
     if (data.usage) {
-      patch.usage = { ...(existing?.usage ?? {}), ...data.usage }
+      patch.usage = { ...existing?.usage, ...data.usage }
     }
     const streamingState = streaming.value.get(ev.task_id)
     if (streamingState && data.content && !hasTextSegment(streamingState.segments)) {

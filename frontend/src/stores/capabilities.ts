@@ -15,6 +15,7 @@ const FALLBACK: Capabilities = {
     file_upload: false,
     multimodal: false,
     model_override: false,
+    agent_types: false,
   },
   default_system_prompt: '',
   default_temperature: 0.7,

@@ -204,6 +204,7 @@ class LocalAgentRuntime:
             else None
         )
         self._session_chatbots: dict[str, Any] = {}
+        self._session_agent_types: dict[str, str | None] = {}
         self._session_locks: dict[str, asyncio.Lock] = {}
         self._session_event_subscribers: dict[str, list[_SessionEventSubscriberQueue]] = {}
         self._pending_internal_messages: dict[str, list[Message]] = {}
@@ -776,6 +777,7 @@ class LocalAgentRuntime:
         self._terminate_exec_sessions_for_session(session_id)
         self.store.delete_session(session_id)
         self._session_chatbots.pop(session_id, None)
+        self._session_agent_types.pop(session_id, None)
         self._session_locks.pop(session_id, None)
         self._session_event_subscribers.pop(session_id, None)
         self._pending_internal_messages.pop(session_id, None)
@@ -810,6 +812,7 @@ class LocalAgentRuntime:
         *,
         title: str | None = None,
         session_id: str | None = None,
+        agent_type: str | None = None,
     ) -> dict[str, object]:
         if isinstance(self.store, AsyncSessionStore):
             raise RuntimeError(
@@ -817,10 +820,12 @@ class LocalAgentRuntime:
                 "Use create_session_async(...) instead of create_session(...).",
             )
         resolved_session_id = session_id or _generate_session_id()
+        resolved_agent_type = _normalize_agent_type(agent_type)
         metadata = self.store.create_session(
             resolved_session_id,
-            {"title": _normalize_session_title(title)},
+            {"title": _normalize_session_title(title), "agent_type": resolved_agent_type},
         )
+        self._session_agent_types[resolved_session_id] = resolved_agent_type
         if self.workspace_manager is not None:
             self.workspace_manager.ensure_workspace(resolved_session_id)
         return self._build_session_summary(resolved_session_id, [], metadata)
@@ -859,6 +864,7 @@ class LocalAgentRuntime:
         if self.memory_store is not None:
             await self.memory_store.delete_session_data(session_id)
         self._session_chatbots.pop(session_id, None)
+        self._session_agent_types.pop(session_id, None)
         self._session_locks.pop(session_id, None)
         self._session_event_subscribers.pop(session_id, None)
         self._pending_internal_messages.pop(session_id, None)
@@ -1334,9 +1340,15 @@ class LocalAgentRuntime:
         *,
         title: str | None = None,
         session_id: str | None = None,
+        agent_type: str | None = None,
     ) -> dict[str, object]:
         resolved_session_id = session_id or _generate_session_id()
-        payload = {"title": _normalize_session_title(title)}
+        resolved_agent_type = _normalize_agent_type(agent_type)
+        payload = {
+            "title": _normalize_session_title(title),
+            "agent_type": resolved_agent_type,
+        }
+        self._session_agent_types[resolved_session_id] = resolved_agent_type
         create_session = getattr(self.store, "create_session", None)
         if not callable(create_session):
             raise RuntimeError("Session store does not support create_session")
@@ -1999,6 +2011,17 @@ class LocalAgentRuntime:
             return await result
         return result
 
+    async def _prime_session_agent_type_async(self, session_id: str) -> str | None:
+        """Resolve and cache the agent type for a session from persisted metadata."""
+        if session_id in self._session_agent_types:
+            return self._session_agent_types[session_id]
+        metadata = await self._load_session_metadata_async(session_id)
+        agent_type = _normalize_agent_type(
+            metadata.get("agent_type") if isinstance(metadata, dict) else None,
+        )
+        self._session_agent_types[session_id] = agent_type
+        return agent_type
+
     def _get_chatbot_for_session(self, session_id: str) -> Any:
         if not isinstance(self.chatbot, SimplifiedChatbot):
             return self.chatbot
@@ -2016,6 +2039,7 @@ class LocalAgentRuntime:
         session_chatbot = self.chatbot.for_workspace(
             workspace,
             session_id=session_id,
+            agent_type=self._session_agent_types.get(session_id),
         )
         self._bind_chrome_port(session_chatbot)
         self._bind_subagent_tools(session_chatbot)
@@ -2152,6 +2176,7 @@ class LocalAgentRuntime:
         runner: Callable[[], Any],
     ) -> Any:
         async with self._get_session_lock(session_id):
+            await self._prime_session_agent_type_async(session_id)
             result = runner()
             if inspect.isawaitable(result):
                 return await result
@@ -2591,6 +2616,7 @@ class LocalAgentRuntime:
         created_at = session_metadata.get("created_at")
         updated_at = session_metadata.get("updated_at")
         title = session_metadata.get("title")
+        agent_type = session_metadata.get("agent_type")
         return {
             "session_id": session_id,
             "title": (
@@ -2598,6 +2624,7 @@ class LocalAgentRuntime:
                 if isinstance(title, str) and title.strip()
                 else _derive_session_title(first_user, session_id=session_id)
             ),
+            "agent_type": agent_type if isinstance(agent_type, str) else None,
             "created_at": created_at if isinstance(created_at, str) else None,
             "updated_at": updated_at if isinstance(updated_at, str) else None,
             "message_count": sum(
@@ -2966,6 +2993,13 @@ def _utc_timestamp() -> str:
 def _normalize_session_title(title: str | None) -> str:
     normalized = " ".join((title or "").split()).strip()
     return normalized or "New Chat"
+
+
+def _normalize_agent_type(agent_type: str | None) -> str | None:
+    if not isinstance(agent_type, str):
+        return None
+    stripped = agent_type.strip()
+    return stripped or None
 
 
 def _workspace_change_paths(event: dict[str, Any]) -> list[str] | None:

@@ -797,6 +797,7 @@ def test_get_capabilities_returns_frontend_metadata(tmp_path):
         "file_upload": True,
         "multimodal": True,
         "model_override": True,
+        "agent_types": True,
     }
     tools = {item["name"]: item for item in payload["tools"]}
     assert tools["read_file"]["category"] == "filesystem"
