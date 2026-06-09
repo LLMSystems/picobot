@@ -2,6 +2,23 @@
 
 picobot 的後端設定來自三處：環境變數（`.env`）、設定檔（JSON）、與啟動參數。
 
+## System dependencies
+
+核心後端（聊天、工具、workspace）只需要 Python 套件（`pip install -e .` 會一併裝好 `argon2-cffi`、`itsdangerous` 等）。但**網頁瀏覽**與 **exec 沙箱**需要額外的系統層套件：
+
+| 用途 | 需要安裝 |
+|------|----------|
+| exec 檔案沙箱 | `bubblewrap`（未裝會自動 fallback 為直接執行） |
+| 網頁瀏覽（agent-browser） | Node.js / npm、`npm i -g agent-browser`、`agent-browser install`（下載 headless Chrome） |
+| Chrome 執行庫 | `libnspr4 libnss3 libatk-bridge2.0-0 libatk1.0-0 libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2 libpango-1.0-0 libcairo2 libatspi2.0-0 libgtk-3-0 ca-certificates` |
+| 字型（截圖含中文/emoji） | `fontconfig fonts-noto-cjk fonts-noto-color-emoji fonts-dejavu-core fonts-liberation`，裝後跑 `fc-cache -fv` |
+| 虛擬顯示（無頭環境） | `xvfb`，啟動 `Xvfb :99 -screen 0 1280x800x24 -nolisten tcp &` 並 `export DISPLAY=:99` |
+| 版本控制（部分工具） | `git` |
+
+> **最省事的方式**：在 Debian/Ubuntu 直接跑 [`start_fastapi_server.sh`](../start_fastapi_server.sh)（需要 `apt-get` / root），它會裝齊上面所有東西、起好 Xvfb，然後啟動後端。
+>
+> 若不需要瀏覽器功能，可略過 agent-browser / Chrome / Xvfb / 字型，只裝 `bubblewrap`（建議）即可。
+
 ## 環境變數（`.env`）
 
 放在專案根目錄：

@@ -8,6 +8,8 @@
 
 **小而清楚、可擴展的多使用者 Web Agent** —— 聊天、調用工具、操作 workspace、瀏覽網頁、搜尋資料，每個對話跑在獨立的沙箱裡。
 
+[English](README.md) | [中文](README_zh-CN.md)
+
 ![python](https://img.shields.io/badge/python-3.11+-blue)
 ![frontend](https://img.shields.io/badge/frontend-Vue%203-42b883)
 ![license](https://img.shields.io/badge/license-MIT-green)
@@ -19,7 +21,7 @@
 
 ---
 
-## Features
+## 功能特性
 
 - **多輪 agent 核心** —— 可調用工具、可瀏覽網頁、可操作 per-session workspace
 - **Subagent orchestration** —— 背景委派子代理（spawn / wait / cancel），執行狀態持久化、reload 後可恢復
@@ -32,12 +34,14 @@
 
 ---
 
-## Quick Start
+## 快速開始
 
 需求：Python 3.11+、Node.js 18+。
 
+> **系統依賴。** 聊天 / 工具 / workspace 核心只需下面的 Python 套件。**網頁瀏覽**另需 `agent-browser` + 無頭 Chrome（及其系統庫）、虛擬顯示（Xvfb）、以及中日韓/emoji 字型；**exec 沙箱**需要 `bubblewrap`。在 Debian/Ubuntu 上最省事的方式是執行 [`start_fastapi_server.sh`](start_fastapi_server.sh)（需要 `apt-get` / root）—— 它會裝齊這些並啟動服務。完整清單見 [docs/configuration.md → System dependencies](docs/configuration.md#system-dependencies)。
+
 ```bash
-# 1) 後端
+# 1) 安裝後端（Python 依賴）
 python3 -m pip install -e .
 ```
 
@@ -76,13 +80,13 @@ cd frontend && npm install && npm run dev
 
 ---
 
-## Architecture
+## 架構
 
 後端 Python（FastAPI + AioSQLite，異步），前端 Vue 3 + Pinia + Tailwind。agent loop、工具、runtime、skills、metrics/alerts 各自分層。完整目錄樹與技術棧見 **[docs/architecture.md](docs/architecture.md)**。
 
 ---
 
-## Docs
+## 文件
 
 - [Configuration](docs/configuration.md) — 環境變數、設定檔、告警、啟動、函式庫用法
 - [API Reference](docs/api.md) — 端點、權限、SSE 事件、內建工具
@@ -100,16 +104,16 @@ python3 -m pytest tests -q
 
 ---
 
-## Contributing
+## 貢獻
 
 歡迎 issue / PR。送 PR 前請先跑 `python3 -m pytest tests -q`，前端改動請跑 `npm run build`。
 
-## License
+## 授權
 
 [MIT](LICENSE) © 2026 LLMSystems
 
 ---
 
-## Acknowledgements
+## 致謝
 
 `picobot` 的整體架構參考了 [nanobot](https://github.com/HKUDS/nanobot)（agent loop、tool calling、skills 機制、prompt 分層、workspace/runtime 導向的設計）。picobot 走更小的開發範圍、以異步為核心、並有明確的 per-session workspace 與多使用者隔離路線，維持「小而清楚，但可持續擴展」的方向。

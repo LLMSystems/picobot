@@ -38,8 +38,10 @@
 
 Requirements: Python 3.11+, Node.js 18+.
 
+> **System dependencies.** The chat / tools / workspace core only needs the Python packages below. **Web browsing** additionally needs `agent-browser` + a headless Chrome (and its system libraries), a virtual display (Xvfb), and CJK/emoji fonts; the **exec sandbox** needs `bubblewrap`. On Debian/Ubuntu the easiest path is to run [`start_fastapi_server.sh`](start_fastapi_server.sh) (needs `apt-get` / root) — it installs all of them and starts the server. Full list: [docs/configuration.md → System dependencies](docs/configuration.md#system-dependencies).
+
 ```bash
-# 1) Install backend
+# 1) Install backend (Python deps)
 python3 -m pip install -e .
 ```
 
