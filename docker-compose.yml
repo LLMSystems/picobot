@@ -1,0 +1,21 @@
+services:
+  picobot:
+    build: .
+    image: picobot:latest
+    ports:
+      - "8000:8000"          # backend serves the API and the built frontend
+    env_file:
+      - .env
+    environment:
+      PORT: "8000"
+      PICOBOT_DB_PATH: /app/data/sessions.db
+    volumes:
+      - ./data:/app/data            # SQLite: users, sessions, metrics, alerts
+      - ./workspaces:/app/workspaces # per-session agent workspaces
+    # bubblewrap (the exec sandbox) creates user namespaces inside the
+    # container. Some Docker setups block that under the default seccomp
+    # profile; loosen it so the sandbox works. If you'd rather not, drop this
+    # and set PICOBOT_EXEC_SANDBOX=0 (exec then runs without the FS sandbox).
+    security_opt:
+      - seccomp:unconfined
+    restart: unless-stopped

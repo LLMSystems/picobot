@@ -36,24 +36,27 @@
 
 ## 快速開始
 
+### Docker（推薦）
+
+整套環境 —— 瀏覽器工具、exec 沙箱、前端 build —— 都烤進 image，你只需要 Docker。
+
+```bash
+cp .env.example .env     # 填入 OPENAI_API_KEY、SESSION_SECRET、ADMIN_USERNAMES
+docker compose up --build
+```
+
+開 `http://localhost:8000` → **註冊一個帳號** → 開始對話。SQLite 與各 session 的 workspace 會持久化在 `./data` 與 `./workspaces`。
+
+### 手動（本機開發）
+
 需求：Python 3.11+、Node.js 18+。
 
-> **系統依賴。** 聊天 / 工具 / workspace 核心只需下面的 Python 套件。**網頁瀏覽**另需 `agent-browser` + 無頭 Chrome（及其系統庫）、虛擬顯示（Xvfb）、以及中日韓/emoji 字型；**exec 沙箱**需要 `bubblewrap`。在 Debian/Ubuntu 上最省事的方式是執行 [`start_fastapi_server.sh`](start_fastapi_server.sh)（需要 `apt-get` / root）—— 它會裝齊這些並啟動服務。完整清單見 [docs/configuration.md → System dependencies](docs/configuration.md#system-dependencies)。
+> **系統依賴。** 聊天 / 工具 / workspace 核心只需下面的 Python 套件。**網頁瀏覽**另需 `agent-browser` + 無頭 Chrome（及其系統庫）、虛擬顯示（Xvfb）、以及中日韓/emoji 字型；**exec 沙箱**需要 `bubblewrap`。完整清單見 [docs/configuration.md → System dependencies](docs/configuration.md#system-dependencies)。
 
 ```bash
-# 1) 安裝後端（Python 依賴）
+# 1) 後端（Python 依賴）+ .env（見 .env.example）
 python3 -m pip install -e .
-```
 
-在專案根目錄建立 `.env`（最小）：
-
-```env
-OPENAI_API_KEY=your_api_key_here
-SESSION_SECRET=change-me-to-a-long-random-string
-ADMIN_USERNAMES=your_username      # 想看 Dashboard/Alerts/MCP 就把自己加進來
-```
-
-```bash
 # 2) 起後端（預設 :8000）
 python3 fastapi_server.py --config example_config.json
 
@@ -61,10 +64,7 @@ python3 fastapi_server.py --config example_config.json
 cd frontend && npm install && npm run dev
 ```
 
-開 `http://localhost:5173` → **註冊一個帳號** → 開始對話。
-
-> 想要 exec 的檔案沙箱：`sudo apt install bubblewrap`（未安裝會自動 fallback 為直接執行）。
-> 正式部署：`cd frontend && npm run build`，產物在 `frontend/dist/`，可由後端或任意靜態伺服器提供。
+開 `http://localhost:5173` → 註冊 → 開始對話。不用 Docker 的正式部署：`npm run build` 後，用 `PICOBOT_FRONTEND_DIST` 讓後端 serve `frontend/dist`。
 
 完整設定（設定檔、告警、CLI 參數、函式庫用法）見 **[docs/configuration.md](docs/configuration.md)**。
 

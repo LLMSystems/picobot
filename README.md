@@ -36,35 +36,35 @@
 
 ## Quick Start
 
+### Docker (recommended)
+
+The whole stack — browser tooling, exec sandbox, and the built frontend — is baked into the image. You only need Docker.
+
+```bash
+cp .env.example .env     # fill in OPENAI_API_KEY, SESSION_SECRET, ADMIN_USERNAMES
+docker compose up --build
+```
+
+Open `http://localhost:8000` → **register an account** → start chatting. SQLite and per-session workspaces persist in `./data` and `./workspaces`.
+
+### Manual (local dev)
+
 Requirements: Python 3.11+, Node.js 18+.
 
-> **System dependencies.** The chat / tools / workspace core only needs the Python packages below. **Web browsing** additionally needs `agent-browser` + a headless Chrome (and its system libraries), a virtual display (Xvfb), and CJK/emoji fonts; the **exec sandbox** needs `bubblewrap`. On Debian/Ubuntu the easiest path is to run [`start_fastapi_server.sh`](start_fastapi_server.sh) (needs `apt-get` / root) — it installs all of them and starts the server. Full list: [docs/configuration.md → System dependencies](docs/configuration.md#system-dependencies).
+> **System dependencies.** The chat / tools / workspace core only needs the Python packages below. **Web browsing** additionally needs `agent-browser` + a headless Chrome (and its system libraries), a virtual display (Xvfb), and CJK/emoji fonts; the **exec sandbox** needs `bubblewrap`. Full list: [docs/configuration.md → System dependencies](docs/configuration.md#system-dependencies).
 
 ```bash
-# 1) Install backend (Python deps)
+# 1) Backend (Python deps) + .env (see .env.example)
 python3 -m pip install -e .
-```
 
-Create a `.env` file in the project root (minimal):
-
-```env
-OPENAI_API_KEY=your_api_key_here
-SESSION_SECRET=change-me-to-a-long-random-string
-ADMIN_USERNAMES=your_username      # add yourself here to access Dashboard/Alerts/MCP
-```
-
-```bash
-# 2) Start the backend (default: :8000)
+# 2) Start the backend (default :8000)
 python3 fastapi_server.py --config example_config.json
 
-# 3) Start the frontend (in a new terminal, default: :5173, proxies to :8000)
+# 3) Start the frontend (new terminal; default :5173, proxies to :8000)
 cd frontend && npm install && npm run dev
 ```
 
-Open `http://localhost:5173` → **register an account** → start chatting.
-
-> For exec file sandboxing: `sudo apt install bubblewrap` (falls back to direct execution if not installed).
-> For production: `cd frontend && npm run build`, output goes to `frontend/dist/` and can be served by the backend or any static file server.
+Open `http://localhost:5173` → register → chat. For production without Docker, `npm run build` and point the backend at `frontend/dist` via `PICOBOT_FRONTEND_DIST`.
 
 For full configuration (config file, alerts, CLI args, library usage) see **[docs/configuration.md](docs/configuration.md)**.
 

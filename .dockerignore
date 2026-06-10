@@ -1,0 +1,28 @@
+# VCS / IDE
+.git
+.gitignore
+.claude/
+
+# Python
+.venv
+**/__pycache__/
+*.pyc
+.tmp_pytest/
+
+# Node / frontend build (rebuilt inside the image)
+frontend/node_modules
+frontend/dist
+
+# Runtime data / secrets (never bake into the image)
+.env
+*.db
+data/
+workspaces/
+tmp/
+eval/runs/
+
+# Docs / assets not needed at runtime (keep README.md — pyproject `readme` needs it)
+*.md
+!README.md
+docs/
+assets/

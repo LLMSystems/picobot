@@ -287,7 +287,45 @@ def create_app(
     app.include_router(mcp_router, dependencies=admin_only)
     if screencast_router is not None:
         app.include_router(screencast_router, dependencies=session_scoped)
+
+    # Optionally serve the built frontend (single-origin deploy, e.g. Docker).
+    # Registered last so API routes always win; gated on an env var so it's a
+    # no-op for tests and the dev (separate Vite) setup.
+    _mount_frontend(app)
     return app
+
+
+def _mount_frontend(app: FastAPI) -> None:
+    """Serve a built Vue SPA from PICOBOT_FRONTEND_DIST, if set and present."""
+    dist = os.environ.get("PICOBOT_FRONTEND_DIST", "").strip()
+    if not dist:
+        return
+    dist_dir = Path(dist).expanduser().resolve()
+    index = dist_dir / "index.html"
+    if not index.is_file():
+        logger.warning(
+            "PICOBOT_FRONTEND_DIST=%s has no index.html; skipping SPA mount", dist_dir,
+        )
+        return
+
+    from fastapi.responses import FileResponse
+    from fastapi.staticfiles import StaticFiles
+
+    assets = dist_dir / "assets"
+    if assets.is_dir():
+        app.mount("/assets", StaticFiles(directory=str(assets)), name="assets")
+
+    @app.get("/{spa_path:path}", include_in_schema=False)
+    async def serve_spa(spa_path: str) -> FileResponse:
+        # Serve a real file (favicon, manifest, …) when it resolves inside dist;
+        # otherwise fall back to index.html so client-side routing works.
+        if spa_path:
+            candidate = (dist_dir / spa_path).resolve()
+            if candidate.is_file() and (
+                candidate == dist_dir or dist_dir in candidate.parents
+            ):
+                return FileResponse(candidate)
+        return FileResponse(index)
 
 
 def _build_alert_service(

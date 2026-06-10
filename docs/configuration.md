@@ -19,6 +19,20 @@ picobot 的後端設定來自三處：環境變數（`.env`）、設定檔（JSO
 >
 > 若不需要瀏覽器功能，可略過 agent-browser / Chrome / Xvfb / 字型，只裝 `bubblewrap`（建議）即可。
 
+## Docker
+
+`docker compose up --build` 會用 [Dockerfile](../Dockerfile) 把瀏覽器工具、exec 沙箱、前端 build 全烤進 image，後端同時 serve API 與前端（單一 port `:8000`）。
+
+- `./data`、`./workspaces` 為持久化 volume（SQLite 與各 session workspace）。
+- `.env` 由 `env_file` 載入（見下方環境變數）。同源部署，**不需要** `CORS_ALLOWED_ORIGINS`。
+- bubblewrap 在容器內需要 user namespace；compose 已加 `security_opt: [seccomp:unconfined]`。若你的環境不允許，移除它並設 `PICOBOT_EXEC_SANDBOX=0`（exec 改為直接執行、不隔離檔案）。
+
+相關環境變數：
+
+- `PICOBOT_FRONTEND_DIST` —— 設為前端 build 產物路徑時，後端會 serve 該 SPA（image 內預設 `/app/frontend/dist`）。本機 dev 不設，改用 Vite。
+- `PORT` —— 後端監聽埠（compose 預設 8000）。
+- `PICOBOT_CONFIG` / `PICOBOT_DB_PATH` —— 設定檔與 SQLite 路徑（容器內預設 `example_config.json` 與 `/app/data/sessions.db`）。
+
 ## 環境變數（`.env`）
 
 放在專案根目錄：
